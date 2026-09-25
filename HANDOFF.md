@@ -14,12 +14,31 @@ FTL 社團（約 6 組、40 人）的學期專案追蹤工具：組別交雙週�
 | `docs/superpowers/plans/2026-09-26-ftl-casepool-batch1.md` | 批次 1（10/02 上線）實作計畫，Task 0–13 |
 | `PRODUCT.md` | 產品對象與視覺方向（沿用社團網站配色、字體、圓角） |
 
-## 本輪狀態
+## 本輪狀態（2026-09-26，分支 `feat/batch1`，尚未 push）
 
-- **這一輪只寫了文件，沒有寫任何程式。**
-- repo 目前沒有任何 commit，`origin/main` 不存在；計畫 Task 1 Step 1 會先把這些文件提交到 `main` 再開 `feat/batch1`。
-- 測試證據：無（還沒有程式碼）。
-- 截圖：無。
+執行方式：逐步審查（每個 Task 由實作助手做、另一個審查助手檢查）。
+
+**已完成並通過審查**
+- Task 1 專案骨架：登入頁、沒登入會被帶到登入頁（`923c1fa`）
+- Task 2 台北時間規則（`d456ce4`）
+- Task 3 名單 CSV 解析（`86af1fe`）
+- Task 11 燈號規則、準時率、燈號標籤元件（`144d6d3`..`0d3d805`；「接到組頁」併入 Task 8）
+- 提前完成的純規則（Task 7／8／9／10／12 不碰資料庫的部分）：PDF 檢查、進度表單檢查、逾期計算、2 小時鎖定、中間週燈號檢查、看板卡片與排序（`2c95ee5`..`aec47de`）
+
+**卡住：電腦沒有 Docker。** Task 4（資料表與權限）之後都需要本機 Supabase，所以停在這裡。Task 7 的 R2 部分另外需要 R2 測試桶的金鑰。
+
+**測試證據**
+- 指令：`npm run test:unit`（`TZ=UTC vitest run --project unit --project component`）
+- 結果：9 個檔案、67 個測試全部通過，exit 0
+- 時間：2026-09-26 19:32（台北）；版本：`feat/batch1` @ `aec47de`，工作區無未提交的程式修改
+- 環境：macOS、Node v24.21.0
+- E2E：`npx playwright test tests/e2e/login-redirect.spec.ts` 在 Task 1 時通過（`923c1fa`）；之後沒有改到登入相關程式
+- 整合測試（integration）：還沒有，要等 Docker
+- 之後有無相關修改：無
+
+**截圖**：`.screenshots/login-desktop-r2.png`、`.screenshots/login-mobile-r2.png`（登入頁第二輪）
+
+**審查留下的小問題（合併前再處理）**：首頁 `src/app/page.tsx` 還是 Next.js 範本（Task 4 會換掉）；middleware 公開路徑用前綴比對；shadcn 多裝了幾個套件；燈號嚴重度對照表在兩個檔案各有一份。
 
 ## 本輪決定（逐題問過產品負責人）
 
@@ -49,9 +68,10 @@ FTL 社團（約 6 組、40 人）的學期專案追蹤工具：組別交雙週�
 
 ## 下一步
 
-1. 產品負責人看過計畫，確認上面 7 個小細節，並選執行方式（subagent 逐 Task 審查，或同一個 session 直接做）。
-2. 產品負責人完成計畫 Task 0（Docker Desktop、Supabase、Google OAuth、R2 兩個桶、Vercel、學期資料）。**Docker 要在 Task 1 前裝好；R2 測試桶要在 Task 7 前開好。**
-3. 從 Task 1 開始實作。
+1. 產品負責人安裝 Docker Desktop 並開著 → 從 Task 4 繼續。
+2. 開 R2 測試桶 `ftl-casepool-test` 與金鑰，放進 `.env.local`（不要貼在聊天裡）→ Task 7 的 R2 契約測試。
+3. 上面 7 個小細節還沒明確確認，目前照預設做；第 1、2、4 項已經寫進程式與測試。
+4. 另外做的決定：看板同色時依組名「數字感知」排序（第2組在第10組前面）。
 
 ## 風險
 
