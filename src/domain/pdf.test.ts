@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import { MAX_PDF_BYTES, validatePdfMeta, isPdfMagic } from "./pdf";
 
 describe("validatePdfMeta", () => {
+  it("副檔名大寫 .PDF 且 type 正確 → ok", () => {
+    expect(validatePdfMeta({ name: "A.PDF", type: "application/pdf", size: 100 })).toEqual({ ok: true });
+  });
+
   it("20MB 整剛好可以", () => {
     expect(validatePdfMeta({ name: "a.pdf", type: "application/pdf", size: MAX_PDF_BYTES })).toEqual({ ok: true });
   });

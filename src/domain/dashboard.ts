@@ -25,7 +25,7 @@ export function sortGroupCards(cards: GroupCard[]): GroupCard[] {
   return [...cards].sort((a, b) => {
     const diff = SEVERITY[worstLight(b)] - SEVERITY[worstLight(a)];
     if (diff !== 0) return diff;
-    return a.groupName.localeCompare(b.groupName, "zh-Hant");
+    return a.groupName.localeCompare(b.groupName, "zh-Hant", { numeric: true });
   });
 }
 

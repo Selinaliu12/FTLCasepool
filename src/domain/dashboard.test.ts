@@ -39,6 +39,14 @@ describe("sortGroupCards", () => {
     expect(sorted.map((c) => c.groupId)).toEqual(["r", "y", "ga", "gb"]);
   });
 
+  it("同色依組名為數字感知排序（第 1 組先於第 2 組先於第 10 組）", () => {
+    const g10 = card({ groupId: "g10", groupName: "第10組" });
+    const g2 = card({ groupId: "g2", groupName: "第2組" });
+    const g1 = card({ groupId: "g1", groupName: "第1組" });
+    const sorted = sortGroupCards([g10, g2, g1]);
+    expect(sorted.map((c) => c.groupId)).toEqual(["g1", "g2", "g10"]);
+  });
+
   it("不改變原本傳入的陣列", () => {
     const red = card({ groupId: "r", groupName: "紅組", lines: [{ lineId: "l1", kind: "project", light: "red", source: "s", onTime: 0 }] });
     const greenA = card({ groupId: "ga", groupName: "甲組" });
