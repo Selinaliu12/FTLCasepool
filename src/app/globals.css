@@ -1,0 +1,162 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Outfit", "Huninn", "Noto Sans TC", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+  --font-heading: "Huninn", "Noto Sans TC", "Outfit", sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-sm);
+  --radius-lg: var(--r);
+  --radius-xl: var(--r);
+  --radius-2xl: var(--r);
+  --radius-3xl: var(--r);
+  --radius-4xl: var(--r);
+}
+
+:root {
+  /* PRODUCT.md 設計代幣：沿用社團網站 :root（2026-09-26 讀取） */
+  --paper: #fbfaff;
+  --paper-2: #eef4fd;
+  --card-token: #ffffff;
+  --r: 20px;
+  --r-sm: 12px;
+  --card-shadow: 0 12px 34px rgba(11, 31, 58, 0.05);
+  --b: #1668e3;
+  --b-ink: #0a46b4;
+  --ink: #0b1f3a;
+  --ink-2: #3e4f70;
+  --ink-3: #4f6084;
+  --line: #dee9f8;
+  --line-2: #c7d8f0;
+  --ok: #0b6e4f;
+  --warn: #8a5300;
+  --danger: #b3261e;
+  --ease-brand: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-brand: 240ms;
+
+  /* shadcn 對應 */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--card-token);
+  --card-foreground: var(--ink);
+  --popover: var(--card-token);
+  --popover-foreground: var(--ink);
+  --primary: var(--b);
+  --primary-foreground: #ffffff;
+  --secondary: var(--paper-2);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-2);
+  --muted-foreground: var(--ink-3);
+  --accent: var(--paper-2);
+  --accent-foreground: var(--b-ink);
+  --destructive: var(--danger);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--b);
+  --chart-1: var(--b);
+  --chart-2: var(--ok);
+  --chart-3: var(--warn);
+  --chart-4: var(--danger);
+  --chart-5: var(--ink-3);
+  --radius: var(--r);
+  --sidebar: var(--paper-2);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--b);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--paper-2);
+  --sidebar-accent-foreground: var(--b-ink);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--b);
+}
+
+.dark {
+  /* 尚未定義暗色模式；目前僅供元件相容，維持與亮色相同的品牌色 */
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --card: var(--b-ink);
+  --card-foreground: var(--paper);
+  --popover: var(--b-ink);
+  --popover-foreground: var(--paper);
+  --primary: var(--b);
+  --primary-foreground: #ffffff;
+  --secondary: var(--ink-2);
+  --secondary-foreground: var(--paper);
+  --muted: var(--ink-2);
+  --muted-foreground: var(--line-2);
+  --accent: var(--ink-2);
+  --accent-foreground: var(--paper);
+  --destructive: var(--danger);
+  --border: var(--ink-2);
+  --input: var(--ink-2);
+  --ring: var(--b);
+  --chart-1: var(--b);
+  --chart-2: var(--ok);
+  --chart-3: var(--warn);
+  --chart-4: var(--danger);
+  --chart-5: var(--line-2);
+  --sidebar: var(--ink-2);
+  --sidebar-foreground: var(--paper);
+  --sidebar-primary: var(--b);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--ink-2);
+  --sidebar-accent-foreground: var(--paper);
+  --sidebar-border: var(--ink-2);
+  --sidebar-ring: var(--b);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
