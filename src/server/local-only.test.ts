@@ -16,3 +16,13 @@ describe("assertLocalSupabaseUrl", () => {
     );
   });
 });
+
+describe("isLocalSupabaseUrl（最終審查 M9：跟 assertLocalSupabaseUrl 同一套判斷，回傳布林）", () => {
+  it("127.0.0.1／localhost → true；其他 host 或壞掉的網址 → false", async () => {
+    const { isLocalSupabaseUrl } = await import("./local-only");
+    expect(isLocalSupabaseUrl("http://127.0.0.1:54321")).toBe(true);
+    expect(isLocalSupabaseUrl("http://localhost:54321")).toBe(true);
+    expect(isLocalSupabaseUrl("https://abcd.supabase.co")).toBe(false);
+    expect(isLocalSupabaseUrl("not a url")).toBe(false);
+  });
+});

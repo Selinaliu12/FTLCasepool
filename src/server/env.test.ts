@@ -1,9 +1,15 @@
 import { describe, it, expect, afterEach } from "vitest";
 
 describe("env.enableTestLogin", () => {
-  const original = { VERCEL: process.env.VERCEL, ENABLE_TEST_LOGIN: process.env.ENABLE_TEST_LOGIN };
+  const original = {
+    VERCEL: process.env.VERCEL,
+    ENABLE_TEST_LOGIN: process.env.ENABLE_TEST_LOGIN,
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+  };
 
   afterEach(() => {
+    if (original.NEXT_PUBLIC_SUPABASE_URL === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    else process.env.NEXT_PUBLIC_SUPABASE_URL = original.NEXT_PUBLIC_SUPABASE_URL;
     if (original.VERCEL === undefined) delete process.env.VERCEL;
     else process.env.VERCEL = original.VERCEL;
     if (original.ENABLE_TEST_LOGIN === undefined) delete process.env.ENABLE_TEST_LOGIN;
@@ -17,11 +23,30 @@ describe("env.enableTestLogin", () => {
     expect(env.enableTestLogin).toBe(false);
   });
 
-  it("ENABLE_TEST_LOGIN=true 且沒有 VERCEL 時，enableTestLogin 為 true", async () => {
+  it("ENABLE_TEST_LOGIN=true、沒有 VERCEL、Supabase 在本機時，enableTestLogin 為 true", async () => {
     process.env.ENABLE_TEST_LOGIN = "true";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321";
     delete process.env.VERCEL;
     const { env } = await import("./env");
     expect(env.enableTestLogin).toBe(true);
+  });
+
+  // 最終審查 M9：不在 Vercel 上（例如別的主機、或自己架的 staging）但連的是正式 Supabase 時，
+  // 就算誤設 ENABLE_TEST_LOGIN=true，也不能開放「固定密碼直接登入」。跟 local-only.ts 同一套判斷。
+  it("Supabase 不在本機時，就算 ENABLE_TEST_LOGIN=true 也為 false", async () => {
+    process.env.ENABLE_TEST_LOGIN = "true";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://abcd.supabase.co";
+    delete process.env.VERCEL;
+    const { env } = await import("./env");
+    expect(env.enableTestLogin).toBe(false);
+  });
+
+  it("沒有設定 Supabase URL 時為 false（不丟例外）", async () => {
+    process.env.ENABLE_TEST_LOGIN = "true";
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.VERCEL;
+    const { env } = await import("./env");
+    expect(env.enableTestLogin).toBe(false);
   });
 });
 
