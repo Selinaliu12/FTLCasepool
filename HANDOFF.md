@@ -1,6 +1,6 @@
 # HANDOFF — FTL 競賽池
 
-最後更新：2026-09-26 23:40（台北）
+最後更新：2026-09-27（台北）
 
 ## 專案一句話
 
@@ -14,37 +14,31 @@ FTL 社團（約 6 組、40 人）的學期專案追蹤工具：組別交雙週�
 | `docs/superpowers/plans/2026-09-26-ftl-casepool-batch1.md` | 批次 1（10/02 上線）實作計畫，Task 0–13 |
 | `PRODUCT.md` | 產品對象與視覺方向（沿用社團網站配色、字體、圓角） |
 
-## 本輪狀態（分支 `feat/batch1` @ `9b7e37b`，尚未 push、尚未合併）
+## 本輪狀態
 
-執行方式：逐步審查（每個 Task 由實作助手做、另一個審查助手檢查，有問題退回修到通過），最後做一次全分支總審查與修正。
+- 第一版（Task 1–12）已經由 PR [Selinaliu12/FTLCasepool#1](https://github.com/Selinaliu12/FTLCasepool/pull/1) 合併進 `main`（`0610ceb`）。
+- **Task 14 看已交內容**（2026-09-27 產品負責人決定放進第一版）在分支 `feat/content-view` 完成並通過審查，準備開 PR 合併：
+  - 專案幹部、管理員：看板組卡有「看內容」，進 `/groups/[id]` 看每期三句話、誰交、何時、準時或逾期、下載 PDF、中間週燈號歷程。
+  - 學生：自己組頁可下載自己組的 PDF、看中間週燈號歷程。
+  - 其他幹部：沒有入口，直接打網址得到 404。
+- **未開始：Task 13 部署**（需要你開帳號，見「下一步」）。
 
-**已完成並通過審查：Task 1–12**（批次 1 除了部署以外全部）
-- 登入（只收 @g.nccu.edu.tw 的 Google 帳號）、名單比對、第一次登入說明頁
-- 管理員頁：建學期（有確認框）、匯入名單、逐期填截止日（已有人交件的期別會鎖住）、指派專案幹部、燈號門檻、換組
-- 學生組頁：燈號與來源、準時率、各期狀態（含「準時／逾期 N 天」）、交雙週進度（PDF 直傳）、2 小時內修改／換 PDF／撤回、之後鎖定、中間週點燈號
-- 幹部總覽看板：紅燈組排前面、下一個截止日與剩幾天、準時率、「你負責」標記；其他幹部看不到內容
-- 頁首：名字、依身分的連結、登出
-
-**未開始：Task 13 部署**（需要你開帳號，見「下一步」）。
-
-**測試證據（合併前可沿用，條件見測試政策）**
-- 指令與結果（全部 exit 0）：
-  - `npm run test:unit`：23 個檔案、128 個測試通過
-  - `npm run test:integration`（打本機 Supabase）：9 個檔案、114 個測試通過
-  - `npx playwright test`：17 個通過
-  - `npx tsc --noEmit`、`npx eslint .`、`npx next build`：皆 0
-- 原始紀錄：`.superpowers/sdd/2026-09-26-ftl-casepool-batch1/controller-final-run.log`（git 忽略的本機檔）
-- 時間：2026-09-26 23:38（台北）；版本：`feat/batch1` @ `9b7e37b`，工作區無未提交的程式修改
+**測試證據（`feat/content-view` @ `bb574b3`，合併前）**
+- `npm run test:unit`：29 個檔案、143 個測試通過
+- `npm run test:integration`（本機 Supabase）：12 個檔案、129 個測試通過
+- `npx playwright test`：19 通過、12 略過（手動截圖用，預設不跑）
+- `npx tsc --noEmit`、`npx eslint .`、`npx next build`：皆 exit 0
+- 原始紀錄：`.superpowers/sdd/2026-09-26-ftl-casepool-batch1/controller-task14-run.log`（git 忽略的本機檔）
 - 環境：macOS、Node v24.21.0、本機 Supabase（Docker）、檔案儲存用本機 Supabase Storage 的 S3 介面代替 R2
-- 之後有無相關修改：只有本檔（HANDOFF.md）
-- **注意**：上傳相關的「R2 契約測試」目前是對本機 S3 跑的；上線前必須對真的 R2 測試桶再跑一次。
+- 之後有無相關修改：只有本檔
+- **注意**：上傳與下載相關測試目前對本機 S3 跑；上線前必須對真的 R2 測試桶再跑一次。
 
-**截圖**：`.screenshots/` 下各畫面兩輪（`login-*`、`admin-*`、`welcome-*`、`my-group-*`、`progress-form-*`、`edit-progress-*`、`checkin-*`、`dashboard-*`、`final-r2-*`）。
+**截圖**：`.screenshots/` 下各畫面（`content-*` 由 `CAPTURE_SCREENSHOTS=1 npx playwright test tests/e2e/manual-screenshots.spec.ts` 產生）。
 
 **本機開發注意**
 - Docker 的指令不在預設路徑，執行前要 `export PATH="$HOME/.docker/bin:$PATH"`。
 - `.env.local` 只放本機測試用金鑰，不要提交、不要用在正式站。
-- 執行中請不要在 GitHub Desktop 切換分支或按 Commit（2026-09-26 曾把暫存檔和 `.env.local` 提交到 main，已清掉）。
+- 執行中請不要在 GitHub Desktop 切換分支或按 Commit。
 
 ## 本輪決定（逐題問過產品負責人）
 
@@ -81,10 +75,9 @@ FTL 社團（約 6 組、40 人）的學期專案追蹤工具：組別交雙週�
 
 ## 下一步
 
-1. **請你決定**：幹部（專案幹部、管理員）與學生要不要在第一版就能在網站上「看已交的三句話、下載 PDF」？規格第 3 節說專案幹部看得到，但計畫漏了這個頁面；目前內容只能交、不能在網站上讀。
-2. **合併**：`feat/batch1` 已通過總審查，等你同意後開 PR 合併到 `main`。
-3. **Task 0／13 部署前你要準備**：Supabase 正式專案、Google OAuth（同意畫面要設成「正式版」）、R2 正式桶＋測試桶＋只限這兩個桶的金鑰與 CORS、Vercel、學期資料（名單 CSV、上線後各期截止日、幹部負責組別）。
-4. **部署清單重點**：正式站 Supabase 要關掉 Email 登入方式（不要關全域註冊，否則 Google 新用戶進不來）；Vercel 不可設 `ENABLE_TEST_LOGIN`、`R2_ENDPOINT`；上線前對真 R2 跑契約測試；確認 `local_only_flags` 是空的；先請 1 組試用。
+1. 合併 `feat/content-view` 後，在 `main` 重跑全套測試。
+2. **Task 0／13 部署前你要準備**：Supabase 正式專案、Google OAuth（同意畫面要設成「正式版」）、R2 正式桶＋測試桶＋只限這兩個桶的金鑰與 CORS、Vercel、學期資料（名單 CSV、上線後各期截止日、幹部負責組別）。
+3. **部署清單重點**：正式站 Supabase 要關掉 Email 登入方式（不要關全域註冊，否則 Google 新用戶進不來）；Vercel 不可設 `ENABLE_TEST_LOGIN`、`R2_ENDPOINT`；上線前對真 R2 跑契約測試；確認 `local_only_flags` 是空的；先請 1 組試用。
 
 ## 之後批次要處理的已知事項
 
