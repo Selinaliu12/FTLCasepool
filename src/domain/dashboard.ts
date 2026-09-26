@@ -1,6 +1,6 @@
 import { systemLight, reporterLight, displayLight, type Light, type Deliverable } from "./lights";
 import { onTimeRate } from "./on-time";
-import { daysUntil } from "./time";
+import { daysUntil, formatTaipei } from "./time";
 
 export type GroupCard = {
   groupId: string;
@@ -68,4 +68,10 @@ export function buildGroupCard(input: {
     stage,
     nextDeadline,
   };
+}
+
+export function formatNextDeadline(nextDeadline: { at: Date; daysLeft: number } | null): string {
+  if (nextDeadline === null) return "本學期期別已結束";
+  const left = nextDeadline.daysLeft === 0 ? "今天截止" : `剩 ${nextDeadline.daysLeft} 天`;
+  return `${formatTaipei(nextDeadline.at)} · ${left}`;
 }

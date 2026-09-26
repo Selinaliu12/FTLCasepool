@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { worstLight, sortGroupCards, buildGroupCard, type GroupCard } from "./dashboard";
+import { worstLight, sortGroupCards, buildGroupCard, formatNextDeadline, type GroupCard } from "./dashboard";
 import { systemLight, reporterLight, displayLight, type Deliverable } from "./lights";
 import { onTimeRate } from "./on-time";
 import { daysUntil } from "./time";
@@ -129,5 +129,21 @@ describe("buildGroupCard", () => {
     expect(result.lines).toEqual([
       { lineId: "l1", kind: "project", light: expectedDisplay.light, source: expectedDisplay.source, onTime: expectedOnTime },
     ]);
+  });
+});
+
+describe("formatNextDeadline", () => {
+  it("null → 本學期期別已結束", () => {
+    expect(formatNextDeadline(null)).toBe("本學期期別已結束");
+  });
+
+  it("剩 5 天 → 日期時間 · 剩 5 天", () => {
+    const at = new Date("2026-10-16T15:59:59.999Z"); // 台北時間 10/16（五）23:59
+    expect(formatNextDeadline({ at, daysLeft: 5 })).toBe("10/16（五）23:59 · 剩 5 天");
+  });
+
+  it("剩 0 天 → 今天截止", () => {
+    const at = new Date("2026-10-16T15:59:59.999Z");
+    expect(formatNextDeadline({ at, daysLeft: 0 })).toBe("10/16（五）23:59 · 今天截止");
   });
 });

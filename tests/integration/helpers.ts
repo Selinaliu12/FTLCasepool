@@ -257,6 +257,24 @@ export async function backdatePdfUploadedAt(reportId: string, at: Date): Promise
   });
 }
 
+// Task 12（幹部總覽看板）測試專用：把一期的截止日直接改成過去某個時間，模擬「這一期已經
+// 逾期 N 天」而不用真的等。periods 沒有 progress_lock 那類 trigger 擋 update，直接用
+// service client（略過 RLS）改就好，不用像 backdatePdfUploadedAt 那樣繞過 trigger。
+export async function backdatePeriodDeadline(periodId: string, at: Date): Promise<void> {
+  const db = service();
+  const { error } = await db.from("periods").update({ deadline: at.toISOString() }).eq("id", periodId);
+  if (error) throw error;
+}
+
+// Task 12 測試專用：seedSemester() 幫第1組留了一筆紅燈的期中點燈（跟總覽看板的逾期情境
+// 無關），要驗證「哪一組排最前」時得先清掉，不然兩組同時紅燈時，同色的組名排序會蓋過
+// 「哪一組因為逾期而紅」這個斷言。
+export async function deleteCheckinsForLine(lineId: string): Promise<void> {
+  const db = service();
+  const { error } = await db.from("checkins").delete().eq("line_id", lineId);
+  if (error) throw error;
+}
+
 export async function clientAs(email: string): Promise<SupabaseClient> {
   const db = service();
   const { error: createError } = await db.auth.admin.createUser({
