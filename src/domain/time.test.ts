@@ -34,3 +34,11 @@ describe("formatTaipei", () => {
     expect(formatTaipei(parseTaipeiDeadline("2026-10-16", "23:59"))).toBe("10/16（五）23:59");
   });
 });
+
+describe("taipeiInputValues", () => {
+  it("轉成台北時間的 <input type=date/time> 值（到分）", async () => {
+    const { taipeiInputValues } = await import("./time");
+    expect(taipeiInputValues(new Date("2026-10-01T15:59:59.999Z"))).toEqual({ date: "2026-10-01", time: "23:59" });
+    expect(taipeiInputValues(new Date("2026-10-01T16:00:00Z"))).toEqual({ date: "2026-10-02", time: "00:00" });
+  });
+});

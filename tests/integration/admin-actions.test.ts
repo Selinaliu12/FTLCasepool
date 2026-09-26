@@ -269,12 +269,123 @@ describe("savePeriods", () => {
     expect(count).toBe(0);
   });
 
-  it("已經有組別交了進度，不能再改期別", async () => {
-    const seed = await seedSemester(); // seedSemester 已經插入一筆 progress_reports 在 periodIds[0]
+  // 最終審查 #2：期別表不再「第一份進度交出去就整張凍結」。已經有人交件的期別（seedSemester
+  // 在第 1 期插了一筆 progress_reports）不能改、不能刪；沒人交過的期別可以改、可以刪；可以往後
+  // 追加新的期別；但所有沒凍結的截止時間都必須晚於最後一個凍結期別，讓凍結期別的編號永遠不會位移。
+  // seed：第 1 期 2026-10-01T00:00Z（台北 10/01 08:00，已有人交件）、第 2 期 2026-11-01T00:00Z（台北 08:00）。
+  async function periodsOf(semesterId: string) {
+    const svc = createServiceSupabase();
+    const { data } = await svc.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq");
+    return (data ?? []).map((p) => ({ id: p.id as string, seq: p.seq as number, deadline: new Date(p.deadline).toISOString() }));
+  }
+
+  it("沒人交件的期別可以修改；凍結的期別原封不動", async () => {
+    const seed = await seedSemester();
     asAdmin(seed.semesterId);
     const { savePeriods } = await import("@/server/actions/admin");
-    const r = await savePeriods(seed.semesterId, [{ date: "2026-10-01", time: "23:59" }]);
-    expect(r).toEqual({ ok: false, errors: ["已經有組別交了進度，不能再改期別"] });
+    const r = await savePeriods(seed.semesterId, [
+      { id: seed.periodIds[0], date: "2026-10-01", time: "08:00" },
+      { id: seed.periodIds[1], date: "2026-11-15", time: "23:59" },
+    ]);
+    expect(r).toEqual({ ok: true });
+    expect(await periodsOf(seed.semesterId)).toEqual([
+      { id: seed.periodIds[0], seq: 1, deadline: "2026-10-01T00:00:00.000Z" },
+      { id: seed.periodIds[1], seq: 2, deadline: "2026-11-15T15:59:59.999Z" },
+    ]);
+  });
+
+  it("修改已有人交件的期別被拒，錯誤訊息指出第幾期", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const { savePeriods } = await import("@/server/actions/admin");
+    const r = await savePeriods(seed.semesterId, [
+      { id: seed.periodIds[0], date: "2026-10-03", time: "23:59" },
+      { id: seed.periodIds[1], date: "2026-11-01", time: "08:00" },
+    ]);
+    expect(r).toEqual({ ok: false, errors: ["第 1 期已經有組別交了進度，不能修改或刪除"] });
+    expect((await periodsOf(seed.semesterId))[0].deadline).toBe("2026-10-01T00:00:00.000Z");
+  });
+
+  it("刪除已有人交件的期別被拒", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const { savePeriods } = await import("@/server/actions/admin");
+    const r = await savePeriods(seed.semesterId, [{ id: seed.periodIds[1], date: "2026-11-01", time: "08:00" }]);
+    expect(r).toEqual({ ok: false, errors: ["第 1 期已經有組別交了進度，不能修改或刪除"] });
+    expect(await periodsOf(seed.semesterId)).toHaveLength(2);
+  });
+
+  it("沒人交件的期別可以刪除", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const { savePeriods } = await import("@/server/actions/admin");
+    const r = await savePeriods(seed.semesterId, [{ id: seed.periodIds[0], date: "2026-10-01", time: "08:00" }]);
+    expect(r).toEqual({ ok: true });
+    expect((await periodsOf(seed.semesterId)).map((p) => p.id)).toEqual([seed.periodIds[0]]);
+  });
+
+  it("可以往後追加新的期別，編號接在後面", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const { savePeriods } = await import("@/server/actions/admin");
+    const r = await savePeriods(seed.semesterId, [
+      { id: seed.periodIds[0], date: "2026-10-01", time: "08:00" },
+      { id: seed.periodIds[1], date: "2026-11-01", time: "08:00" },
+      { date: "2026-12-01", time: "23:59" },
+    ]);
+    expect(r).toEqual({ ok: true });
+    const rows = await periodsOf(seed.semesterId);
+    expect(rows.map((p) => [p.seq, p.deadline])).toEqual([
+      [1, "2026-10-01T00:00:00.000Z"],
+      [2, "2026-11-01T00:00:00.000Z"],
+      [3, "2026-12-01T15:59:59.999Z"],
+    ]);
+  });
+
+  it("新的截止時間早於最後一個凍結期別被拒", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const { savePeriods } = await import("@/server/actions/admin");
+    const r = await savePeriods(seed.semesterId, [
+      { id: seed.periodIds[0], date: "2026-10-01", time: "08:00" },
+      { id: seed.periodIds[1], date: "2026-11-01", time: "08:00" },
+      { date: "2026-09-20", time: "23:59" },
+    ]);
+    expect(r).toEqual({ ok: false, errors: ["新的截止時間必須晚於已有人交件的第 1 期"] });
+    expect(await periodsOf(seed.semesterId)).toHaveLength(2);
+  });
+
+  it("沒凍結的期別改到比凍結期別還早，一樣被拒", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const { savePeriods } = await import("@/server/actions/admin");
+    const r = await savePeriods(seed.semesterId, [
+      { id: seed.periodIds[0], date: "2026-10-01", time: "08:00" },
+      { id: seed.periodIds[1], date: "2026-09-20", time: "23:59" },
+    ]);
+    expect(r).toEqual({ ok: false, errors: ["新的截止時間必須晚於已有人交件的第 1 期"] });
+  });
+
+  it("資料庫層：直接刪除有進度的期別會被外鍵擋下（on delete restrict）", async () => {
+    const seed = await seedSemester();
+    const svc = createServiceSupabase();
+    const { error } = await svc.from("periods").delete().eq("id", seed.periodIds[0]);
+    expect(error?.code).toBe("23503");
+    expect(await periodsOf(seed.semesterId)).toHaveLength(2);
+    const { count } = await svc.from("progress_reports").select("id", { count: "exact", head: true }).eq("period_id", seed.periodIds[0]);
+    expect(count).toBe(1);
+  });
+
+  it("save_periods 只開給 service_role", async () => {
+    const { withRawPg } = await import("./helpers");
+    await withRawPg(async (client) => {
+      for (const role of ["anon", "authenticated"]) {
+        const res = await client.query("select has_function_privilege($1, 'save_periods(uuid, jsonb)', 'execute') as ok", [role]);
+        expect(res.rows[0].ok, role).toBe(false);
+      }
+      const svc = await client.query("select has_function_privilege('service_role', 'save_periods(uuid, jsonb)', 'execute') as ok");
+      expect(svc.rows[0].ok).toBe(true);
+    });
   });
 });
 

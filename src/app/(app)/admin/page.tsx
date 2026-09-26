@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAccess } from "@/server/session";
 import { createServiceSupabase } from "@/server/supabase";
-import { formatTaipei } from "@/domain/time";
+import { formatTaipei, taipeiInputValues } from "@/domain/time";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateSemesterForm } from "./create-semester-form";
 import { RosterImport } from "./roster-import";
@@ -45,6 +45,13 @@ export default async function AdminPage() {
     db.from("pm_assignments").select("pm_member_id, group_id"),
   ]);
 
+  // 哪些期別已經有人交件（凍結）：期別表要把它們顯示成唯讀＋「已有人交件」。
+  const periodIds = (periodsRes.data ?? []).map((p) => p.id as string);
+  const reportedRes =
+    periodIds.length > 0
+      ? await db.from("progress_reports").select("period_id").in("period_id", periodIds)
+      : { data: [] as { period_id: string }[], error: null };
+
   const { data: semester, error: semesterError } = semesterRes;
   const { data: groups, error: groupsError } = groupsRes;
   const { data: members, error: membersError } = membersRes;
@@ -54,7 +61,7 @@ export default async function AdminPage() {
   const sectionErrors: Record<string, boolean> = {
     本學期: !!semesterError,
     名單匯入: !!(groupsError || membersError),
-    期別表: !!periodsError,
+    期別表: !!(periodsError || reportedRes.error),
     專案幹部負責組別: !!(groupsError || membersError || pmAssignmentsError),
     燈號門檻: !!semesterError,
     換組: !!(groupsError || membersError),
@@ -92,17 +99,15 @@ export default async function AdminPage() {
     initialAssignments[a.pm_member_id as string] = list;
   }
 
-  const initialPeriodRows: PeriodRow[] = periodList.map((p) => {
-    const d = new Date(p.deadline as string);
-    // formatTaipei 是給人看的顯示格式；期別表輸入用得到 <input type="date/time"> 需要的
-    // yyyy-mm-dd／HH:mm，所以這裡另外算，不重用 formatTaipei 的輸出格式。
-    const taipei = new Date(d.getTime() + 8 * 60 * 60 * 1000);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return {
-      date: `${taipei.getUTCFullYear()}-${pad(taipei.getUTCMonth() + 1)}-${pad(taipei.getUTCDate())}`,
-      time: `${pad(taipei.getUTCHours())}:${pad(taipei.getUTCMinutes())}`,
-    };
-  });
+  const reportedPeriodIds = new Set((reportedRes.data ?? []).map((r) => r.period_id as string));
+  // 最後一個已有人交件的期別之前（含）全部唯讀：save_periods() 不允許改動它們（會讓凍結期別的編號位移）。
+  const lastFrozenSeq = Math.max(0, ...periodList.filter((p) => reportedPeriodIds.has(p.id as string)).map((p) => p.seq as number));
+  const initialPeriodRows: PeriodRow[] = periodList.map((p) => ({
+    id: p.id as string,
+    ...taipeiInputValues(new Date(p.deadline as string)),
+    readOnly: (p.seq as number) <= lastFrozenSeq,
+    hasReports: reportedPeriodIds.has(p.id as string),
+  }));
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
@@ -142,7 +147,7 @@ export default async function AdminPage() {
         <Card>
           <CardHeader>
             <CardTitle>期別表</CardTitle>
-            <CardDescription>依截止日期排序，自動編為第 1、2、3…期。</CardDescription>
+            <CardDescription>依截止日期排序，自動編為第 1、2、3…期。已有人交件的期別不能修改或刪除，新增的期別要排在它們之後。</CardDescription>
           </CardHeader>
           <CardContent>
             <PeriodsForm semesterId={semesterId} initialRows={initialPeriodRows} />

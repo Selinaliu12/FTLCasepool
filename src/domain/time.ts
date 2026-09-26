@@ -4,6 +4,13 @@ export function taipeiDateKey(d: Date): string {
   return new Date(d.getTime() + TAIPEI_MS).toISOString().slice(0, 10);
 }
 
+// 截止時間轉成 <input type="date">／<input type="time"> 要的台北 yyyy-mm-dd／HH:mm（到分）。
+// 跟 formatTaipei（給人看的顯示格式）分開，是 parseTaipeiDeadline 的反向。
+export function taipeiInputValues(d: Date): { date: string; time: string } {
+  const iso = new Date(d.getTime() + TAIPEI_MS).toISOString();
+  return { date: iso.slice(0, 10), time: iso.slice(11, 16) };
+}
+
 export function parseTaipeiDeadline(date: string, time: string): Date {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) throw new Error("日期或時間格式錯誤");
   const d = new Date(`${date}T${time}:59.999+08:00`);

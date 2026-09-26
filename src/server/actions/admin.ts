@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getAccess } from "@/server/session";
 import { createServiceSupabase } from "@/server/supabase";
 import { parseRosterCsv } from "@/domain/roster-csv";
-import { parseTaipeiDeadline } from "@/domain/time";
+import { parseTaipeiDeadline, taipeiInputValues } from "@/domain/time";
 
 async function requireAdmin(): Promise<void> {
   const access = await getAccess();
@@ -61,19 +61,39 @@ export async function importRoster(
   return { ok: true, imported: parsed.rows.length };
 }
 
+export type PeriodInput = { id?: string; date: string; time: string };
+
 export async function savePeriods(
   semesterId: string,
-  rows: { date: string; time: string }[]
+  rows: PeriodInput[]
 ): Promise<{ ok: true } | { ok: false; errors: string[] }> {
   await requireAdmin();
   const db = createServiceSupabase();
 
-  const parsedDeadlines: { i: number; deadline: Date }[] = [];
+  // 既有期別的截止時間只精確到畫面上的「分」（parseTaipeiDeadline 一律補成 :59.999）。如果既有
+  // 期別送回來的日期／時間跟資料庫裡的一樣（到分），就沿用資料庫裡「精確」的截止時間，不要重新
+  // 解析——不然種子資料或舊資料（例如 08:00:00.000）會被當成「被改過」，凍結期別就再也存不了。
+  const { data: existing, error: existingError } = await db
+    .from("periods")
+    .select("id, deadline")
+    .eq("semester_id", semesterId);
+  if (existingError) return { ok: false, errors: [existingError.message] };
+  const existingById = new Map((existing ?? []).map((p) => [p.id as string, new Date(p.deadline as string)]));
+
+  const parsed: { i: number; id: string | null; deadline: Date }[] = [];
   const errors: string[] = [];
   rows.forEach((r, idx) => {
     const n = idx + 1;
+    const current = r.id ? existingById.get(r.id) : undefined;
+    if (current) {
+      const shown = taipeiInputValues(current);
+      if (shown.date === r.date && shown.time === r.time) {
+        parsed.push({ i: n, id: r.id!, deadline: current });
+        return;
+      }
+    }
     try {
-      parsedDeadlines.push({ i: n, deadline: parseTaipeiDeadline(r.date, r.time) });
+      parsed.push({ i: n, id: r.id ?? null, deadline: parseTaipeiDeadline(r.date, r.time) });
     } catch {
       errors.push(`第 ${n} 列：日期或時間格式錯誤`);
     }
@@ -82,7 +102,7 @@ export async function savePeriods(
   // 找重複截止時間：對每個時間戳只保留第一次出現的列號，之後每一次重複都各自報一次錯，
   // 訊息裡的 M 是「和它重複的、列號較小的那一列」。
   const seenAt = new Map<number, number>();
-  for (const { i, deadline } of parsedDeadlines) {
+  for (const { i, deadline } of parsed) {
     const t = deadline.getTime();
     const prev = seenAt.get(t);
     if (prev !== undefined) {
@@ -94,16 +114,13 @@ export async function savePeriods(
 
   if (errors.length > 0) return { ok: false, errors };
 
-  const sorted = [...parsedDeadlines].sort((a, b) => a.deadline.getTime() - b.deadline.getTime());
-
-  // save_periods()（見 20260927000005_admin_atomic.sql）把「檢查有沒有組別已經交過進度」跟
-  // 「刪除舊期別＋重建新期別」包在同一個 RPC 呼叫裡（同一個 statement，Postgres 自動包成一個
-  // 交易）。原本這裡是先查一次、通過了才分開刪除／插入，兩次呼叫中間有時間窗：如果剛好有人在
-  // 「查完、還沒刪除」這段空檔送出這一期的進度，會被緊接著的 delete cascade 刪掉，而檢查當下
-  // 看起來是安全的。包成一個函式關掉這個競態。
+  // save_periods()（見 20260927000009_final_fixes.sql）在同一個 RPC（＝同一個交易）裡：鎖住這學期
+  // 的期別、找出已經有人交件的「凍結」期別並確認它們原封不動、確認其他截止時間都晚於最後一個
+  // 凍結期別、再刪除／修改／新增並依截止時間重新編號。規則全部由資料庫判定，這裡只負責把畫面上的
+  // 日期時間轉成時間戳。
   const { error } = await db.rpc("save_periods", {
     p_semester_id: semesterId,
-    p_deadlines: sorted.map((s) => s.deadline.toISOString()),
+    p_rows: parsed.map((p) => ({ id: p.id, deadline: p.deadline.toISOString() })),
   });
   if (error) return { ok: false, errors: [error.message] };
 
