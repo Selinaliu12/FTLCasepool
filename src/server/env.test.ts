@@ -16,4 +16,11 @@ describe("env.enableTestLogin", () => {
     const { env } = await import("./env");
     expect(env.enableTestLogin).toBe(false);
   });
+
+  it("ENABLE_TEST_LOGIN=true 且沒有 VERCEL 時，enableTestLogin 為 true", async () => {
+    process.env.ENABLE_TEST_LOGIN = "true";
+    delete process.env.VERCEL;
+    const { env } = await import("./env");
+    expect(env.enableTestLogin).toBe(true);
+  });
 });

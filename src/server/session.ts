@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createServerSupabase, createServiceSupabase } from "./supabase";
 import { env } from "./env";
-import { parseAdminEmails, resolveAccess, type Access, type Member } from "@/domain/access";
+import { parseAdminEmails, resolveAccess, isTrustedProvider, type Access, type Member } from "@/domain/access";
 
 export async function getAccess(): Promise<Access> {
   const supabase = await createServerSupabase();
@@ -12,6 +12,13 @@ export async function getAccess(): Promise<Access> {
   if (!rawEmail) {
     // 沒有登入的使用者也走同一套 resolveAccess，用一個不可能符合網域的空字串觸發 wrong_domain。
     return resolveAccess("", { adminEmails, semesterId: null, member: null });
+  }
+
+  // 全域規則「只接受 Google 帳號」：就算 email 網域對、就算名單上有這個人，
+  // provider 不是 google 一律當成 wrong_domain（本機測試登入例外）。
+  const provider = data.user?.app_metadata?.provider as string | undefined;
+  if (!isTrustedProvider(provider, env.enableTestLogin)) {
+    return { kind: "wrong_domain" };
   }
 
   const service = createServiceSupabase();

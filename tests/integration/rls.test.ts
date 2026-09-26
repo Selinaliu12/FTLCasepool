@@ -1,5 +1,7 @@
 import { beforeAll, describe, it, expect } from "vitest";
-import { resetDb, seedSemester, clientAs } from "./helpers";
+import { createClient } from "@supabase/supabase-js";
+import { resetDb, seedSemester, clientAs, queryAsForgedJwt } from "./helpers";
+import { env } from "../../src/server/env";
 
 let seed: Awaited<ReturnType<typeof seedSemester>>;
 beforeAll(async () => {
@@ -80,13 +82,56 @@ describe("RLS：進度內容", () => {
     });
     expect(insert.error).not.toBeNull();
 
-    // 沒有 update／delete 政策時，RLS 預設拒絕：不會噴錯，但影響 0 筆（用 select() 取回受影響列來驗證)。
+    // Fix round 1 硬化 #3 之後，authenticated 角色連 update／delete 的底層 GRANT 都沒有了，
+    // 所以現在是明確的 permission denied（42501），比原本「RLS 沒政策、影響 0 筆但不噴錯」更嚴格。
     const update = await db.from("progress_reports").update({ light: "red" }).eq("line_id", seed.lineA).select();
-    expect(update.error).toBeNull();
-    expect(update.data).toEqual([]);
+    expect(update.error).not.toBeNull();
+    expect(update.error?.code).toBe("42501");
 
     const del = await db.from("progress_reports").delete().eq("line_id", seed.lineA).select();
-    expect(del.error).toBeNull();
-    expect(del.data).toEqual([]);
+    expect(del.error).not.toBeNull();
+    expect(del.error?.code).toBe("42501");
+  });
+});
+
+describe("RLS：只接受 Google 帳號", () => {
+  it("provider=email 且 app.allow_email_login 關閉時，me() 找不到人，progress_reports／periods 都是空的", async () => {
+    const claims = {
+      email: "a1@g.nccu.edu.tw",
+      app_metadata: { provider: "email" },
+      role: "authenticated",
+    };
+    const reports = await queryAsForgedJwt(
+      claims,
+      `select id from progress_reports where line_id = '${seed.lineA}'`,
+      { allowEmailLogin: false }
+    );
+    expect(reports).toEqual([]);
+
+    const periods = await queryAsForgedJwt(claims, "select id from periods", { allowEmailLogin: false });
+    expect(periods).toEqual([]);
+  });
+
+  it("公開的 signUp（anon key）一律失敗", async () => {
+    const anon = createClient(env.supabaseUrl, env.supabaseAnonKey);
+    const { error } = await anon.auth.signUp({ email: "forged@g.nccu.edu.tw", password: "whatever-password!" });
+    expect(error).not.toBeNull();
+  });
+});
+
+describe("RLS：權限收斂（hardening #3／#4）", () => {
+  it("匿名連線（anon key，沒登入）讀不到 semesters 或 line_light_events", async () => {
+    const anon = createClient(env.supabaseUrl, env.supabaseAnonKey);
+    const semesters = await anon.from("semesters").select("id");
+    expect(semesters.error).not.toBeNull();
+
+    const events = await anon.from("line_light_events").select("line_id");
+    expect(events.error).not.toBeNull();
+  });
+
+  it("匿名連線呼叫 rpc('line_group') 失敗（security definer 函式不開放給 anon 執行）", async () => {
+    const anon = createClient(env.supabaseUrl, env.supabaseAnonKey);
+    const { error } = await anon.rpc("line_group", { l: seed.lineA });
+    expect(error).not.toBeNull();
   });
 });

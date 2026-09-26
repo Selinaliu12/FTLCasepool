@@ -1,10 +1,14 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { Client as PgClient } from "pg";
 import { env } from "../../src/server/env";
+import { assertLocalSupabaseUrl } from "../../src/server/local-only";
 
 // 本機測試專用密碼；正式環境不會用到（test-login route 只在 ENABLE_TEST_LOGIN=true 時開放）。
 export const TEST_PASSWORD = "local-test-password-only!";
 
 function service() {
+  // resetDb／seedSemester／clientAs 都會清空資料表或建立測試帳號，絕對不能不小心對正式站做這些事。
+  assertLocalSupabaseUrl(env.supabaseUrl);
   return createClient(env.supabaseUrl, env.supabaseServiceKey, { auth: { persistSession: false } });
 }
 
@@ -110,6 +114,39 @@ export async function seedSemester() {
   if (ciError) throw ciError;
 
   return { semesterId, groupA: groupA.id as string, groupB: groupB.id as string, lineA: lineA.id as string, lineB: lineB.id as string, periodIds };
+}
+
+// 直接開一條 Postgres 連線，用 SET LOCAL 偽造 auth.jwt() 會讀到的 request.jwt.claims，
+// 藉此在不經過 GoTrue 簽發真的 JWT 的情況下，測試「provider 不是 google、也沒開 email 登入開關」
+// 這種 me() 應該要擋下來的情況。只在本機 Supabase（assertLocalSupabaseUrl）才能用。
+// allowEmailLogin 如果有給值，會先用 postgres 身分（這張表的擁有者）把 local_only_flags 改成想要的值，
+// 最後一律 rollback：查詢本身不需要留下任何寫入，也不會影響其他測試依賴的「本機 email 登入」旗標狀態。
+export async function queryAsForgedJwt<T = Record<string, unknown>>(
+  claims: Record<string, unknown>,
+  sql: string,
+  opts: { allowEmailLogin?: boolean } = {}
+): Promise<T[]> {
+  assertLocalSupabaseUrl(env.supabaseUrl);
+  const host = new URL(env.supabaseUrl).hostname;
+  const client = new PgClient({ host, port: 54322, user: "postgres", password: "postgres", database: "postgres" });
+  await client.connect();
+  try {
+    await client.query("begin");
+    if (opts.allowEmailLogin !== undefined) {
+      await client.query(
+        `insert into local_only_flags (key, value) values ('allow_email_login', $1)
+         on conflict (key) do update set value = excluded.value`,
+        [opts.allowEmailLogin ? "on" : "off"]
+      );
+    }
+    await client.query("set local role authenticated");
+    await client.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
+    const res = await client.query(sql);
+    return res.rows as T[];
+  } finally {
+    await client.query("rollback").catch(() => {});
+    await client.end();
+  }
 }
 
 export async function clientAs(email: string): Promise<SupabaseClient> {

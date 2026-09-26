@@ -12,6 +12,12 @@ export function parseAdminEmails(raw: string): string[] {
   return raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 }
 
+// 全域規則「只接受 Google 帳號」：JWT 的 app_metadata.provider 必須是 google。
+// 唯一例外是本機／CI 的 test-login（env.enableTestLogin），那些帳號是用 email+password 建立的。
+export function isTrustedProvider(provider: string | undefined, enableTestLogin: boolean): boolean {
+  return provider === "google" || enableTestLogin;
+}
+
 export function resolveAccess(
   rawEmail: string,
   ctx: { adminEmails: string[]; semesterId: string | null; member: Member | null }

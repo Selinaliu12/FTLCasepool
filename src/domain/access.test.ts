@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveAccess, parseAdminEmails } from "./access";
+import { resolveAccess, parseAdminEmails, isTrustedProvider } from "./access";
 
 const student = { id: "m1", semesterId: "s1", email: "a@g.nccu.edu.tw", name: "甲", role: "student" as const, groupId: "g1" };
 
@@ -29,5 +29,18 @@ describe("resolveAccess", () => {
 
   it("ADMIN_EMAILS 容忍空白與大寫", () => {
     expect(parseAdminEmails(" A@g.nccu.edu.tw, b@g.nccu.edu.tw ,")).toEqual(["a@g.nccu.edu.tw", "b@g.nccu.edu.tw"]);
+  });
+});
+
+describe("isTrustedProvider", () => {
+  it("google 一律信任", () => {
+    expect(isTrustedProvider("google", false)).toBe(true);
+    expect(isTrustedProvider("google", true)).toBe(true);
+  });
+
+  it("非 google 只有在 enableTestLogin 時才信任", () => {
+    expect(isTrustedProvider("email", false)).toBe(false);
+    expect(isTrustedProvider("email", true)).toBe(true);
+    expect(isTrustedProvider(undefined, false)).toBe(false);
   });
 });

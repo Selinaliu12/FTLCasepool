@@ -172,7 +172,13 @@ enable_refresh_token_rotation = true
 # Requires enable_refresh_token_rotation = true.
 refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
-enable_signup = true
+# 只接受 Google 帳號：關掉公開的 POST /auth/v1/signup（任何 provider），避免任何人拿 anon key
+# 自己註冊一個 pm@g.nccu.edu.tw 之類的帳號來冒充。這個開關只擋「新註冊」，不影響既有帳號的
+# signInWithPassword，也不影響 admin.createUser（test-login route、
+# tests/integration/helpers.ts 都是靠服務身分的 admin API 建帳號，兩者都不受影響）。
+# 注意：這只是本機／CI 的 config.toml。正式站（Supabase 專案）也要在 Dashboard →
+# Authentication → Providers → Email 把 "Allow new users to sign up" 關掉，這個檔案不會同步過去。
+enable_signup = false
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
@@ -217,6 +223,11 @@ web3 = 30
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
+# 注意：這個開關（GOTRUE_EXTERNAL_EMAIL_ENABLED）管的是整個 email provider 開不開，
+# 關掉會連 signInWithPassword 也一起擋掉（實測會出現 "Email logins are disabled"），
+# 那 test-login route／tests/integration/helpers.ts 的 clientAs 也會一起壞掉。
+# 真正只擋「新註冊」的是上面 [auth] 區塊的 enable_signup（GOTRUE_DISABLE_SIGNUP），
+# 所以這裡維持 true，改在 [auth] 那邊關。
 enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
