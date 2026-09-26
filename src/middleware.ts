@@ -5,7 +5,7 @@ const PUBLIC = ["/login", "/auth/callback", "/not-in-roster", "/test-login"];
 
 export async function middleware(req: NextRequest) {
   let res = NextResponse.next({ request: req });
-  const isPublic = PUBLIC.some((p) => req.nextUrl.pathname.startsWith(p));
+  const isPublic = PUBLIC.some((p) => req.nextUrl.pathname === p || req.nextUrl.pathname.startsWith(p + "/"));
 
   let hasUser = false;
   try {
