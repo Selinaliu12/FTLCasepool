@@ -9,6 +9,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "./env";
 import { isPdfMagic } from "@/domain/pdf";
+import { contentDisposition } from "@/domain/download";
 
 function client() {
   const r2 = env.r2;
@@ -59,7 +60,7 @@ export async function presignPdfGet(key: string, downloadName: string): Promise<
     new GetObjectCommand({
       Bucket: bucket,
       Key: key,
-      ResponseContentDisposition: `attachment; filename="${downloadName}"`,
+      ResponseContentDisposition: contentDisposition(downloadName),
     }),
     { expiresIn: 600 }
   );
