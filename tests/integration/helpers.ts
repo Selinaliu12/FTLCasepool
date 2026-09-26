@@ -65,6 +65,24 @@ export async function resetDb(): Promise<void> {
   }
 }
 
+// Fix round 1（root-caused submit-progress.spec.ts 的間歇性失敗）：本機 Supabase Storage
+// 的 S3 相容桶（R2_BUCKET，本機測試用 ftl-casepool-test）不是 migration／seed.sql 建的，
+// 之前只靠 tests/integration/r2.contract.test.ts 的 beforeAll 順手建立——如果那個測試檔案
+// 剛好沒跑過（例如只單獨跑 `npx playwright test`，或跑過 `supabase db reset` 之後 Storage
+// 容器被重建、桶跟著消失），任何真的會 PUT 檔案到 R2 的流程（submitProgress 的上傳、
+// Task 9 的換 PDF）都會在 xhr 的 PUT 這一步收到 404（bucket not found），前端顯示「上傳
+// 失敗，請重試」。這不是計時上的偶然，是測試環境準備不完整；修法是讓每一輪 E2E 開始前都
+// 先確定這個桶存在（idempotent：桶已存在就忽略 "already exists" 錯誤），不依賴其他測試
+// 檔案「剛好」先跑過。只在本機 Supabase（R2_ENDPOINT 有設）才做，正式環境的 R2 桶本來就
+// 該手動建好，不该由測試流程建立。
+export async function ensureLocalStorageBucket(): Promise<void> {
+  if (!env.r2.endpoint) return;
+  assertLocalSupabaseUrl(env.supabaseUrl);
+  const db = service();
+  const { error } = await db.storage.createBucket(env.r2.bucket, { public: false });
+  if (error && !error.message.includes("already exists")) throw error;
+}
+
 export async function seedSemester() {
   const db = service();
 

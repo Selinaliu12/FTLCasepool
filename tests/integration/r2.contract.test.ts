@@ -1,29 +1,20 @@
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import { presignPdfPut, inspectUploaded, deleteObject } from "@/server/r2";
-import { env } from "@/server/env";
-import { assertLocalSupabaseUrl } from "@/server/local-only";
-import { createServiceSupabase } from "@/server/supabase";
+import { ensureLocalStorageBucket } from "./helpers";
 
 // 這組測試打的是真實的 S3 相容端點（本機 R2_ENDPOINT 目前指向本機 Supabase Storage；
-// 上線前必須換成真的 R2 測試桶再跑一次，見下方 isLocalS3 的說明）。
+// 上線前必須換成真的 R2 測試桶再跑一次）。
 // describe.skipIf 只防止「不小心打到正式桶」，跟本機/正式無關；bucket 名稱以 -test 結尾才會執行。
 const key = `contract-test/${crypto.randomUUID()}.pdf`;
 const pdf = new TextEncoder().encode("%PDF-1.7\n%test\n");
 
-// 本機測試桶可能還沒建立；beforeAll 用 service client 補建，只在本機 Supabase 才做。
-const isLocalS3 = !!env.r2.endpoint;
-
 afterAll(() => deleteObject(key));
 
 describe.skipIf(!process.env.R2_BUCKET?.endsWith("-test"))("R2 契約", () => {
-  beforeAll(async () => {
-    if (isLocalS3) {
-      assertLocalSupabaseUrl(env.supabaseUrl);
-      const service = createServiceSupabase();
-      const { error } = await service.storage.createBucket(env.r2.bucket, { public: false });
-      if (error && !error.message.includes("already exists")) throw error;
-    }
-  });
+  // 本機測試桶可能還沒建立（見 helpers.ts 的 ensureLocalStorageBucket：這個桶不是
+  // migration／seed.sql 建的，`supabase db reset` 會把它一起重建掉），這裡補建一次；
+  // idempotent，桶已存在就略過。
+  beforeAll(() => ensureLocalStorageBucket());
 
   it("用預簽網址 PUT 上傳，之後讀得到大小與 PDF 檔頭", async () => {
     const url = await presignPdfPut(key, pdf.byteLength);

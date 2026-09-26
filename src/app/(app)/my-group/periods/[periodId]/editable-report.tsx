@@ -45,7 +45,6 @@ function putWithProgress(url: string, file: File, onProgress: (pct: number) => v
 
 export function EditableReport(props: {
   reportId: string;
-  seq: number;
   light: Light;
   did: string;
   blocked: string;
@@ -86,14 +85,19 @@ export function EditableReport(props: {
     setErrors({});
     setSaveError(null);
     setSaving(true);
-    const result = await editProgress(props.reportId, { light, did, blocked, nextSteps });
-    setSaving(false);
-    if (!result.ok) {
-      setSaveError(result.error);
-      return;
+    try {
+      const result = await editProgress(props.reportId, { light, did, blocked, nextSteps });
+      if (!result.ok) {
+        setSaveError(result.error);
+        return;
+      }
+      setMode("view");
+      router.refresh();
+    } finally {
+      // try/finally（fix round 1）：不管上面是正常回傳、提早 return、還是 editProgress()
+      // 本身丟出例外，saving 一定要被重設，不然按鈕會永遠卡在「儲存中…」。
+      setSaving(false);
     }
-    setMode("view");
-    router.refresh();
   }
 
   function onCancelEdit() {
@@ -167,14 +171,19 @@ export function EditableReport(props: {
 
   async function onWithdraw() {
     setWithdrawing(true);
-    const result = await withdrawProgress(props.reportId);
-    setWithdrawing(false);
-    setWithdrawOpen(false);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
+    try {
+      const result = await withdrawProgress(props.reportId);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      router.push("/my-group");
+    } finally {
+      // try/finally（fix round 1）：跟 onSaveEdit 一樣，withdrawing 一定要被重設，
+      // 不管是正常回傳、提早 return、還是 withdrawProgress() 丟出例外。
+      setWithdrawing(false);
+      setWithdrawOpen(false);
     }
-    router.push("/my-group");
   }
 
   if (props.locked) {
@@ -186,6 +195,7 @@ export function EditableReport(props: {
         </p>
         <p className="text-sm font-medium text-foreground">已鎖定</p>
         <ReadonlyFields did={props.did} blocked={props.blocked} nextSteps={props.nextSteps} />
+        <ReplaceWarning />
       </div>
     );
   }
@@ -267,6 +277,8 @@ export function EditableReport(props: {
           </p>
         )}
 
+        <ReplaceWarning />
+
         <div className="flex gap-2">
           <Button type="button" onClick={onSaveEdit} disabled={saving}>
             {saving ? "儲存中…" : "儲存"}
@@ -289,7 +301,7 @@ export function EditableReport(props: {
 
       <ReadonlyFields did={props.did} blocked={props.blocked} nextSteps={props.nextSteps} />
 
-      <p className="text-sm text-[color:var(--warn,#8A5300)]">⚠️ 替換檔案後，繳交時間以新檔案為準。</p>
+      <ReplaceWarning />
 
       {replaceError && (
         <p role="alert" className="text-sm text-destructive">
@@ -356,6 +368,12 @@ export function EditableReport(props: {
       </Dialog>
     </div>
   );
+}
+
+// Fix round 1（controller ruling 1）：這句警告在鎖定／編輯／檢視三個分支都要看得到，不是
+// 只有原本的檢視分支。抽成共用元件，三個分支各自渲染一次，不用擔心之後改文字漏改到某一支。
+function ReplaceWarning() {
+  return <p className="text-sm text-[color:var(--warn,#8A5300)]">⚠️ 替換檔案後，繳交時間以新檔案為準。</p>;
 }
 
 function ReadonlyFields({ did, blocked, nextSteps }: { did: string; blocked: string; nextSteps: string }) {

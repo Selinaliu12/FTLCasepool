@@ -18,6 +18,9 @@ vi.mock("@/server/r2", () => ({
 const SEMESTER_NAME = "115-1";
 const LOCKED_ERROR = "已超過 2 小時，已鎖定不能修改";
 const UPLOAD_FAILED = "檔案沒有上傳成功，請重新選擇 PDF";
+const NOT_FOUND = "找不到這份進度";
+const STALE_WRITE_ERROR = "這份進度剛剛被組員改過，請重新整理";
+const MALFORMED_ID = "not-a-uuid";
 
 function asOfficer(semesterId: string) {
   mockGetAccess.mockResolvedValue({
@@ -25,6 +28,16 @@ function asOfficer(semesterId: string) {
     email: "off@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "m2", semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", groupId: null },
+    semesterId,
+  });
+}
+
+function asPm(semesterId: string) {
+  mockGetAccess.mockResolvedValue({
+    kind: "ok",
+    email: "pm@g.nccu.edu.tw",
+    isAdmin: false,
+    member: { id: "m3", semesterId, email: "pm@g.nccu.edu.tw", name: "專案幹部", role: "pm", groupId: null },
     semesterId,
   });
 }
@@ -234,7 +247,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
     expect(result).toEqual({ ok: false, error: "找不到這份進度" });
   });
 
-  it("幹部（非專案生）editProgress → 被拒", async () => {
+  it("幹部（非專案生）editProgress → 找不到這份進度", async () => {
     const seed = await seedSemester();
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
     asOfficer(seed.semesterId);
@@ -242,8 +255,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
     const { editProgress } = await import("@/server/actions/progress");
     const result = await editProgress(row.id, { light: "red", did: "x", blocked: "x", nextSteps: "x" });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).not.toBe(""); // 幹部沒有自己的組，一律被拒
+    expect(result).toEqual({ ok: false, error: NOT_FOUND });
   });
 
   it("同組的另一位組員也可以 editProgress（該組任何組員都可以）", async () => {
@@ -278,7 +290,11 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
     expect(stillOld.pdf_key).toBe(row.pdf_key);
   });
 
-  it("超過 2 小時 replaceProgressPdf 被拒，票沒被用掉", async () => {
+  // Fix round 1（controller ruling 3）：一旦票務檢查證明 newKey 是呼叫者自己申請、還沒用掉
+  // 的上傳，鎖定檢查失敗後必須把這個「已經確定屬於呼叫者、但沒用上」的新物件刪掉（孤兒
+  // 檔案），但絕對不能動舊檔（report.pdf_key）——舊檔案還在被這份報告使用，換檔失敗不該
+  // 影響它。
+  it("超過 2 小時 replaceProgressPdf 被拒：票沒被用掉、新物件被刪除、舊物件沒被動", async () => {
     const seed = await seedSemester();
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
     await backdatePdfUploadedAt(row.id, new Date(Date.now() - 3 * 60 * 60 * 1000));
@@ -296,5 +312,194 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
     const { data: ticket, error } = await db.from("upload_tickets").select("used_at").eq("key", newKey).single();
     if (error) throw error;
     expect(ticket.used_at).toBeNull();
+
+    expect(mockDeleteObject).toHaveBeenCalledWith(newKey);
+    expect(mockDeleteObject).not.toHaveBeenCalledWith(row.pdf_key);
+  });
+
+  // Fix round 1（controller ruling 2）：不管是幹部、PM、別組的專案生、還是格式錯誤（不是
+  // 合法 UUID）的 reportId，replaceProgressPdf／withdrawProgress 一律回同一句「找不到這份
+  // 進度」，不能洩漏「這份報告其實存在」，格式錯誤的 id 也不能讓呼叫端看到 500。
+  describe("授權統一成「找不到這份進度」（replace／withdraw）", () => {
+    it.each([
+      ["幹部", (semesterId: string) => asOfficer(semesterId)],
+      ["PM", (semesterId: string) => asPm(semesterId)],
+    ] as const)("%s replaceProgressPdf 別組的報告 → 找不到這份進度", async (_label, setAccess) => {
+      const seed = await seedSemester();
+      const row = await reportRow(seed.lineA, seed.periodIds[0]);
+      setAccess(seed.semesterId);
+
+      const { replaceProgressPdf } = await import("@/server/actions/progress");
+      const result = await replaceProgressPdf(row.id, `${SEMESTER_NAME}/${seed.groupA}/x.pdf`);
+
+      expect(result).toEqual({ ok: false, error: NOT_FOUND });
+      expect(mockInspectUploaded).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["幹部", (semesterId: string) => asOfficer(semesterId)],
+      ["PM", (semesterId: string) => asPm(semesterId)],
+    ] as const)("%s withdrawProgress 別組的報告 → 找不到這份進度", async (_label, setAccess) => {
+      const seed = await seedSemester();
+      const row = await reportRow(seed.lineA, seed.periodIds[0]);
+      setAccess(seed.semesterId);
+
+      const { withdrawProgress } = await import("@/server/actions/progress");
+      const result = await withdrawProgress(row.id);
+
+      expect(result).toEqual({ ok: false, error: NOT_FOUND });
+      const stillThere = await reportRow(seed.lineA, seed.periodIds[0]);
+      expect(stillThere.id).toBe(row.id);
+    });
+
+    it("別組的專案生 replaceProgressPdf → 找不到這份進度", async () => {
+      const seed = await seedSemester();
+      const row = await reportRow(seed.lineA, seed.periodIds[0]);
+
+      const { replaceProgressPdf } = await import("@/server/actions/progress");
+      const result = await asUser("b1@g.nccu.edu.tw", () =>
+        replaceProgressPdf(row.id, `${SEMESTER_NAME}/${seed.groupA}/x.pdf`)
+      );
+
+      expect(result).toEqual({ ok: false, error: NOT_FOUND });
+      expect(mockInspectUploaded).not.toHaveBeenCalled();
+    });
+
+    it("別組的專案生 withdrawProgress → 找不到這份進度", async () => {
+      const seed = await seedSemester();
+      const row = await reportRow(seed.lineA, seed.periodIds[0]);
+
+      const { withdrawProgress } = await import("@/server/actions/progress");
+      const result = await asUser("b1@g.nccu.edu.tw", () => withdrawProgress(row.id));
+
+      expect(result).toEqual({ ok: false, error: NOT_FOUND });
+      const stillThere = await reportRow(seed.lineA, seed.periodIds[0]);
+      expect(stillThere.id).toBe(row.id);
+    });
+
+    it("格式錯誤（非 UUID）的 reportId → replaceProgressPdf 回「找不到這份進度」，不是 500", async () => {
+      await seedSemester();
+
+      const { replaceProgressPdf } = await import("@/server/actions/progress");
+      const result = await asUser("a1@g.nccu.edu.tw", () =>
+        replaceProgressPdf(MALFORMED_ID, `${SEMESTER_NAME}/some-group/x.pdf`)
+      );
+
+      expect(result).toEqual({ ok: false, error: NOT_FOUND });
+    });
+
+    it("格式錯誤（非 UUID）的 reportId → withdrawProgress 回「找不到這份進度」，不是 500", async () => {
+      await seedSemester();
+
+      const { withdrawProgress } = await import("@/server/actions/progress");
+      const result = await asUser("a1@g.nccu.edu.tw", () => withdrawProgress(MALFORMED_ID));
+
+      expect(result).toEqual({ ok: false, error: NOT_FOUND });
+    });
+
+    it("格式錯誤（非 UUID）的 reportId → editProgress 回「找不到這份進度」，不是 500", async () => {
+      await seedSemester();
+
+      const { editProgress } = await import("@/server/actions/progress");
+      const result = await asUser("a1@g.nccu.edu.tw", () =>
+        editProgress(MALFORMED_ID, { light: "red", did: "x", blocked: "x", nextSteps: "x" })
+      );
+
+      expect(result).toEqual({ ok: false, error: NOT_FOUND });
+    });
+  });
+
+  // Fix round 1（controller ruling 4，競態）：兩個組員幾乎同時換檔同一份報告，RPC 用
+  // `select ... for update` 鎖住那一列，兩邊都拿「換檔前」讀到的 pdf_key 當 p_old_pdf_key；
+  // 先搶到鎖的那個會成功，另一個因為它預期的舊 key 已經被前者改掉（stale）而被拒，錯誤訊息
+  // 是「這份進度剛剛被組員改過，請重新整理」，而且它自己申請的新物件要被刪掉（孤兒檔案），
+  // 贏家的新物件不能被刪、原本真正的舊檔要被刪掉一次（贏家換檔成功後的正常清理）。
+  // 一開始這裡用 Promise.all 同時發動兩個 replaceProgressPdf，指望它們在 RPC 的
+  // `select ... for update` 上真的搶鎖。結果兩個都成功了：replaceProgressPdf 在打 RPC
+  // 之前，自己會先用 loadOwnedReport() 重新讀一次「現在」的 pdf_key，如果 a1 整個流程
+  // （好幾個 await：access → loadOwnedReport → 字首 → 票務 → isLocked → inspectUploaded →
+  // RPC）在 a2 都還沒開始讀之前就已經跑完，a2 讀到的「舊」key 其實已經是 a1 換好的新
+  // key——沒有真的產生 stale，兩邊都會「成功」，不是這裡要測的競態。
+  //
+  // 改用一個可以手動控制的 gate 卡住 a1 的 inspectUploaded：讓 a1 先讀到「換檔前」的舊
+  // pdf_key、通過字首／票務檢查之後卡住，這時候讓 a2 完整跑完並真的把 pdf_key 換掉，
+  // 最後才放行 a1——這樣 a1 手上的 p_old_pdf_key 保證跟資料庫「這一刻」的值不一樣，
+  // 才是真正在測 RPC 的 stale_write 防護，而不是靠時間巧合。
+  it("兩個組員幾乎同時換檔同一份報告 → 較晚打 RPC 的那個因為 pdf_key 被搶先改過而被拒（stale write）", async () => {
+    const seed = await seedSemester();
+    const row = await reportRow(seed.lineA, seed.periodIds[0]);
+
+    const keyA = `${SEMESTER_NAME}/${seed.groupA}/race-a.pdf`;
+    const keyB = `${SEMESTER_NAME}/${seed.groupA}/race-b.pdf`;
+    await issueTicket(keyA, "a1@g.nccu.edu.tw");
+    await issueTicket(keyB, "a2@g.nccu.edu.tw");
+
+    let releaseA: ((v: { size: number; isPdf: boolean }) => void) | undefined;
+    const aGate = new Promise<{ size: number; isPdf: boolean }>((resolve) => {
+      releaseA = resolve;
+    });
+    mockInspectUploaded.mockImplementation((key: string) =>
+      key === keyA ? aGate : Promise.resolve({ size: 2048, isPdf: true })
+    );
+
+    const { replaceProgressPdf } = await import("@/server/actions/progress");
+
+    const pA = asUser("a1@g.nccu.edu.tw", () => replaceProgressPdf(row.id, keyA));
+    // 讓 a1 有機會先跑到卡住的地方（讀到舊 pdf_key、通過字首／票務檢查）。
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const rB = await asUser("a2@g.nccu.edu.tw", () => replaceProgressPdf(row.id, keyB));
+    expect(rB).toEqual({ ok: true, becameLate: false });
+
+    // 放行 a1：資料庫現在的 pdf_key 已經是 keyB，跟 a1 手上的舊值對不上。
+    releaseA!({ size: 2048, isPdf: true });
+    const rA = await pA;
+
+    expect(rA).toEqual({ ok: false, error: STALE_WRITE_ERROR });
+
+    const finalRow = await reportRow(seed.lineA, seed.periodIds[0]);
+    expect(finalRow.pdf_key).toBe(keyB);
+
+    // 贏家（a2）真的換成功：原本的舊檔（row.pdf_key）被清掉，贏家的新 key 保留、沒被刪。
+    expect(mockDeleteObject).toHaveBeenCalledWith(row.pdf_key);
+    expect(mockDeleteObject).not.toHaveBeenCalledWith(keyB);
+    // 輸家（a1）自己申請的新物件被刪掉（孤兒檔案），不是靜靜留著沒人管。
+    expect(mockDeleteObject).toHaveBeenCalledWith(keyA);
+
+    // 輸家的票沒被用掉（stale_write 發生在 RPC 標記票用掉之前）。
+    const db = createServiceSupabase();
+    const { data: loserTicket, error } = await db
+      .from("upload_tickets")
+      .select("used_at")
+      .eq("key", keyA)
+      .single();
+    if (error) throw error;
+    expect(loserTicket.used_at).toBeNull();
+  });
+
+  // Fix round 1（controller ruling 4）：withdrawProgress 刪的是「delete 當下」資料庫實際
+  // 回傳的 pdf_key，不是呼叫最初讀到、可能已經過期的值——用「先換檔、再撤回」這個真實的
+  // 循序場景驗證：撤回時 R2 上被刪的是換檔後的新 key，不是報告一開始建立時的舊 key。
+  it("withdrawProgress 刪的是資料庫實際回傳的 pdf_key（換檔之後才撤回，刪的是新 key）", async () => {
+    const seed = await seedSemester();
+    const row = await reportRow(seed.lineA, seed.periodIds[0]);
+    const originalKey = row.pdf_key as string;
+
+    mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
+    const newKey = `${SEMESTER_NAME}/${seed.groupA}/replaced-then-withdrawn.pdf`;
+    await issueTicket(newKey, "a1@g.nccu.edu.tw");
+
+    const { replaceProgressPdf, withdrawProgress } = await import("@/server/actions/progress");
+
+    const replaceResult = await asUser("a1@g.nccu.edu.tw", () => replaceProgressPdf(row.id, newKey));
+    expect(replaceResult).toEqual({ ok: true, becameLate: false });
+    mockDeleteObject.mockClear();
+
+    const withdrawResult = await asUser("a2@g.nccu.edu.tw", () => withdrawProgress(row.id));
+    expect(withdrawResult).toEqual({ ok: true });
+
+    expect(mockDeleteObject).toHaveBeenCalledTimes(1);
+    expect(mockDeleteObject).toHaveBeenCalledWith(newKey);
+    expect(mockDeleteObject).not.toHaveBeenCalledWith(originalKey);
   });
 });

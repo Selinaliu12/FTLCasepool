@@ -29,22 +29,48 @@ create trigger progress_lock before update or delete on progress_reports
 -- 2 小時，trigger 會用 errcode P0001、訊息 'LOCKED' 擋下來，呼叫端（replaceProgressPdf）
 -- 把它對應成「已超過 2 小時，已鎖定不能修改」。
 --
+-- Fix round 1（controller ruling 4，競態）：呼叫端在打這個 RPC 之前，是拿「呼叫最初讀到的
+-- report.pdfKey」當作「現在資料庫裡的舊檔」；但兩個組員幾乎同時操作同一份報告時，這個假設
+-- 可能已經過期（例如另一個組員剛好搶先換過檔）。這裡先用 `select ... for update` 鎖住這一列
+-- 並讀出「這一刻」真正的 pdf_key／pdf_uploaded_at，跟呼叫端傳進來的 p_old_pdf_key 比對：
+--   - 這一列根本不存在（例如同時被撤回）→ raise 'report_not_found'。
+--   - 存在，但目前的 pdf_key 跟呼叫端以為的不一樣（被別人搶先改過）→ raise 'stale_write'，
+--     呼叫端對應成「這份進度剛剛被組員改過，請重新整理」。
+-- 比對通過才繼續走原本的「標記票用掉」＋「真的更新」。回傳「換檔前」讀到的
+-- pdf_uploaded_at，讓呼叫端用同一個交易裡讀到的值算 becameLate，不是呼叫最初、可能已經
+-- 過期的那份。
+--
 -- 只 grant 給 service_role，跟其他寫入用的 RPC 一樣（admin_atomic.sql、
 -- submit_progress_report）：一般使用者不該、也不需要直接呼叫這個函式。
 create or replace function replace_progress_report(
   p_report_id uuid,
+  p_old_pdf_key text,
   p_pdf_key text,
   p_issuer_email text,
   p_pdf_size int,
   p_pdf_uploaded_at timestamptz,
   p_pdf_uploaded_by text
 )
-returns void
+returns timestamptz
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_current_key text;
+  v_old_uploaded_at timestamptz;
 begin
+  select pdf_key, pdf_uploaded_at into v_current_key, v_old_uploaded_at
+  from progress_reports where id = p_report_id for update;
+
+  if not found then
+    raise exception 'report_not_found';
+  end if;
+
+  if v_current_key <> p_old_pdf_key then
+    raise exception 'stale_write';
+  end if;
+
   update upload_tickets
   set used_at = now()
   where key = p_pdf_key and issuer_email = p_issuer_email and used_at is null;
@@ -61,15 +87,13 @@ begin
       updated_at = now()
   where id = p_report_id;
 
-  if not found then
-    raise exception 'report_not_found';
-  end if;
+  return v_old_uploaded_at;
 end;
 $$;
 
 revoke all on function replace_progress_report(
-  uuid, text, text, int, timestamptz, text
+  uuid, text, text, text, int, timestamptz, text
 ) from public, anon, authenticated;
 grant execute on function replace_progress_report(
-  uuid, text, text, int, timestamptz, text
+  uuid, text, text, text, int, timestamptz, text
 ) to service_role;

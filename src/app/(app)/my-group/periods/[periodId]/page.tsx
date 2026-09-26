@@ -40,7 +40,6 @@ export default async function PeriodPage({ params }: { params: Promise<{ periodI
         <h1 className="font-heading text-2xl font-bold text-foreground">第 {period.seq} 期</h1>
         <EditableReport
           reportId={full.id as string}
-          seq={period.seq}
           light={period.report.light}
           did={full.did as string}
           blocked={full.blocked as string}

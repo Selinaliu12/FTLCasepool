@@ -12,6 +12,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 const UPLOAD_FAILED = "檔案沒有上傳成功，請重新選擇 PDF";
 const NOT_FOUND = "找不到這份進度";
 const LOCKED_ERROR = "已超過 2 小時，已鎖定不能修改";
+const STALE_WRITE_ERROR = "這份進度剛剛被組員改過，請重新整理";
 
 // 只有「登入成功（kind ok）且是專案生（role student）且有 groupId」的人可以交進度；
 // PM／其他幹部沒有自己的組可以交，wrong_domain／not_in_roster／no_semester 沒有正式帳號。
@@ -138,16 +139,25 @@ type OwnedReport = {
 };
 
 // editProgress／replaceProgressPdf／withdrawProgress 共用的授權檢查：呼叫者必須是「這份報告
-// 所屬那一組」的組員（規格：該組任何組員都可以動這份報告，不限交出去的那個人）。找不到報告、
-// 或報告屬於別組，一律回同一句「找不到這份進度」，不透露這份報告其實存在（見 controller
-// ruling 2）。
-async function loadOwnedReport(db: SupabaseClient, reportId: string, groupId: string): Promise<OwnedReport | null> {
+// 所屬那一組」的組員（規格：該組任何組員都可以動這份報告，不限交出去的那個人）。
+//
+// Fix round 1（controller ruling 2）：不管是「不是專案生」（幹部／PM／管理員）、「專案生但
+// 沒有組」、「別組的專案生」、還是「reportId 根本不是合法的 UUID」，一律回同一句「找不到這份
+// 進度」，不透露這份報告其實存在、也不能讓格式錯誤的 id 洩漏出一個 500。所以呼叫端一律把
+// 「這次呼叫者夠不夠格」化成一個 groupId（不夠格就傳 null），交給這裡統一判斷；這裡也把
+// Postgres 對非法 UUID 的錯誤（22P02）當成「找不到」處理，不 throw。
+async function loadOwnedReport(db: SupabaseClient, reportId: string, groupId: string | null): Promise<OwnedReport | null> {
+  if (!groupId) return null;
+
   const { data: report, error: reportError } = await db
     .from("progress_reports")
     .select("id, line_id, period_id, pdf_key, pdf_uploaded_at")
     .eq("id", reportId)
     .maybeSingle();
-  if (reportError) throw reportError;
+  if (reportError) {
+    if (reportError.code === "22P02") return null; // invalid input syntax for type uuid
+    throw reportError;
+  }
   if (!report) return null;
 
   const { data: line, error: lineError } = await db
@@ -167,6 +177,19 @@ async function loadOwnedReport(db: SupabaseClient, reportId: string, groupId: st
   };
 }
 
+// 把「這次呼叫者夠不夠格動這份報告」化成一個 groupId／email／semesterId：不是登入成功、
+// 不是專案生、或沒有 groupId，一律回 null，讓 loadOwnedReport() 統一判成「找不到這份進度」
+// （見上面的註解）。回傳非 null 時，同時把後面會用到的 email／semesterId 帶出來，不用
+// 再靠一次額外的型別窄化去證明 access.kind === "ok"。
+function callerContext(
+  access: Awaited<ReturnType<typeof getAccess>>
+): { groupId: string; email: string; semesterId: string } | null {
+  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+    return null;
+  }
+  return { groupId: access.member.groupId, email: access.email, semesterId: access.semesterId };
+}
+
 // 交完進度後 2 小時內可以改燈號與三句話，繳交時間（pdf_uploaded_at）不變。伺服器端先用
 // isLocked() 擋一次（第一道防線），progress_lock trigger（見
 // supabase/migrations/20260927000007_lock.sql）用 OLD.pdf_uploaded_at 再擋一次（第二道、
@@ -176,13 +199,11 @@ export async function editProgress(
   input: { light: Light; did: string; blocked: string; nextSteps: string }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
-    return { ok: false, error: "只有專案生可以修改進度" };
-  }
+  const caller = callerContext(access);
 
   const db = createServiceSupabase();
-  const report = await loadOwnedReport(db, reportId, access.member.groupId);
-  if (!report) return { ok: false, error: NOT_FOUND };
+  const report = await loadOwnedReport(db, reportId, caller?.groupId ?? null);
+  if (!report || !caller) return { ok: false, error: NOT_FOUND };
 
   if (isLocked(report.pdfUploadedAt, new Date())) return { ok: false, error: LOCKED_ERROR };
 
@@ -225,29 +246,38 @@ export async function editProgress(
 // pdf_uploaded_at／pdf_uploaded_by／updated_at」。RPC 成功之後才刪除舊的 R2 物件——
 // 絕對不能先刪舊檔再更新資料庫，那樣如果更新失敗（例如剛好過了 2 小時被鎖定），會留下
 // 「資料庫還指著一個已經被刪掉的舊檔」的半吊子狀態。
+//
+// Fix round 1（controller ruling 3、4）：
+// - isLocked() 的檢查搬到票務檢查「之後」——在那之前，這把 pdfKey 還沒被證明是呼叫者自己
+//   申請、還沒用掉的票，貿然刪除會刪到不相干的物件。一旦票務檢查通過（證明這把 key 真的是
+//   呼叫者這次的上傳），後面任何失敗路徑（鎖定、RPC 回報鎖定、報告被刪、寫入被別人搶先
+//   改過）都要把這個「已經確定屬於呼叫者、但沒被用上」的新物件刪掉，絕對不能留著孤兒檔案；
+//   但任何失敗路徑都絕對不能刪舊檔（report.pdfKey）——只有 RPC 真的成功換掉之後才刪舊檔。
+// - RPC 現在多帶一個 p_old_pdf_key，資料庫端用 `where id = ... and pdf_key = p_old_pdf_key`
+//   再確認一次「呼叫者手上這份報告的狀態，跟資料庫現在的狀態一樣」，避免兩個組員幾乎同時
+//   換檔／編輯時互相覆蓋掉對方剛寫入的東西（TOCTOU：這裡的 report.pdfKey 是呼叫更早之前
+//   讀到的）。不一致時 RPC 丟 'stale_write'，這裡對應成「這份進度剛剛被組員改過，請重新
+//   整理」。becameLate 的計算改用 RPC 在同一個交易裡（SELECT ... FOR UPDATE 之後）讀到的
+//   舊 pdf_uploaded_at，而不是呼叫最初讀到、可能已經過期的 report.pdfUploadedAt。
 export async function replaceProgressPdf(
   reportId: string,
   pdfKey: string
 ): Promise<{ ok: true; becameLate: boolean } | { ok: false; error: string }> {
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
-    return { ok: false, error: "只有專案生可以上傳" };
-  }
+  const caller = callerContext(access);
 
   const db = createServiceSupabase();
-  const report = await loadOwnedReport(db, reportId, access.member.groupId);
-  if (!report) return { ok: false, error: NOT_FOUND };
-
-  if (isLocked(report.pdfUploadedAt, new Date())) return { ok: false, error: LOCKED_ERROR };
+  const report = await loadOwnedReport(db, reportId, caller?.groupId ?? null);
+  if (!report || !caller) return { ok: false, error: NOT_FOUND };
 
   const { data: semester, error: semesterError } = await db
     .from("semesters")
     .select("name")
-    .eq("id", access.semesterId)
+    .eq("id", caller.semesterId)
     .single();
   if (semesterError) throw semesterError;
 
-  const expectedPrefix = `${semester.name}/${access.member.groupId}/`;
+  const expectedPrefix = `${semester.name}/${caller.groupId}/`;
   if (!pdfKey.startsWith(expectedPrefix)) {
     return { ok: false, error: UPLOAD_FAILED };
   }
@@ -258,8 +288,16 @@ export async function replaceProgressPdf(
     .eq("key", pdfKey)
     .maybeSingle();
   if (ticketError) throw ticketError;
-  if (!ticket || ticket.issuer_email !== access.email || ticket.used_at !== null) {
+  if (!ticket || ticket.issuer_email !== caller.email || ticket.used_at !== null) {
     return { ok: false, error: UPLOAD_FAILED };
+  }
+
+  // 從這裡開始，pdfKey 已經證明是呼叫者自己申請、還沒用掉的票——任何後面的失敗路徑都要
+  // 把它刪掉（孤兒物件），不能留著。
+
+  if (isLocked(report.pdfUploadedAt, new Date())) {
+    await deleteObject(pdfKey).catch(() => {});
+    return { ok: false, error: LOCKED_ERROR };
   }
 
   const inspected = await inspectUploaded(pdfKey);
@@ -278,55 +316,82 @@ export async function replaceProgressPdf(
 
   const now = new Date();
 
-  const { error: rpcError } = await db.rpc("replace_progress_report", {
+  const { data: oldUploadedAtRaw, error: rpcError } = await db.rpc("replace_progress_report", {
     p_report_id: reportId,
+    p_old_pdf_key: report.pdfKey,
     p_pdf_key: pdfKey,
-    p_issuer_email: access.email,
+    p_issuer_email: caller.email,
     p_pdf_size: inspected.size,
     p_pdf_uploaded_at: now.toISOString(),
-    p_pdf_uploaded_by: access.email,
+    p_pdf_uploaded_by: caller.email,
   });
 
   if (rpcError) {
-    if (rpcError.message.includes("LOCKED")) return { ok: false, error: LOCKED_ERROR };
+    if (rpcError.message.includes("LOCKED")) {
+      await deleteObject(pdfKey).catch(() => {});
+      return { ok: false, error: LOCKED_ERROR };
+    }
+    if (rpcError.message.includes("stale_write")) {
+      await deleteObject(pdfKey).catch(() => {});
+      return { ok: false, error: STALE_WRITE_ERROR };
+    }
+    if (rpcError.message.includes("report_not_found")) {
+      await deleteObject(pdfKey).catch(() => {});
+      return { ok: false, error: NOT_FOUND };
+    }
     if (rpcError.code === "23505" || rpcError.message.includes("invalid_ticket")) {
+      // 票在這裡失效，代表這個時間窗被別的併發請求搶先用掉——那次請求才是真正把 pdfKey
+      // 用掉的人，這裡不該去刪它。
       return { ok: false, error: UPLOAD_FAILED };
     }
-    if (rpcError.message.includes("report_not_found")) return { ok: false, error: NOT_FOUND };
     throw rpcError;
   }
 
-  // 舊檔在資料庫成功換成新檔之後才刪，不是之前。
+  // 舊檔在資料庫成功換成新檔之後才刪，不是之前。RPC 已經用 `pdf_key = p_old_pdf_key` 確認
+  // 過寫入前的舊檔真的就是 report.pdfKey，這裡刪的是同一把 key。
   await deleteObject(report.pdfKey).catch(() => {});
 
   // becameLate：原本準時交（舊的 pdf_uploaded_at 在截止之前），換檔之後的新時間卻已經
-  // 過了截止——這一期因此從「準時」變成「逾期」。
-  const becameLate = report.pdfUploadedAt.getTime() <= deadline.getTime() && now.getTime() > deadline.getTime();
+  // 過了截止——這一期因此從「準時」變成「逾期」。用 RPC 在同一個交易裡讀到的舊時間，不是
+  // 這次呼叫最初讀到、可能已經過期的 report.pdfUploadedAt。
+  const oldUploadedAt = new Date(oldUploadedAtRaw as string);
+  const becameLate = oldUploadedAt.getTime() <= deadline.getTime() && now.getTime() > deadline.getTime();
 
   return { ok: true, becameLate };
 }
 
 // 撤回：整筆刪除、R2 檔也刪，不留紀錄。刪除順序跟換 PDF 一樣——先讓資料庫那一步成功，
 // 再刪 R2 上的物件；如果資料庫那步被 trigger 擋下來（已經鎖定），R2 上的檔案原封不動。
+//
+// Fix round 1（controller ruling 4）：delete().select("pdf_key") 拿「資料庫實際刪掉的那一
+// 列」的 pdf_key 來刪 R2 物件，不是呼叫最初 loadOwnedReport() 讀到、可能已經過期的
+// report.pdfKey——避免「呼叫者讀到舊檔 A，中間有人換成新檔 B，這裡卻去刪 A（沒人在用）、
+// 留下真正該刪的 B」這種競態。如果 delete 沒有真的刪到任何列（例如兩個組員幾乎同時撤回，
+// 第二個請求進來時報告已經被第一個刪掉了），一律當「找不到這份進度」，不誤報成功。
 export async function withdrawProgress(reportId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
-    return { ok: false, error: "只有專案生可以撤回" };
-  }
+  const caller = callerContext(access);
 
   const db = createServiceSupabase();
-  const report = await loadOwnedReport(db, reportId, access.member.groupId);
-  if (!report) return { ok: false, error: NOT_FOUND };
+  const report = await loadOwnedReport(db, reportId, caller?.groupId ?? null);
+  if (!report || !caller) return { ok: false, error: NOT_FOUND };
 
   if (isLocked(report.pdfUploadedAt, new Date())) return { ok: false, error: LOCKED_ERROR };
 
-  const { error: deleteError } = await db.from("progress_reports").delete().eq("id", reportId);
+  const { data: deleted, error: deleteError } = await db
+    .from("progress_reports")
+    .delete()
+    .eq("id", reportId)
+    .select("pdf_key");
   if (deleteError) {
     if (deleteError.message.includes("LOCKED")) return { ok: false, error: LOCKED_ERROR };
     throw deleteError;
   }
 
-  await deleteObject(report.pdfKey).catch(() => {});
+  const deletedKey = deleted?.[0]?.pdf_key as string | undefined;
+  if (!deletedKey) return { ok: false, error: NOT_FOUND };
+
+  await deleteObject(deletedKey).catch(() => {});
 
   return { ok: true };
 }
