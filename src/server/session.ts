@@ -1,10 +1,13 @@
 import "server-only";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createServerSupabase, createServiceSupabase } from "./supabase";
 import { env } from "./env";
 import { parseAdminEmails, resolveAccess, isTrustedProvider, type Access, type Member } from "@/domain/access";
 
-export async function getAccess(): Promise<Access> {
+// cache()：同一個 RSC 請求裡 layout、頁面、查詢各自呼叫 getAccess()，只真的查一次 Supabase
+// （getUser＋當前學期＋名單）。cache 的範圍是單一請求，不會跨使用者、跨請求共用結果。
+export const getAccess = cache(async function getAccess(): Promise<Access> {
   const supabase = await createServerSupabase();
   const { data } = await supabase.auth.getUser();
   const rawEmail = data.user?.email;
@@ -49,7 +52,7 @@ export async function getAccess(): Promise<Access> {
   }
 
   return resolveAccess(email, { adminEmails, semesterId, member });
-}
+});
 
 export async function requireOk(): Promise<Extract<Access, { kind: "ok" } | { kind: "no_semester" }>> {
   const access = await getAccess();
