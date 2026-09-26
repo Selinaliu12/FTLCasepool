@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireOk } from "@/server/session";
-import { hasAcknowledged } from "@/server/actions/acknowledge";
+import { hasAcknowledged } from "@/server/queries/acknowledgement";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { AcceptButton } from "./accept-button";
 

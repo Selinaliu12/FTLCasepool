@@ -75,13 +75,21 @@ describe("acknowledge", () => {
   it("新學期要重新按：hasAcknowledged 對新學期回傳 false", async () => {
     const seed = await seedSemester();
     asStudent(seed.semesterId);
-    const { acknowledge, hasAcknowledged } = await import("@/server/actions/acknowledge");
+    const { acknowledge } = await import("@/server/actions/acknowledge");
+    const { hasAcknowledged } = await import("@/server/queries/acknowledgement");
     await acknowledge();
     expect(await hasAcknowledged(seed.semesterId, "a1@g.nccu.edu.tw")).toBe(true);
 
     const svc = createServiceSupabase();
     const { data: newSem } = await svc.from("semesters").insert({ name: "115-2" }).select("id").single();
     expect(await hasAcknowledged(newSem!.id, "a1@g.nccu.edu.tw")).toBe(false);
+  });
+
+  // 最終審查 M5：hasAcknowledged 放在 "use server" 檔案裡，會被 Next 當成任何人都能從瀏覽器
+  // 呼叫的 server action（可以拿任意 semesterId／email 去探測誰按過）。搬到 server-only 的 queries。
+  it("hasAcknowledged 不是 server action（不從 \"use server\" 檔案匯出）", async () => {
+    const actions = await import("@/server/actions/acknowledge");
+    expect(Object.keys(actions)).toEqual(["acknowledge"]);
   });
 
   it("kind 不是 ok 就丟錯，不寫入", async () => {

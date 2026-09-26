@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireOk } from "@/server/session";
-import { hasAcknowledged } from "@/server/actions/acknowledge";
+import { hasAcknowledged } from "@/server/queries/acknowledgement";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const access = await requireOk();

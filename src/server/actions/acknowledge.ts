@@ -22,15 +22,3 @@ export async function acknowledge(): Promise<void> {
 
   redirect("/");
 }
-
-export async function hasAcknowledged(semesterId: string, email: string): Promise<boolean> {
-  const db = createServiceSupabase();
-  const { data, error } = await db
-    .from("acknowledgements")
-    .select("semester_id")
-    .eq("semester_id", semesterId)
-    .eq("email", email)
-    .maybeSingle();
-  if (error) throw error;
-  return data !== null;
-}
