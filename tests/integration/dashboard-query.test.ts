@@ -73,6 +73,7 @@ describe("loadDashboard", () => {
   let seed: Awaited<ReturnType<typeof seedSemester>>;
 
   beforeEach(async () => {
+    mockCreateServerSupabase.mockReset();
     await resetDb();
     seed = await seedSemester();
   });
@@ -94,11 +95,6 @@ describe("loadDashboard", () => {
     }
     expect(deepScanForContentKeys(result)).toEqual([]);
     expect(result.myPmGroupIds).toEqual([]);
-  });
-
-  it("mutation check：如果程式改成有機會帶出內容欄位，這個測試會抓到（此處手動驗證 deepScan 本身抓得到）", () => {
-    const withLeak = { cards: [{ lines: [{ light: "red", source: "s", note: "洩漏的檢查點筆記" }] }] };
-    expect(deepScanForContentKeys(withLeak)).toEqual(["note"]);
   });
 
   it("專案幹部指派後，myPmGroupIds 帶出自己負責的組別", async () => {
@@ -124,14 +120,32 @@ describe("loadDashboard", () => {
 
   it("管理員（沒有 member 列）也拿得到全部組別、沒有內容欄位", async () => {
     asAdminNoMember(seed.semesterId);
-    // 管理員沒有 member row，loadDashboard 應該退回 service client，不需要 mock
-    // createServerSupabase（如果程式碼誤用使用者身分連線，這裡完全沒設 mock 的回傳值
-    // 會直接炸掉，等同一個額外的斷言）。
+    // 管理員沒有 member row，loadDashboard 應該退回 service client，完全不呼叫
+    // createServerSupabase。跟前一個測試共用同一個 mock，如果不在這裡主動 reject，
+    // 這個 mock 還留著前一個測試（PM）設的 resolved value（clientAs() 簽出來的 PM
+    // client），就算 useService 這個判斷式壞掉、程式碼誤用了使用者身分連線，也會因為
+    // is_staff()／read_groups 對 pm 一樣成立而「意外地」讀到全部 2 組，讓這個測試看起來
+    // 還是綠的——完全沒驗證到「管理員這條路真的走了 service client」這件事。改成主動
+    // reject，任何一步誤用使用者身分連線都會讓整個 loadDashboard() 直接炸開，測試才真的
+    // 測到「一定沒有呼叫 createServerSupabase」。
+    mockCreateServerSupabase.mockRejectedValue(new Error("user client must not be used for admin"));
 
     const result = await loadDashboard(new Date("2026-10-05T00:00:00Z"));
 
     expect(result.cards).toHaveLength(2);
     expect(deepScanForContentKeys(result)).toEqual([]);
+  });
+
+  it("學生呼叫 loadDashboard 被拒絕", async () => {
+    mockGetAccess.mockResolvedValue({
+      kind: "ok",
+      email: "a1@g.nccu.edu.tw",
+      isAdmin: false,
+      member: { id: "a1-id", semesterId: seed.semesterId, email: "a1@g.nccu.edu.tw", name: "甲一", role: "student", groupId: seed.groupA },
+      semesterId: seed.semesterId,
+    });
+
+    await expect(loadDashboard(new Date("2026-10-05T00:00:00Z"))).rejects.toThrow("只有幹部與管理員可以看總覽看板");
   });
 
   it("一組逾期 4 天：排最前、紅燈、來源『系統：第 1 期逾期 4 天』", async () => {

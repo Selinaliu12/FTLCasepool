@@ -17,30 +17,59 @@ export type Dashboard = { cards: GroupCard[]; myPmGroupIds: string[] };
 // 讀不到——這種情況才退回 service client，但一樣只 select 狀態欄位，不讀內容欄位。
 export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> {
   const access = await getAccess();
-  if (access.kind !== "ok") throw new Error("只有幹部與管理員能看到總覽看板");
+  // 只有 "ok"，或者「管理員、但這學期還沒建」（no_semester + isAdmin）能往下走——後者
+  // 沒有 semesterId 可以查，下面會直接回傳空看板，跟 dashboard/page.tsx 把這種情況導去
+  // /admin 建學期是同一件事的另一種呈現（這裡是純函式，不能 redirect）。
+  if (access.kind !== "ok" && !(access.kind === "no_semester" && access.isAdmin)) {
+    throw new Error("只有幹部與管理員可以看總覽看板");
+  }
+  if (access.kind !== "ok") {
+    return { cards: [], myPmGroupIds: [] };
+  }
+  // 學生不該走到這裡：(app)/page.tsx／dashboard/page.tsx 已經把學生導去 /my-group，
+  // 這裡是查詢層自己的最後一道防線，不依賴呼叫端有沒有記得檢查。
+  if (access.member?.role === "student") {
+    throw new Error("只有幹部與管理員可以看總覽看板");
+  }
 
   const semesterId = access.semesterId;
   const useService = access.isAdmin && !access.member;
+  const isPm = access.member?.role === "pm";
 
   const db = useService ? createServiceSupabase() : await createServerSupabase();
 
-  const [groupsRes, linesRes, periodsRes, semesterRes, pmRes] = await Promise.all([
+  const [groupsRes, periodsRes, semesterRes] = await Promise.all([
     db.from("groups").select("id, name, project_name").eq("semester_id", semesterId).order("name"),
-    db.from("lines").select("id, group_id").eq("kind", "project"),
     db.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq"),
     db.from("semesters").select("red_after_hours").eq("id", semesterId).single(),
-    db.from("pm_assignments").select("pm_member_id, group_id"),
   ]);
 
   if (groupsRes.error) throw groupsRes.error;
-  if (linesRes.error) throw linesRes.error;
   if (periodsRes.error) throw periodsRes.error;
   if (semesterRes.error) throw semesterRes.error;
-  if (pmRes.error) throw pmRes.error;
 
   const groups = groupsRes.data ?? [];
-  const groupIds = new Set(groups.map((g) => g.id as string));
-  const lines = (linesRes.data ?? []).filter((l) => groupIds.has(l.group_id as string));
+  const groupIds = groups.map((g) => g.id as string);
+
+  // lines／pm_assignments 都要等 groups 查完才知道要用哪些 group id 去縮小範圍，沒辦法
+  // 跟上面那三個一起丟進同一個 Promise.all；lines 這裡直接用 .in(group_id, ...) 讓資料庫
+  // 端就只回目前學期的組別的專案線，不要整張表撈回來自己用 groupIds Set 過濾——尤其是
+  // service client 那條路（管理員沒有 member 列），少了 RLS 幫忙擋，撈整張表更沒道理。
+  // pm_assignments 只有專案幹部自己需要（用來算 myPmGroupIds），其他幹部／管理員一律是
+  // 空陣列，查了也用不到，直接跳過這次查詢。
+  const [linesRes, pmRes] = await Promise.all([
+    groupIds.length === 0
+      ? Promise.resolve({ data: [] as { id: string; group_id: string }[], error: null })
+      : db.from("lines").select("id, group_id").eq("kind", "project").in("group_id", groupIds),
+    isPm
+      ? db.from("pm_assignments").select("pm_member_id, group_id")
+      : Promise.resolve({ data: [] as { pm_member_id: string; group_id: string }[], error: null }),
+  ]);
+
+  if (linesRes.error) throw linesRes.error;
+  if (pmRes.error) throw pmRes.error;
+
+  const lines = linesRes.data ?? [];
   const lineIds = lines.map((l) => l.id as string);
 
   const { data: eventsData, error: eventsError } =

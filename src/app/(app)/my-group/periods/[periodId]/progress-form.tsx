@@ -10,6 +10,7 @@ import { validatePdfMeta } from "@/domain/pdf";
 import type { Light } from "@/domain/lights";
 import { requestPdfUpload } from "@/server/actions/upload";
 import { submitProgress } from "@/server/actions/progress";
+import { markSubmittedToast } from "../../submitted-toast";
 
 const LIGHT_OPTIONS: { value: Light; label: string; hint: string }[] = [
   { value: "green", label: "綠燈", hint: "進度正常" },
@@ -100,7 +101,11 @@ export function ProgressForm({ periodId }: { periodId: string }) {
         return;
       }
 
-      router.push("/my-group?submitted=1");
+      // Fix round 1：一次送出只做一次導頁（見 submitted-toast.tsx 開頭的註解）——不再靠
+      // ?submitted=1 這個 query string 帶著「要跳提示」這件事跑一趟，改用 sessionStorage
+      // 存旗標，直接 push 到乾淨的網址。
+      markSubmittedToast();
+      router.push("/my-group");
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "上傳失敗，請重試");
       setUploading(false);
