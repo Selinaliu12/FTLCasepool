@@ -12,6 +12,21 @@ function service() {
   return createClient(env.supabaseUrl, env.supabaseServiceKey, { auth: { persistSession: false } });
 }
 
+// 直接開一條 Postgres 連線給測試自己管理交易（例如建一張用完就 rollback 的暫時資料表），
+// 用來驗證「未來新建的資料表／函式，預設權限是不是真的收緊了」這種碰不到 API 層的東西。
+// 只在本機 Supabase（assertLocalSupabaseUrl）才能用。
+export async function withRawPg<T>(fn: (client: PgClient) => Promise<T>): Promise<T> {
+  assertLocalSupabaseUrl(env.supabaseUrl);
+  const host = new URL(env.supabaseUrl).hostname;
+  const client = new PgClient({ host, port: 54322, user: "postgres", password: "postgres", database: "postgres" });
+  await client.connect();
+  try {
+    return await fn(client);
+  } finally {
+    await client.end();
+  }
+}
+
 export async function resetDb(): Promise<void> {
   const db = service();
   const ZERO_UUID = "00000000-0000-0000-0000-000000000000";

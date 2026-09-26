@@ -172,12 +172,21 @@ enable_refresh_token_rotation = true
 # Requires enable_refresh_token_rotation = true.
 refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
-# 只接受 Google 帳號：關掉公開的 POST /auth/v1/signup（任何 provider），避免任何人拿 anon key
+# 只接受 Google 帳號：本機關掉公開的 POST /auth/v1/signup（任何 provider），避免任何人拿 anon key
 # 自己註冊一個 pm@g.nccu.edu.tw 之類的帳號來冒充。這個開關只擋「新註冊」，不影響既有帳號的
 # signInWithPassword，也不影響 admin.createUser（test-login route、
 # tests/integration/helpers.ts 都是靠服務身分的 admin API 建帳號，兩者都不受影響）。
-# 注意：這只是本機／CI 的 config.toml。正式站（Supabase 專案）也要在 Dashboard →
-# Authentication → Providers → Email 把 "Allow new users to sign up" 關掉，這個檔案不會同步過去。
+#
+# 這個 `enable_signup = false` 只能是本機／CI 專用。它對應 Dashboard 裡 Authentication →
+# Providers → Email 頁面的「Allow new users to sign up」，但那個開關其實是**全域**的
+# User Signups 總開關——不只擋 email，Google 登入也一起擋。專案生第一次用 Google 登入
+# 本質上就是「新註冊」（第一次進來、auth.users 還沒有這個人），所以正式站絕對不能關這個開關，
+# 一關全部學生都進不來。千萬不要對正式站跑 `supabase config push`，會把這裡的
+# `enable_signup = false` 推上去，擋掉所有人的 Google 登入。
+#
+# 正式站要擋的是「公開 email/password 註冊」，做法是在 Dashboard → Authentication →
+# Providers → Email 把 "Enable Email provider" 整個關掉（不是這個全域開關）——因為正式站
+# 只用 Google，Email provider 本來就用不到，直接關掉最乾淨，也不會影響 Google 登入。
 enable_signup = false
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = false

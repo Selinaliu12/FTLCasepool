@@ -1,6 +1,6 @@
 import { beforeAll, describe, it, expect } from "vitest";
 import { createClient } from "@supabase/supabase-js";
-import { resetDb, seedSemester, clientAs, queryAsForgedJwt } from "./helpers";
+import { resetDb, seedSemester, clientAs, queryAsForgedJwt, withRawPg } from "./helpers";
 import { env } from "../../src/server/env";
 
 let seed: Awaited<ReturnType<typeof seedSemester>>;
@@ -95,7 +95,7 @@ describe("RLS：進度內容", () => {
 });
 
 describe("RLS：只接受 Google 帳號", () => {
-  it("provider=email 且 app.allow_email_login 關閉時，me() 找不到人，progress_reports／periods 都是空的", async () => {
+  it("provider=email 且 local_only_flags 的 allow_email_login 關閉時，me() 找不到人，progress_reports／periods 都是空的", async () => {
     const claims = {
       email: "a1@g.nccu.edu.tw",
       app_metadata: { provider: "email" },
@@ -133,5 +133,27 @@ describe("RLS：權限收斂（hardening #3／#4）", () => {
     const anon = createClient(env.supabaseUrl, env.supabaseAnonKey);
     const { error } = await anon.rpc("line_group", { l: seed.lineA });
     expect(error).not.toBeNull();
+  });
+});
+
+describe("RLS：預設權限（alter default privileges，防止未來新表悄悄重新開放）", () => {
+  it("public schema 新建的表，預設情況下 anon／authenticated 什麼權限都沒有", async () => {
+    await withRawPg(async (client) => {
+      await client.query("begin");
+      try {
+        await client.query("create table _default_privileges_drift_check (id int)");
+        for (const role of ["anon", "authenticated"]) {
+          for (const priv of ["select", "insert", "update", "delete"]) {
+            const res = await client.query(
+              "select has_table_privilege($1, '_default_privileges_drift_check', $2) as ok",
+              [role, priv]
+            );
+            expect(res.rows[0].ok).toBe(false);
+          }
+        }
+      } finally {
+        await client.query("rollback");
+      }
+    });
   });
 });
