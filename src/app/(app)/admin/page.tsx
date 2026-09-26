@@ -28,7 +28,7 @@ export default async function AdminPage() {
             <CardDescription>還沒有任何學期，先建立一個才能匯入名單。</CardDescription>
           </CardHeader>
           <CardContent>
-            <CreateSemesterForm />
+            <CreateSemesterForm currentSemesterName={null} />
           </CardContent>
         </Card>
       </main>
@@ -122,7 +122,7 @@ export default async function AdminPage() {
             <CardDescription>目前學期：{semester?.name}</CardDescription>
           </CardHeader>
           <CardContent>
-            <CreateSemesterForm />
+            <CreateSemesterForm currentSemesterName={(semester?.name as string | undefined) ?? "目前學期"} />
           </CardContent>
         </Card>
       )}
