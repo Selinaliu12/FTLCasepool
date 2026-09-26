@@ -1,3 +1,4 @@
+import "server-only";
 import { redirect } from "next/navigation";
 import { createServerSupabase, createServiceSupabase } from "./supabase";
 import { env } from "./env";

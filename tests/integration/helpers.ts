@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { Client as PgClient } from "pg";
 import { env } from "../../src/server/env";
 import { assertLocalSupabaseUrl } from "../../src/server/local-only";
+import type { Access } from "../../src/domain/access";
 
 // 本機測試專用密碼；正式環境不會用到（test-login route 只在 ENABLE_TEST_LOGIN=true 時開放）。
 export const TEST_PASSWORD = "local-test-password-only!";
@@ -162,6 +163,51 @@ export async function queryAsForgedJwt<T = Record<string, unknown>>(
     await client.query("rollback").catch(() => {});
     await client.end();
   }
+}
+
+// 讓 submitProgress 的併發測試（同一組兩人同時送出）能各自用自己的身分呼叫 server action。
+// 依賴呼叫端已經 `vi.mock("@/server/session", () => ({ getAccess: vi.fn() }))`——這裡動態
+// import 拿到的就是同一顆被 mock 過的 getAccess，把它的回傳值換成這個 email 在資料庫裡的
+// 真實 access，再同步（不在中間 await）呼叫 fn()，讓 fn() 內第一次呼叫 getAccess() 讀到的
+// 一定是剛剛設好的這份身分，即使兩個 asUser 是用 Promise.all 同時發動的也不會互相覆蓋。
+export async function asUser<T>(email: string, fn: () => Promise<T>): Promise<T> {
+  const db = service();
+  const { data: semester, error: semError } = await db
+    .from("semesters")
+    .select("id")
+    .eq("is_current", true)
+    .single();
+  if (semError) throw semError;
+  const semesterId = semester.id as string;
+
+  const { data: row, error: mError } = await db
+    .from("members")
+    .select("id, semester_id, email, name, role, group_id")
+    .eq("semester_id", semesterId)
+    .eq("email", email)
+    .single();
+  if (mError) throw mError;
+
+  const access: Access = {
+    kind: "ok",
+    email: row.email,
+    isAdmin: false,
+    member: {
+      id: row.id,
+      semesterId: row.semester_id,
+      email: row.email,
+      name: row.name,
+      role: row.role,
+      groupId: row.group_id,
+    },
+    semesterId,
+  };
+
+  // 動態 import「vitest」而不是放在檔案最上面：這個檔案也被 playwright 的 global-setup.ts
+  // 用到（resetDb／seedSemester），那裡不是 vitest 執行環境，頂層 import "vitest" 會直接爛掉。
+  const [{ vi }, { getAccess }] = await Promise.all([import("vitest"), import("@/server/session")]);
+  vi.mocked(getAccess).mockResolvedValue(access);
+  return fn();
 }
 
 export async function clientAs(email: string): Promise<SupabaseClient> {

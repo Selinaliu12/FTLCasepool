@@ -11,7 +11,14 @@ for (const [key, value] of Object.entries(integrationEnv)) {
 
 export default defineConfig({
   plugins: [react()],
-  resolve: { alias: { "@": path.resolve(__dirname, "src") } },
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "src"),
+      // server-only 在沒有 "react-server" condition 的環境（包含 vitest）預設會直接
+      // throw；測試就是要在 node 環境呼叫這些 server 專用模組，改指到一個空模組即可。
+      "server-only": path.resolve(__dirname, "tests/stubs/server-only.ts"),
+    },
+  },
   test: {
     passWithNoTests: true,
     projects: [
