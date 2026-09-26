@@ -21,6 +21,9 @@ export default async function DashboardPage() {
 
   const { cards, myPmGroupIds } = await loadDashboard();
   const myPmGroupIdSet = new Set(myPmGroupIds);
+  // 看板每張卡的「看內容」連結：規格第 3 節，只有專案幹部與管理員能看進度內容，
+  // 其他幹部沒有這個連結（直接打網址會撞到 /groups/[id] 的 404，見 loadGroupDetail）。
+  const canViewContent = access.member?.role === "pm" || access.isAdmin;
 
   const counts = { red: 0, yellow: 0, green: 0 };
   for (const card of cards) counts[worstLight(card)]++;
@@ -39,7 +42,12 @@ export default async function DashboardPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {cards.map((card) => (
-            <GroupCard key={card.groupId} card={card} isMine={myPmGroupIdSet.has(card.groupId)} />
+            <GroupCard
+              key={card.groupId}
+              card={card}
+              isMine={myPmGroupIdSet.has(card.groupId)}
+              canViewContent={canViewContent}
+            />
           ))}
         </div>
       )}

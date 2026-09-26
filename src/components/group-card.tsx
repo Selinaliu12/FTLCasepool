@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { LightBadge } from "@/components/light-badge";
 import { cn } from "cn";
 import { worstLight, formatNextDeadline, type GroupCard as GroupCardData } from "@/domain/dashboard";
@@ -10,7 +12,15 @@ const BORDER_CLASS: Record<"red" | "yellow" | "green", string> = {
   green: "",
 };
 
-export function GroupCard({ card, isMine }: { card: GroupCardData; isMine: boolean }) {
+export function GroupCard({
+  card,
+  isMine,
+  canViewContent = false,
+}: {
+  card: GroupCardData;
+  isMine: boolean;
+  canViewContent?: boolean;
+}) {
   const light = worstLight(card);
   const line = card.lines[0];
 
@@ -41,6 +51,11 @@ export function GroupCard({ card, isMine }: { card: GroupCardData; isMine: boole
             {line?.onTime === null || line?.onTime === undefined ? "—" : `${Math.round(line.onTime * 100)}%`}
           </p>
         </div>
+        {canViewContent ? (
+          <Link href={`/groups/${card.groupId}`} className={cn(buttonVariants({ variant: "outline" }), "self-start")}>
+            看內容
+          </Link>
+        ) : null}
       </CardContent>
     </Card>
   );
