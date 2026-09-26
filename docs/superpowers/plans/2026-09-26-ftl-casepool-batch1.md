@@ -1236,6 +1236,31 @@ export function buildGroupCard(input: { group: { id: string; name: string; proje
 
 ---
 
+## Task 14：看已交內容（2026-09-27 產品負責人決定放進第一版）
+
+依規格第 3 節「看進度內容（三句話、PDF、里程碑檔案、評語）：管理員 ✓、專案幹部 ✓、其他幹部 ✗、專案生只看自己組」。批次 1 的內容 = 雙週進度的燈號、三句話、PDF，以及中間週燈號的紅燈說明。
+
+**Files:**
+- Create: `src/server/queries/group-detail.ts`、`src/server/actions/download.ts`、`src/app/(app)/groups/[groupId]/page.tsx`（＋ `loading.tsx`）、`src/components/pdf-download-button.tsx`
+- Modify: `src/components/group-card.tsx`（專案幹部、管理員看到「看內容」連結；其他幹部沒有）、`src/app/(app)/my-group/periods/[periodId]/editable-report.tsx`（加「下載 PDF」）、`src/app/(app)/my-group/page.tsx`（中間週燈號歷程）
+- Test: `tests/integration/group-detail.test.ts`、`tests/integration/download.test.ts`、`tests/e2e/group-detail.spec.ts`、元件測試
+
+**Interfaces:**
+- `loadGroupDetail(groupId): Promise<{ group, display, onTime, periods: { seq, deadline, report: null | { light, did, blocked, nextSteps, submittedBy(姓名), submittedAt, timing, reportId } }[], checkins: { light, note, by(姓名), at }[] } | null>`：專案幹部走使用者身分連線（RLS 決定）；沒有 member 列的管理員走服務身分並只選同樣欄位；其他幹部、別組學生 → `null`（頁面顯示 404）。
+- `getPdfDownloadUrl(reportId): Promise<{ ok: true; url: string } | { ok: false; error: "找不到這份進度" }>`：先用使用者身分連線讀該筆（RLS 擋掉其他幹部與別組），管理員走服務身分；通過才呼叫 `presignPdfGet(key, 下載檔名)`，下載檔名 `{學期}-{組名}-第{N}期.pdf`（`Content-Disposition: attachment` 並用 RFC 5987 `filename*` 處理中文）。
+
+**行為（每個一個紅→綠循環）：**
+1. 專案幹部讀得到任一組的三句話與紅燈說明；其他幹部 `loadGroupDetail` 回 `null`；學生讀自己組可以、別組 `null`；管理員（不在名單）讀得到。
+2. `getPdfDownloadUrl`：學生自己組 ok、別組／其他幹部／亂填 id 一律 `找不到這份進度`、專案幹部與管理員 ok；網址是預簽的 GET、10 分鐘有效。
+3. 看板：專案幹部與管理員的組卡片有「看內容」連到 `/groups/[id]`，其他幹部沒有；其他幹部直接打網址看到 404。
+4. 組內容頁：每期一列（未交、準時、逾期 N 天），展開看燈號、三句話、誰交、何時、下載 PDF；下方列出中間週燈號歷程（燈號、誰、何時、紅燈說明）。
+5. 學生組頁：已交的期別可下載自己的 PDF；中間週燈號歷程同上。
+6. E2E：專案幹部從看板點進第1組、看到三句話、按下載拿到 PDF（檢查回應的 content-type 與檔頭 `%PDF-`）；其他幹部看不到連結、打網址 404。
+
+**你會看到什麼／怎麼驗收：** 用專案幹部帳號登入，看板每張卡多一個「看內容」，點進去看得到每一期三句話、誰交、何時、準時或逾期，按「下載 PDF」會下載檔案；用其他幹部帳號就沒有這個連結。學生在自己組頁也能下載自己交的 PDF。
+
+---
+
 ## 之後的批次（各自另寫計畫，開工前再拆）
 
 | 批次 | 內容 | 依賴第一版的哪些東西 | 開工前要先問你的事 |
