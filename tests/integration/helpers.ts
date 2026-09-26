@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { Client as PgClient } from "pg";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { env } from "../../src/server/env";
 import { assertLocalSupabaseUrl } from "../../src/server/local-only";
 import type { Access } from "../../src/domain/access";
@@ -283,6 +284,26 @@ export async function deleteCheckinsForLine(lineId: string): Promise<void> {
   const db = service();
   const { error } = await db.from("checkins").delete().eq("line_id", lineId);
   if (error) throw error;
+}
+
+// Task 14（看已交內容）e2e 測試專用：seedSemester() 的種子報告只在資料庫留了一筆 pdf_key，
+// 沒有真的把檔案放進本機 Storage（跟 upload.ts 走的申請上傳網址流程不同）。這裡直接用
+// S3 SDK 把一份最小的 PDF 內容 PUT 到同一把 key，讓「下載 PDF」這個行為在 e2e 裡真的拿得到
+// 內容，不是打到 404。不能 import "@/server/r2"：那個檔案有 "server-only" guard，playwright
+// 的測試行程（不是 Next.js／vitest 環境）載入會直接丟例外，所以這裡用 S3 SDK 自己重建一次
+// 最小的 client（跟 r2.ts 的 client() 邏輯一樣：本機測試走 R2_ENDPOINT，path-style）。
+export async function uploadTestPdf(key: string, bytes: Uint8Array): Promise<void> {
+  const r2 = env.r2;
+  const endpoint = r2.endpoint ?? `https://${r2.accountId}.r2.cloudflarestorage.com`;
+  const s3 = new S3Client({
+    region: r2.region,
+    endpoint,
+    forcePathStyle: !!r2.endpoint,
+    credentials: { accessKeyId: r2.accessKeyId, secretAccessKey: r2.secretAccessKey },
+  });
+  await s3.send(
+    new PutObjectCommand({ Bucket: r2.bucket, Key: key, Body: bytes, ContentType: "application/pdf" })
+  );
 }
 
 export async function clientAs(email: string): Promise<SupabaseClient> {
