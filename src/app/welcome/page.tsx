@@ -3,6 +3,7 @@ import { requireOk } from "@/server/session";
 import { hasAcknowledged } from "@/server/queries/acknowledgement";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { AcceptButton } from "./accept-button";
+import { SignOutButton } from "@/components/sign-out-button";
 
 // 規格 4.2 的五點說明，逐字照抄，不改寫。
 const NOTICE_POINTS = [
@@ -41,7 +42,13 @@ export default async function WelcomePage() {
               <li key={point}>{point}</li>
             ))}
           </ol>
-          <AcceptButton />
+          <div className="flex flex-col gap-2">
+            <AcceptButton />
+            <p className="flex items-center justify-center gap-1 text-sm text-muted-foreground">
+              不是你的帳號？
+              <SignOutButton variant="link" />
+            </p>
+          </div>
         </CardContent>
       </Card>
     </main>

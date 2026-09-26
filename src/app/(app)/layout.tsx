@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireOk } from "@/server/session";
 import { hasAcknowledged } from "@/server/queries/acknowledgement";
+import { AppHeader } from "@/components/app-header";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const access = await requireOk();
@@ -9,5 +10,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (access.kind === "ok" && !(await hasAcknowledged(access.semesterId, access.email))) {
     redirect("/welcome");
   }
-  return <>{children}</>;
+  return (
+    <>
+      <AppHeader access={access} />
+      {children}
+    </>
+  );
 }
