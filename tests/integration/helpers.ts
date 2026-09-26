@@ -37,7 +37,17 @@ export async function resetDb(): Promise<void> {
   // upload_tickets 沒有外鍵掛在 semesters／groups 底下（key 是任意字串，見
   // supabase/migrations/20260927000006_upload_tickets.sql），cascade 刪不到它，要自己清。
   await db.from("upload_tickets").delete().not("key", "is", null);
-  await db.from("progress_reports").delete().neq("id", ZERO_UUID);
+  // progress_reports 上有 progress_lock trigger（Task 9，見 20260927000007_lock.sql）：
+  // 如果上一輪測試留下一筆「已經鎖定」（pdf_uploaded_at 超過 2 小時前）的報告，一般的
+  // delete（甚至 semesters 的 cascade delete，因為 cascade 對子表列一樣會觸發
+  // row-level trigger）會被這顆 trigger 擋下來，導致整個 resetDb() 卡住、下一輪
+  // seedSemester() 撞到 unique 限制。測試之間的清空動作本身不該受「業務規則的鎖定」
+  // 限制，所以這裡改用 raw pg 連線、暫時關掉 trigger（session_replication_role =
+  // replica，只在這一次連線內生效）來清空這張表。
+  await withRawPg(async (client) => {
+    await client.query("set session_replication_role = replica");
+    await client.query("delete from progress_reports");
+  });
   await db.from("periods").delete().neq("id", ZERO_UUID);
   await db.from("lines").delete().neq("id", ZERO_UUID);
   await db.from("pm_assignments").delete().not("group_id", "is", null);
@@ -211,6 +221,22 @@ export async function asUser<T>(email: string, fn: () => Promise<T>): Promise<T>
   const [{ vi }, { getAccess }] = await Promise.all([import("vitest"), import("@/server/session")]);
   vi.mocked(getAccess).mockResolvedValue(access);
   return fn();
+}
+
+// Task 9 測試專用：把一筆 progress_reports 的 pdf_uploaded_at 直接改成過去某個時間，用來
+// 模擬「這份報告已經交了超過 2 小時」而不用真的在測試裡等 2 小時。這個 update 本身會被
+// progress_lock trigger 擋（見 20260927000007_lock.sql）——如果這筆報告已經鎖定（或改完
+// 之後會被判定成鎖定），trigger 用 OLD.pdf_uploaded_at 判斷，所以「把一筆本來新鮮的報告
+// 改成 3 小時前」這個動作本身不會被擋（OLD 還是新鮮的），但為了讓這支 helper 在任何情境下
+// 都能可靠地造出「已鎖定」的測試資料（包括改一筆已經鎖定過的列），用 raw pg 連線暫時把這條
+// 連線的 session_replication_role 設成 replica（不觸發一般 trigger），只在這一次連線、這一
+// 顆 statement 的範圍內生效，連線結束後自動失效，不會影響其他測試或連線。withRawPg 已經用
+// assertLocalSupabaseUrl() 擋掉正式站。
+export async function backdatePdfUploadedAt(reportId: string, at: Date): Promise<void> {
+  await withRawPg(async (client) => {
+    await client.query("set session_replication_role = replica");
+    await client.query("update progress_reports set pdf_uploaded_at = $1 where id = $2", [at.toISOString(), reportId]);
+  });
 }
 
 export async function clientAs(email: string): Promise<SupabaseClient> {

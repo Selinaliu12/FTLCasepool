@@ -56,9 +56,14 @@ export default async function MyGroupPage() {
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
                 {p.report ? (
-                  <p className="text-sm">
-                    已交 · {p.report.submittedBy} · {formatTaipei(p.report.submittedAt)}
-                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    <p className="text-sm">
+                      已交 · {p.report.submittedBy} · {formatTaipei(p.report.submittedAt)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {now >= p.report.lockedAt ? "已鎖定" : `可修改到 ${formatTaipei(p.report.lockedAt)}`}
+                    </p>
+                  </div>
                 ) : overdue.late ? (
                   <p className="text-sm text-[color:var(--danger,#B3261E)]">
                     本期已{overdueLabel(overdue.hours)}，仍可補交

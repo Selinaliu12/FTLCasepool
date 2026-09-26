@@ -5,9 +5,13 @@ import { createServiceSupabase } from "@/server/supabase";
 import { validateProgress } from "@/domain/progress";
 import { MAX_PDF_BYTES } from "@/domain/pdf";
 import { inspectUploaded, deleteObject } from "@/server/r2";
+import { isLocked } from "@/domain/lock";
 import type { Light } from "@/domain/lights";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 const UPLOAD_FAILED = "檔案沒有上傳成功，請重新選擇 PDF";
+const NOT_FOUND = "找不到這份進度";
+const LOCKED_ERROR = "已超過 2 小時，已鎖定不能修改";
 
 // 只有「登入成功（kind ok）且是專案生（role student）且有 groupId」的人可以交進度；
 // PM／其他幹部沒有自己的組可以交，wrong_domain／not_in_roster／no_semester 沒有正式帳號。
@@ -121,6 +125,208 @@ export async function submitProgress(
     }
     throw rpcError;
   }
+
+  return { ok: true };
+}
+
+type OwnedReport = {
+  id: string;
+  lineId: string;
+  periodId: string;
+  pdfKey: string;
+  pdfUploadedAt: Date;
+};
+
+// editProgress／replaceProgressPdf／withdrawProgress 共用的授權檢查：呼叫者必須是「這份報告
+// 所屬那一組」的組員（規格：該組任何組員都可以動這份報告，不限交出去的那個人）。找不到報告、
+// 或報告屬於別組，一律回同一句「找不到這份進度」，不透露這份報告其實存在（見 controller
+// ruling 2）。
+async function loadOwnedReport(db: SupabaseClient, reportId: string, groupId: string): Promise<OwnedReport | null> {
+  const { data: report, error: reportError } = await db
+    .from("progress_reports")
+    .select("id, line_id, period_id, pdf_key, pdf_uploaded_at")
+    .eq("id", reportId)
+    .maybeSingle();
+  if (reportError) throw reportError;
+  if (!report) return null;
+
+  const { data: line, error: lineError } = await db
+    .from("lines")
+    .select("group_id")
+    .eq("id", report.line_id)
+    .single();
+  if (lineError) throw lineError;
+  if (line.group_id !== groupId) return null;
+
+  return {
+    id: report.id as string,
+    lineId: report.line_id as string,
+    periodId: report.period_id as string,
+    pdfKey: report.pdf_key as string,
+    pdfUploadedAt: new Date(report.pdf_uploaded_at as string),
+  };
+}
+
+// 交完進度後 2 小時內可以改燈號與三句話，繳交時間（pdf_uploaded_at）不變。伺服器端先用
+// isLocked() 擋一次（第一道防線），progress_lock trigger（見
+// supabase/migrations/20260927000007_lock.sql）用 OLD.pdf_uploaded_at 再擋一次（第二道、
+// 真正的防線）——即使這裡的判斷有 bug，資料庫也不會讓已鎖定的列被改動。
+export async function editProgress(
+  reportId: string,
+  input: { light: Light; did: string; blocked: string; nextSteps: string }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const access = await getAccess();
+  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+    return { ok: false, error: "只有專案生可以修改進度" };
+  }
+
+  const db = createServiceSupabase();
+  const report = await loadOwnedReport(db, reportId, access.member.groupId);
+  if (!report) return { ok: false, error: NOT_FOUND };
+
+  if (isLocked(report.pdfUploadedAt, new Date())) return { ok: false, error: LOCKED_ERROR };
+
+  const validation = validateProgress({
+    light: input.light,
+    did: input.did,
+    blocked: input.blocked,
+    nextSteps: input.nextSteps,
+    hasPdf: true,
+  });
+  if (!validation.ok) {
+    const firstError = Object.values(validation.errors)[0];
+    return { ok: false, error: firstError ?? "資料不完整" };
+  }
+
+  const { error: updateError } = await db
+    .from("progress_reports")
+    .update({
+      light: input.light,
+      did: input.did,
+      blocked: input.blocked,
+      next_steps: input.nextSteps,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", reportId);
+
+  if (updateError) {
+    // 就算上面的 isLocked() 檢查有 bug 而漏放行，trigger 還是會用 errcode P0001、
+    // 訊息 'LOCKED' 擋下來（見 progress-lock.test.ts 的「真實邊界」測試）。
+    if (updateError.message.includes("LOCKED")) return { ok: false, error: LOCKED_ERROR };
+    throw updateError;
+  }
+
+  return { ok: true };
+}
+
+// 換 PDF：跟 submitProgress 一樣的安全鏈（字首檢查 → 票務檢查 → inspectUploaded），確認
+// 新檔案真的合法之後，才透過 replace_progress_report()（SECURITY DEFINER RPC，見
+// 20260927000007_lock.sql）原子性地「標記票用掉」＋「更新 pdf_key／pdf_size／
+// pdf_uploaded_at／pdf_uploaded_by／updated_at」。RPC 成功之後才刪除舊的 R2 物件——
+// 絕對不能先刪舊檔再更新資料庫，那樣如果更新失敗（例如剛好過了 2 小時被鎖定），會留下
+// 「資料庫還指著一個已經被刪掉的舊檔」的半吊子狀態。
+export async function replaceProgressPdf(
+  reportId: string,
+  pdfKey: string
+): Promise<{ ok: true; becameLate: boolean } | { ok: false; error: string }> {
+  const access = await getAccess();
+  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+    return { ok: false, error: "只有專案生可以上傳" };
+  }
+
+  const db = createServiceSupabase();
+  const report = await loadOwnedReport(db, reportId, access.member.groupId);
+  if (!report) return { ok: false, error: NOT_FOUND };
+
+  if (isLocked(report.pdfUploadedAt, new Date())) return { ok: false, error: LOCKED_ERROR };
+
+  const { data: semester, error: semesterError } = await db
+    .from("semesters")
+    .select("name")
+    .eq("id", access.semesterId)
+    .single();
+  if (semesterError) throw semesterError;
+
+  const expectedPrefix = `${semester.name}/${access.member.groupId}/`;
+  if (!pdfKey.startsWith(expectedPrefix)) {
+    return { ok: false, error: UPLOAD_FAILED };
+  }
+
+  const { data: ticket, error: ticketError } = await db
+    .from("upload_tickets")
+    .select("issuer_email, used_at")
+    .eq("key", pdfKey)
+    .maybeSingle();
+  if (ticketError) throw ticketError;
+  if (!ticket || ticket.issuer_email !== access.email || ticket.used_at !== null) {
+    return { ok: false, error: UPLOAD_FAILED };
+  }
+
+  const inspected = await inspectUploaded(pdfKey);
+  if (!inspected || !inspected.isPdf || inspected.size > MAX_PDF_BYTES) {
+    await deleteObject(pdfKey).catch(() => {});
+    return { ok: false, error: UPLOAD_FAILED };
+  }
+
+  const { data: period, error: periodError } = await db
+    .from("periods")
+    .select("deadline")
+    .eq("id", report.periodId)
+    .single();
+  if (periodError) throw periodError;
+  const deadline = new Date(period.deadline as string);
+
+  const now = new Date();
+
+  const { error: rpcError } = await db.rpc("replace_progress_report", {
+    p_report_id: reportId,
+    p_pdf_key: pdfKey,
+    p_issuer_email: access.email,
+    p_pdf_size: inspected.size,
+    p_pdf_uploaded_at: now.toISOString(),
+    p_pdf_uploaded_by: access.email,
+  });
+
+  if (rpcError) {
+    if (rpcError.message.includes("LOCKED")) return { ok: false, error: LOCKED_ERROR };
+    if (rpcError.code === "23505" || rpcError.message.includes("invalid_ticket")) {
+      return { ok: false, error: UPLOAD_FAILED };
+    }
+    if (rpcError.message.includes("report_not_found")) return { ok: false, error: NOT_FOUND };
+    throw rpcError;
+  }
+
+  // 舊檔在資料庫成功換成新檔之後才刪，不是之前。
+  await deleteObject(report.pdfKey).catch(() => {});
+
+  // becameLate：原本準時交（舊的 pdf_uploaded_at 在截止之前），換檔之後的新時間卻已經
+  // 過了截止——這一期因此從「準時」變成「逾期」。
+  const becameLate = report.pdfUploadedAt.getTime() <= deadline.getTime() && now.getTime() > deadline.getTime();
+
+  return { ok: true, becameLate };
+}
+
+// 撤回：整筆刪除、R2 檔也刪，不留紀錄。刪除順序跟換 PDF 一樣——先讓資料庫那一步成功，
+// 再刪 R2 上的物件；如果資料庫那步被 trigger 擋下來（已經鎖定），R2 上的檔案原封不動。
+export async function withdrawProgress(reportId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const access = await getAccess();
+  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+    return { ok: false, error: "只有專案生可以撤回" };
+  }
+
+  const db = createServiceSupabase();
+  const report = await loadOwnedReport(db, reportId, access.member.groupId);
+  if (!report) return { ok: false, error: NOT_FOUND };
+
+  if (isLocked(report.pdfUploadedAt, new Date())) return { ok: false, error: LOCKED_ERROR };
+
+  const { error: deleteError } = await db.from("progress_reports").delete().eq("id", reportId);
+  if (deleteError) {
+    if (deleteError.message.includes("LOCKED")) return { ok: false, error: LOCKED_ERROR };
+    throw deleteError;
+  }
+
+  await deleteObject(report.pdfKey).catch(() => {});
 
   return { ok: true };
 }
