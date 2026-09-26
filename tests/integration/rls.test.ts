@@ -156,4 +156,50 @@ describe("RLS：預設權限（alter default privileges，防止未來新表悄�
       }
     });
   });
+
+  // 最終審查 #1：`alter default privileges ... in schema public revoke ... from public` 是 no-op
+  // （per-schema 的預設權限只能「加」權限，收不掉全域預設裡 PUBLIC 的 EXECUTE）。新建函式會透過
+  // PUBLIC 讓 anon／authenticated 摸得到，這裡用一個用完就 rollback 的函式驗證真的收緊了。
+  it("public schema 新建的函式，預設情況下 anon／authenticated 沒有 EXECUTE", async () => {
+    await withRawPg(async (client) => {
+      await client.query("begin");
+      try {
+        await client.query("create function _default_privileges_fn_check() returns int language sql as $$ select 1 $$");
+        for (const role of ["anon", "authenticated"]) {
+          const res = await client.query(
+            "select has_function_privilege($1, '_default_privileges_fn_check()', 'execute') as ok",
+            [role]
+          );
+          expect(res.rows[0].ok, role).toBe(false);
+        }
+      } finally {
+        await client.query("rollback");
+      }
+    });
+  });
+
+  it("現有的 public 函式都沒有開給 PUBLIC 執行", async () => {
+    await withRawPg(async (client) => {
+      const res = await client.query(
+        `select p.proname
+           from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public'
+            and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                         where a.grantee = 0 and a.privilege_type = 'EXECUTE')
+          order by 1`
+      );
+      expect(res.rows.map((r) => r.proname)).toEqual([]);
+    });
+  });
+
+  it("anon 對 RLS 輔助函式沒有 EXECUTE（authenticated 保留，RLS 政策要用）", async () => {
+    await withRawPg(async (client) => {
+      for (const fn of ["my_group()", "is_staff()", "is_pm()", "can_read_content(uuid)", "can_read_status(uuid)"]) {
+        const anon = await client.query("select has_function_privilege('anon', $1, 'execute') as ok", [fn]);
+        expect(anon.rows[0].ok, `anon ${fn}`).toBe(false);
+        const authed = await client.query("select has_function_privilege('authenticated', $1, 'execute') as ok", [fn]);
+        expect(authed.rows[0].ok, `authenticated ${fn}`).toBe(true);
+      }
+    });
+  });
 });
