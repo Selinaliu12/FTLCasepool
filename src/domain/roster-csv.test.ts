@@ -63,4 +63,12 @@ describe("parseRosterCsv", () => {
       errors: ["第 2 列：幹部不屬於任何一組，組別請留空"],
     });
   });
+
+  // 最終審查 M11：姓名空白會讓頁首、組頁「最近回報」、看板都變成空字串。
+  it("姓名空白（或只有空格）→ 第 N 列：姓名不能空白", () => {
+    const r = parseRosterCsv(
+      [HEADER, "a@g.nccu.edu.tw,,專案生,第1組,智慧記帳", "p@g.nccu.edu.tw,   ,專案幹部,,"].join("\n")
+    );
+    expect(r).toEqual({ ok: false, errors: ["第 2 列：姓名不能空白", "第 3 列：姓名不能空白"] });
+  });
 });

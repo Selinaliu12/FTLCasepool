@@ -44,6 +44,11 @@ export function parseRosterCsv(text: string): ParseResult {
       return;
     }
 
+    if (!v("姓名")) {
+      errors.push(`第 ${line} 列：姓名不能空白`);
+      return;
+    }
+
     // Check student has group and project name
     if (role === "student" && (!group || !projectName)) {
       errors.push(`第 ${line} 列：專案生一定要填組別與專案名稱`);
