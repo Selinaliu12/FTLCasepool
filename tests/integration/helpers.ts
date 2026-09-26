@@ -306,6 +306,73 @@ export async function uploadTestPdf(key: string, bytes: Uint8Array): Promise<voi
   );
 }
 
+// Task 14（看已交內容）測試專用：loadGroupDetail／getPdfDownloadUrl 的測試檔原本各自複製
+// 一份幾乎一模一樣的 asPm／asOfficer／asStudent／asAdminNoMember，集中到這裡供兩邊共用
+// （Fix round 1 controller ruling 9）。這幾個函式不直接依賴 vitest 的型別（helpers.ts 也被
+// playwright 的 global-setup 用到，那裡不是 vitest 執行環境），用結構型別
+// { mockResolvedValue } 描述呼叫端傳進來的、已經 vi.mock 過的 getAccess。
+type AccessMock = { mockResolvedValue: (value: Access) => unknown };
+
+export function asPm(mockGetAccess: AccessMock, semesterId: string): void {
+  mockGetAccess.mockResolvedValue({
+    kind: "ok",
+    email: "pm@g.nccu.edu.tw",
+    isAdmin: false,
+    member: { id: "pm-id", semesterId, email: "pm@g.nccu.edu.tw", name: "專案幹部", role: "pm", groupId: null },
+    semesterId,
+  });
+}
+
+export function asOfficer(mockGetAccess: AccessMock, semesterId: string): void {
+  mockGetAccess.mockResolvedValue({
+    kind: "ok",
+    email: "off@g.nccu.edu.tw",
+    isAdmin: false,
+    member: { id: "off-id", semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", groupId: null },
+    semesterId,
+  });
+}
+
+export function asStudent(
+  mockGetAccess: AccessMock,
+  semesterId: string,
+  groupId: string,
+  email = "a1@g.nccu.edu.tw",
+  name = "甲一"
+): void {
+  mockGetAccess.mockResolvedValue({
+    kind: "ok",
+    email,
+    isAdmin: false,
+    member: { id: "s-id", semesterId, email, name, role: "student", groupId },
+    semesterId,
+  });
+}
+
+export function asAdminNoMember(mockGetAccess: AccessMock, semesterId: string): void {
+  mockGetAccess.mockResolvedValue({
+    kind: "ok",
+    email: "admin@g.nccu.edu.tw",
+    isAdmin: true,
+    member: null,
+    semesterId,
+  });
+}
+
+// Controller ruling 3（Task 14 fix round 1）：管理員即使在名單上也掛了一個非學生角色（這裡用
+// officer 示範），身分還是「管理員 ✓」，不該被 officer 的規則擋下來。呼叫端要先用 service
+// client 把這筆 member 塞進 members 表（email 必須等於 ADMIN_EMAILS 裡的那個信箱，這裡固定用
+// "admin@g.nccu.edu.tw"，跟 .env.local 的設定一致）。
+export function asAdminOfficer(mockGetAccess: AccessMock, semesterId: string, memberId: string): void {
+  mockGetAccess.mockResolvedValue({
+    kind: "ok",
+    email: "admin@g.nccu.edu.tw",
+    isAdmin: true,
+    member: { id: memberId, semesterId, email: "admin@g.nccu.edu.tw", name: "管理員兼其他幹部", role: "officer", groupId: null },
+    semesterId,
+  });
+}
+
 export async function clientAs(email: string): Promise<SupabaseClient> {
   const db = service();
   const { error: createError } = await db.auth.admin.createUser({

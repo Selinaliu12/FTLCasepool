@@ -5,6 +5,8 @@ import type { Light, Deliverable } from "@/domain/lights";
 import { systemLight, reporterLight, displayLight, periodLabel } from "@/domain/lights";
 import { onTimeRate } from "@/domain/on-time";
 import { submissionTiming } from "@/domain/progress";
+import { mapCheckinHistory, type CheckinHistoryEntry } from "@/domain/checkin-history";
+import { isUuid } from "@/domain/id";
 
 export type GroupDetailPeriod = {
   seq: number;
@@ -23,14 +25,12 @@ export type GroupDetailPeriod = {
       };
 };
 
-export type GroupDetailCheckin = { light: Light; note: string | null; by: string; at: Date };
-
 export type GroupDetail = {
   group: { id: string; name: string; projectName: string };
   display: { light: Light; source: string };
   onTime: number | null;
   periods: GroupDetailPeriod[];
-  checkins: GroupDetailCheckin[];
+  checkins: CheckinHistoryEntry[];
 };
 
 // 規格第 3 節「看進度內容（三句話、PDF、紅燈說明）」：管理員 ✓、專案幹部 ✓（看得到所有組）、
@@ -41,14 +41,25 @@ export type GroupDetail = {
 // 列（信箱只出現在 ADMIN_EMAILS，不在名單匯入範圍），這種情況才退回服務身分，一樣只選
 // 這裡真正要用到的欄位。
 export async function loadGroupDetail(groupId: string): Promise<GroupDetail | null> {
+  // 亂填的 id（不是 UUID 格式）打到 PostgREST 的 eq() 會丟 22P02，不是「查無此列」；
+  // 在打資料庫前就先擋下來，回傳跟其他沒有權限情況一樣的 null（頁面轉成 404），不要讓
+  // 這種輸入變成未處理的例外。
+  if (!isUuid(groupId)) return null;
+
   const access = await getAccess();
   if (access.kind !== "ok") return null;
 
-  const useService = access.isAdmin && !access.member;
+  // Controller ruling（Task 14 fix round 1）：規格第 3 節「看進度內容」管理員 ✓，不管
+  // 管理員在名單上有沒有 member 列、那筆 member 是什麼角色（只要不是學生）——管理員身分本身
+  // 就該看得到全部內容。改之前的寫法（isAdmin && !member）會讓「同時是管理員又被匯入成
+  // 其他幹部」的人被下面的 officer 分支擋下來，跟權限表衝突。學生即使同時掛 isAdmin，也走
+  // 學生自己的分支（只看自己組），不因為 isAdmin 而升級成看得到全部組。
+  const useService = access.isAdmin && access.member?.role !== "student";
   if (!useService) {
     const role = access.member?.role;
-    if (role === "officer") return null;
     if (role === "student" && access.member?.groupId !== groupId) return null;
+    // catch-all：只有 pm／student 能走到這裡繼續往下查；officer（以及理論上不會出現的其他
+    // 角色）在這裡就被擋掉，不用再特別為 officer 寫一行——這行本來就涵蓋它。
     if (role !== "pm" && role !== "student") return null;
   }
 
@@ -131,12 +142,15 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
   const display = displayLight(reporter, sys);
   const onTime = onTimeRate(deliverables, now);
 
-  const checkins: GroupDetailCheckin[] = (checkinsRes.data ?? []).map((c) => ({
-    light: c.light as Light,
-    note: c.note as string | null,
-    by: nameByEmail.get(c.created_by as string) ?? (c.created_by as string),
-    at: new Date(c.created_at as string),
-  }));
+  const checkins = mapCheckinHistory(
+    (checkinsRes.data ?? []).map((c) => ({
+      light: c.light as Light,
+      note: c.note as string | null,
+      created_by: c.created_by as string,
+      created_at: c.created_at as string,
+    })),
+    nameByEmail
+  );
 
   return {
     group: {

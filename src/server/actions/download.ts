@@ -4,6 +4,7 @@ import { getAccess } from "@/server/session";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
 import { presignPdfGet } from "@/server/r2";
 import { pdfDownloadName } from "@/domain/download";
+import { isUuid } from "@/domain/id";
 
 const NOT_FOUND = "找不到這份進度" as const;
 
@@ -18,10 +19,17 @@ const NOT_FOUND = "找不到這份進度" as const;
 export async function getPdfDownloadUrl(
   reportId: string
 ): Promise<{ ok: true; url: string } | { ok: false; error: typeof NOT_FOUND }> {
+  // 亂填的 id（不是 UUID 格式）打到 PostgREST 的 eq() 會丟 22P02，不是「查無此列」；在打
+  // 資料庫前先擋下來，跟其他沒有權限的情況回傳同一種「找不到這份進度」，不要讓這種輸入變成
+  // 未處理的例外。
+  if (!isUuid(reportId)) return { ok: false, error: NOT_FOUND };
+
   const access = await getAccess();
   if (access.kind !== "ok") return { ok: false, error: NOT_FOUND };
 
-  const useService = access.isAdmin && !access.member;
+  // Controller ruling（Task 14 fix round 1）：跟 loadGroupDetail 一樣，管理員身分本身就該
+  // 看得到內容，不管有沒有 member 列、那筆 member 是不是學生以外的角色。
+  const useService = access.isAdmin && access.member?.role !== "student";
   const db = useService ? createServiceSupabase() : await createServerSupabase();
 
   const { data: report, error } = await db

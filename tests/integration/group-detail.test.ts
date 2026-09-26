@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester, clientAs } from "./helpers";
+import { resetDb, seedSemester, clientAs, asPm, asOfficer, asStudent, asAdminNoMember, asAdminOfficer } from "./helpers";
+import { createServiceSupabase } from "@/server/supabase";
 
 // loadGroupDetail 走使用者身分連線（RLS 決定），管理員（沒有 member 列）才退回服務身分——
 // 跟 dashboard-query.test.ts／checkin.test.ts 一樣用 vi.mock 假造 @/server/session，
@@ -15,46 +16,6 @@ vi.mock("@/server/supabase", async () => {
 });
 import { loadGroupDetail } from "@/server/queries/group-detail";
 
-function asPm(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
-    kind: "ok",
-    email: "pm@g.nccu.edu.tw",
-    isAdmin: false,
-    member: { id: "pm-id", semesterId, email: "pm@g.nccu.edu.tw", name: "專案幹部", role: "pm", groupId: null },
-    semesterId,
-  });
-}
-
-function asOfficer(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
-    kind: "ok",
-    email: "off@g.nccu.edu.tw",
-    isAdmin: false,
-    member: { id: "off-id", semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", groupId: null },
-    semesterId,
-  });
-}
-
-function asStudent(semesterId: string, groupId: string, email = "a1@g.nccu.edu.tw", name = "甲一") {
-  mockGetAccess.mockResolvedValue({
-    kind: "ok",
-    email,
-    isAdmin: false,
-    member: { id: "s-id", semesterId, email, name, role: "student", groupId },
-    semesterId,
-  });
-}
-
-function asAdminNoMember(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
-    kind: "ok",
-    email: "admin@g.nccu.edu.tw",
-    isAdmin: true,
-    member: null,
-    semesterId,
-  });
-}
-
 describe("loadGroupDetail", () => {
   let seed: Awaited<ReturnType<typeof seedSemester>>;
 
@@ -65,7 +26,7 @@ describe("loadGroupDetail", () => {
   });
 
   it("專案幹部讀得到任一組的三句話、誰交、紅燈說明", async () => {
-    asPm(seed.semesterId);
+    asPm(mockGetAccess, seed.semesterId);
     mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
 
     const result = await loadGroupDetail(seed.groupA);
@@ -81,7 +42,7 @@ describe("loadGroupDetail", () => {
   });
 
   it("其他幹部讀不到，回傳 null", async () => {
-    asOfficer(seed.semesterId);
+    asOfficer(mockGetAccess, seed.semesterId);
     mockCreateServerSupabase.mockResolvedValue(await clientAs("off@g.nccu.edu.tw"));
 
     const result = await loadGroupDetail(seed.groupA);
@@ -89,7 +50,7 @@ describe("loadGroupDetail", () => {
   });
 
   it("學生讀自己組可以，別組回傳 null", async () => {
-    asStudent(seed.semesterId, seed.groupA);
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
     mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
     const own = await loadGroupDetail(seed.groupA);
     expect(own).not.toBeNull();
@@ -99,11 +60,45 @@ describe("loadGroupDetail", () => {
   });
 
   it("管理員（沒有 member 列）讀得到", async () => {
-    asAdminNoMember(seed.semesterId);
+    asAdminNoMember(mockGetAccess, seed.semesterId);
     mockCreateServerSupabase.mockRejectedValue(new Error("user client must not be used for admin without member"));
 
     const result = await loadGroupDetail(seed.groupA);
     expect(result).not.toBeNull();
     expect(result!.group.name).toBe("第1組");
+  });
+
+  // Controller ruling 3（Task 14 fix round 1）：管理員同時被匯入成其他幹部（member 列存在、
+  // role 是 officer），身分還是「管理員 ✓」——之前的寫法（useService = isAdmin && !member）
+  // 會讓這種人落到「其他幹部」的分支被擋下來，跟權限表衝突。
+  it("管理員同時是名單上的其他幹部，也讀得到（走服務身分，不受 officer 規則影響）", async () => {
+    const db = createServiceSupabase();
+    const { data: member, error } = await db
+      .from("members")
+      .insert({ semester_id: seed.semesterId, email: "admin@g.nccu.edu.tw", name: "管理員兼其他幹部", role: "officer", group_id: null })
+      .select()
+      .single();
+    if (error) throw error;
+
+    asAdminOfficer(mockGetAccess, seed.semesterId, member.id as string);
+    mockCreateServerSupabase.mockRejectedValue(new Error("user client must not be used for admin"));
+
+    const result = await loadGroupDetail(seed.groupA);
+    expect(result).not.toBeNull();
+    expect(result!.group.name).toBe("第1組");
+  });
+
+  it("亂填的 id（不是 UUID 格式）回傳 null，不會丟例外", async () => {
+    asPm(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
+
+    await expect(loadGroupDetail("abc")).resolves.toBeNull();
+  });
+
+  it("格式正確但不存在的 UUID 回傳 null", async () => {
+    asPm(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
+
+    await expect(loadGroupDetail("00000000-0000-0000-0000-000000000000")).resolves.toBeNull();
   });
 });
