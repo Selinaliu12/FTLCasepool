@@ -217,19 +217,46 @@ describe("submitProgress", () => {
     expect(mockInspectUploaded).not.toHaveBeenCalled();
   });
 
-  it("key 的字首是別組的（不是自己這組）→『檔案沒有上傳成功』，不呼叫 inspectUploaded／deleteObject", async () => {
+  it("key 的字首是舊組別的（換組後，票本身還合法未用）→『檔案沒有上傳成功』，不呼叫 inspectUploaded／deleteObject／不寫入", async () => {
+    // Fix round 1 的舊版這個測試不會咬：拿一把 b1 從沒申請過的 key，字首檢查跟票務檢查
+    // （b1 不是這張票的 issuer）同時會擋下來，關掉字首檢查測試照樣綠，殺不死那個 mutant。
+    // 這裡改成模擬真實情境——moveMember()（admin.ts）可以把一個專案生換到別組，換組當下
+    // 完全不會去動這個人手上還沒用掉的票：票對這個人來說仍然合法（issuer_email 是自己、
+    // used_at 是 null），字首卻還停在舊組別。這種情況下，**只有**字首檢查能擋下來。
     const seed = await seedSemester();
-    // b1 是第2組，但硬塞一把字首是第1組的 key（b1 從沒申請過這把 key，也不可能通過票務檢查，
-    // 但這裡要確認連 inspectUploaded／deleteObject 都不會被呼叫——在字首檢查那一關就先擋掉）。
-    asStudent(seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
-    const input = goodInput(seed.groupA, "x");
+
+    // a1 一開始真的在第1組（seedSemester() 種的），申請了一把字首是第1組的 key。
+    asStudent(seed.semesterId, seed.groupA, "a1@g.nccu.edu.tw", "甲一");
+    const input = goodInput(seed.groupA, "moved");
+    await issueTicket(input.pdfKey, "a1@g.nccu.edu.tw");
+
+    // 幹部把 a1 換到第2組（直接改 members.group_id，等同 moveMember() 實際做的事——
+    // moveMember() 本身要先過 requireAdmin()，這裡不用另外借一套 admin mock 身分）。
+    const db = createServiceSupabase();
+    const { data: member, error: memberError } = await db
+      .from("members")
+      .select("id")
+      .eq("semester_id", seed.semesterId)
+      .eq("email", "a1@g.nccu.edu.tw")
+      .single();
+    if (memberError) throw memberError;
+    const { error: moveError } = await db.from("members").update({ group_id: seed.groupB }).eq("id", member.id);
+    if (moveError) throw moveError;
+
+    // 如果字首檢查沒擋下來，票務檢查會過（票是 a1 自己的、還沒用）、inspect 也會過——
+    // 讓 inspect 回傳合法結果，才能真正驗到「沒有字首檢查會一路寫進第2組的線」。
+    mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
+
+    // access 反映換組後的狀態：現在是第2組。
+    asStudent(seed.semesterId, seed.groupB, "a1@g.nccu.edu.tw", "甲一");
 
     const { submitProgress } = await import("@/server/actions/progress");
     const result = await submitProgress(seed.periodIds[1], input);
 
     expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
     expect(mockInspectUploaded).not.toHaveBeenCalled();
-    expect(mockDeleteObject).not.toHaveBeenCalledWith(input.pdfKey);
+    expect(mockDeleteObject).not.toHaveBeenCalled();
+    expect(await reportsFor(seed.lineA, seed.periodIds[1])).toHaveLength(0);
     expect(await reportsFor(seed.lineB, seed.periodIds[1])).toHaveLength(0);
   });
 
