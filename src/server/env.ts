@@ -15,6 +15,10 @@ export const env = {
       accessKeyId: required("R2_ACCESS_KEY_ID"),
       secretAccessKey: required("R2_SECRET_ACCESS_KEY"),
       bucket: required("R2_BUCKET"),
+      // 本機測試指向本機 Supabase Storage 的 S3 相容端點；正式環境沒有這個變數，
+      // r2.ts 會退回真正的 R2 端點（https://{accountId}.r2.cloudflarestorage.com）。
+      endpoint: process.env.R2_ENDPOINT,
+      region: process.env.R2_REGION ?? "auto",
     };
   },
 };
