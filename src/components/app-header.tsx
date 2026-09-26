@@ -35,7 +35,7 @@ export function AppHeader({ access }: { access: HeaderAccess }) {
         <Link href="/" className="font-heading text-base font-bold text-foreground">
           FTL 競賽池
         </Link>
-        <div className="order-3 -mx-3 w-full sm:order-none sm:mx-0 sm:w-auto">
+        <div className="order-3 w-full pb-1 sm:order-none sm:w-auto sm:pb-0">
           <AppNav links={navLinksFor(access)} />
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-1">

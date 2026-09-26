@@ -82,25 +82,37 @@ export function PeriodsForm({ semesterId, initialRows }: { semesterId: string; i
                 {row.hasReports && <Badge variant="secondary">已有人交件</Badge>}
               </li>
             ) : (
-              <li key={row.id ?? i} className="flex items-center gap-2">
-                <span className="w-12 shrink-0 text-sm text-muted-foreground">第 {i + 1} 期</span>
-                <Input
-                  type="date"
-                  aria-label={`第 ${i + 1} 期日期`}
-                  value={row.date}
-                  onChange={(e) => updateRow(i, { date: e.target.value })}
-                  required
-                />
-                <Input
-                  type="time"
-                  aria-label={`第 ${i + 1} 期時間`}
-                  value={row.time}
-                  onChange={(e) => updateRow(i, { time: e.target.value })}
-                  required
-                />
-                <Button type="button" variant="ghost" size="sm" onClick={() => removeRow(i)} aria-label={`刪除第 ${i + 1} 期`}>
-                  刪除
-                </Button>
+              <li key={row.id ?? i} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                {/* 手機寬：第一行「第 N 期＋刪除」、第二行兩個輸入框各半；sm 以上攤成同一行。 */}
+                <div className="flex items-center justify-between sm:contents">
+                  <span className="w-12 shrink-0 text-sm text-muted-foreground">第 {i + 1} 期</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="sm:order-last"
+                    onClick={() => removeRow(i)}
+                    aria-label={`刪除第 ${i + 1} 期`}
+                  >
+                    刪除
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-1">
+                  <Input
+                    type="date"
+                    aria-label={`第 ${i + 1} 期日期`}
+                    value={row.date}
+                    onChange={(e) => updateRow(i, { date: e.target.value })}
+                    required
+                  />
+                  <Input
+                    type="time"
+                    aria-label={`第 ${i + 1} 期時間`}
+                    value={row.time}
+                    onChange={(e) => updateRow(i, { time: e.target.value })}
+                    required
+                  />
+                </div>
               </li>
             )
           )}
