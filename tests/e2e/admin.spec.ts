@@ -17,6 +17,19 @@ test.describe.serial("管理員設定", () => {
 
     await page.getByLabel("學期名稱").fill("115-1");
     await page.getByRole("button", { name: "建立學期" }).click();
+
+    // 建立學期之後，管理員本身也變成 kind "ok"（有真的 semesterId），跟其他人一樣要按過
+    // 「我已了解」才能繼續（見 (app)/layout.tsx；no_semester 才會跳過檢查，建立學期之前那次
+    // 進入 /admin 就是 no_semester，所以沒被擋）。這裡先等「/admin 顯示新學期」或「跳到
+    // /welcome」兩者其中一個先出現——不能只比對網址，因為點擊當下網址還是 /admin，之後才會
+    // 非同步導頁，直接讀 page.url() 會抓到還沒導頁的舊網址。
+    await Promise.race([
+      page.getByText("目前學期：115-1").waitFor({ state: "visible" }),
+      page.getByRole("button", { name: "我已了解" }).waitFor({ state: "visible" }),
+    ]);
+    if (await page.getByRole("button", { name: "我已了解" }).isVisible()) {
+      await page.getByRole("button", { name: "我已了解" }).click();
+    }
     await expect(page.getByText("目前學期：115-1")).toBeVisible();
 
     const csv = [
