@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateProgress, lateBy, validateCheckin, type ProgressInput } from "./progress";
+import { validateProgress, lateBy, validateCheckin, submissionTiming, type ProgressInput } from "./progress";
 
 const validInput: ProgressInput = {
   light: "green",
@@ -102,5 +102,36 @@ describe("validateCheckin", () => {
 
   it("沒選燈號 → 錯誤", () => {
     expect(validateCheckin({ light: null, note: "" })).toEqual({ ok: false, error: "請選燈號" });
+  });
+});
+
+// 最終審查 #3：規格 §4.4「截止後仍可補交，系統標記逾期天數」——已交的期別要標示準時或逾期多久。
+describe("submissionTiming", () => {
+  const deadline = new Date("2026-10-16T15:59:59.999Z"); // 台北 10/16 23:59:59.999
+
+  it("截止前（含剛好截止）交 → 準時", () => {
+    expect(submissionTiming(deadline, new Date("2026-10-16T15:00:00Z"))).toEqual({ late: false, label: "準時" });
+    expect(submissionTiming(deadline, deadline)).toEqual({ late: false, label: "準時" });
+  });
+
+  it("晚 5 小時 → 逾期 5 小時", () => {
+    expect(submissionTiming(deadline, new Date(deadline.getTime() + 5 * 3_600_000 + 60_000))).toEqual({
+      late: true,
+      label: "逾期 5 小時",
+    });
+  });
+
+  it("晚 50 小時 → 逾期 2 天", () => {
+    expect(submissionTiming(deadline, new Date(deadline.getTime() + 50 * 3_600_000))).toEqual({
+      late: true,
+      label: "逾期 2 天",
+    });
+  });
+
+  it("晚不到 1 小時 → 逾期不到 1 小時（不顯示「逾期 0 小時」）", () => {
+    expect(submissionTiming(deadline, new Date(deadline.getTime() + 1000))).toEqual({
+      late: true,
+      label: "逾期不到 1 小時",
+    });
   });
 });

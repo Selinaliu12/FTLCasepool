@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getAccess } from "@/server/session";
 import { loadMyGroup } from "@/server/queries/my-group";
 import { LightBadge } from "@/components/light-badge";
+import { SubmissionTiming } from "@/components/submission-timing";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "cn";
@@ -71,8 +72,11 @@ export default async function MyGroupPage() {
               <CardContent className="flex flex-col gap-3">
                 {p.report ? (
                   <div className="flex flex-col gap-0.5">
-                    <p className="text-sm">
-                      已交 · {p.report.submittedBy} · {formatTaipei(p.report.submittedAt)}
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                      <span>
+                        已交 · {p.report.submittedBy} · {formatTaipei(p.report.submittedAt)}
+                      </span>
+                      <SubmissionTiming deadline={p.deadline} submittedAt={p.report.submittedAt} />
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {now >= p.report.lockedAt ? "已鎖定" : `可修改到 ${formatTaipei(p.report.lockedAt)}`}

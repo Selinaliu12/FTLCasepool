@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LightBadge } from "@/components/light-badge";
+import { SubmissionTiming } from "@/components/submission-timing";
 import { formatTaipei } from "@/domain/time";
 import { validateProgress } from "@/domain/progress";
 import { validatePdfMeta } from "@/domain/pdf";
@@ -190,8 +191,11 @@ export function EditableReport(props: {
     return (
       <div className="flex flex-col gap-4">
         <LightBadge light={props.light} source="組員回報" />
-        <p className="text-sm text-muted-foreground">
-          已交 · {props.submittedBy} · {formatTaipei(new Date(props.submittedAt))}
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+          <span>
+            已交 · {props.submittedBy} · {formatTaipei(new Date(props.submittedAt))}
+          </span>
+          <SubmissionTiming deadline={props.deadline} submittedAt={props.submittedAt} />
         </p>
         <p className="text-sm font-medium text-foreground">已鎖定</p>
         <ReadonlyFields did={props.did} blocked={props.blocked} nextSteps={props.nextSteps} />
@@ -294,8 +298,11 @@ export function EditableReport(props: {
   return (
     <div className="flex flex-col gap-4">
       <LightBadge light={props.light} source="組員回報" />
-      <p className="text-sm text-muted-foreground">
-        已交 · {props.submittedBy} · {formatTaipei(new Date(props.submittedAt))}
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+        <span>
+          已交 · {props.submittedBy} · {formatTaipei(new Date(props.submittedAt))}
+        </span>
+        <SubmissionTiming deadline={props.deadline} submittedAt={props.submittedAt} />
       </p>
       <p className="text-sm text-foreground">可修改到 {formatTaipei(new Date(props.lockedAt))}</p>
 
