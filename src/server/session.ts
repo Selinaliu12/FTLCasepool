@@ -50,7 +50,7 @@ export async function getAccess(): Promise<Access> {
   return resolveAccess(email, { adminEmails, semesterId, member });
 }
 
-export async function requireOk(): Promise<Extract<Access, { kind: "ok" }>> {
+export async function requireOk(): Promise<Extract<Access, { kind: "ok" } | { kind: "no_semester" }>> {
   const access = await getAccess();
   if (access.kind === "ok") return access;
 
@@ -62,6 +62,11 @@ export async function requireOk(): Promise<Extract<Access, { kind: "ok" }>> {
   if (access.kind === "not_in_roster") {
     redirect("/not-in-roster");
   }
-  // no_semester：管理員先進去 /admin 開學期；其他人看到「本學期尚未開放」（沿用 /not-in-roster 頁，用 reason 區分文案）。
-  redirect(access.isAdmin ? "/admin" : "/not-in-roster?reason=no_semester");
+  // no_semester：其他人看到「本學期尚未開放」（沿用 /not-in-roster 頁，用 reason 區分文案）。
+  // 管理員則直接把 access 交回去，由呼叫者（/admin 自己）決定畫面：/admin 也在 (app) 底下、
+  // 也會經過這個檢查，如果這裡硬導去 /admin 會變成對自己重導向，造成無限迴圈
+  // （ERR_TOO_MANY_REDIRECTS）。/admin/page.tsx 在 semesterId 是 null 時只顯示「建立學期」卡片，
+  // 其他頁面（RootPage）看到 isAdmin 會自己導去 /admin。
+  if (!access.isAdmin) redirect("/not-in-roster?reason=no_semester");
+  return access;
 }

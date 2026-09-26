@@ -11,6 +11,10 @@ try {
 export default defineConfig({
   testDir: "tests/e2e",
   globalSetup: "./tests/e2e/global-setup.ts",
+  // 所有 e2e 測試共用同一個本機 Supabase；admin.spec.ts 會呼叫 resetDb() 重建資料庫，
+  // 如果跟其他測試平行跑，會把別的測試正在依賴的種子資料洗掉（曾經因此讓 access.spec.ts
+  // 隨機失敗）。固定用一個 worker，全部測試依序執行，不追求平行速度。
+  workers: 1,
   use: { baseURL: "http://localhost:3000", timezoneId: "Asia/Taipei", locale: "zh-TW" },
   webServer: {
     command: "npm run dev",

@@ -26,7 +26,7 @@ export function parseRosterCsv(text: string): ParseResult {
   const errors: string[] = [];
   const rows: RosterRow[] = [];
   const emailToLine = new Map<string, number>();
-  const groupToProjectName = new Map<string, string>();
+  const groupToProjectName = new Map<string, string | null>();
 
   parsed.data.forEach((raw, i) => {
     const line = i + 2;
