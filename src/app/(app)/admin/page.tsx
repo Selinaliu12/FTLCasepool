@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getAccess } from "@/server/session";
 import { createServiceSupabase } from "@/server/supabase";
 import { formatTaipei, taipeiInputValues } from "@/domain/time";
+import { periodLabel } from "@/domain/lights";
+import { upcomingPeriod } from "@/domain/dashboard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateSemesterForm } from "./create-semester-form";
 import { RosterImport } from "./roster-import";
@@ -99,6 +101,11 @@ export default async function AdminPage() {
     initialAssignments[a.pm_member_id as string] = list;
   }
 
+  const nextPeriod = upcomingPeriod(
+    periodList.map((p) => ({ seq: p.seq as number, deadline: new Date(p.deadline as string) })),
+    new Date()
+  );
+
   const reportedPeriodIds = new Set((reportedRes.data ?? []).map((r) => r.period_id as string));
   // 最後一個已有人交件的期別之前（含）全部唯讀：save_periods() 不允許改動它們（會讓凍結期別的編號位移）。
   const lastFrozenSeq = Math.max(0, ...periodList.filter((p) => reportedPeriodIds.has(p.id as string)).map((p) => p.seq as number));
@@ -149,7 +156,19 @@ export default async function AdminPage() {
             <CardTitle>期別表</CardTitle>
             <CardDescription>依截止日期排序，自動編為第 1、2、3…期。已有人交件的期別不能修改或刪除，新增的期別要排在它們之後。</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-col gap-4">
+            {periodList.length > 0 && (
+              <p className="text-sm text-[var(--ink-2,#3E4F70)]">
+                {nextPeriod ? (
+                  <>
+                    下一期截止：{periodLabel(nextPeriod.seq)} ·{" "}
+                    <span className="font-mono">{formatTaipei(nextPeriod.deadline)}</span>
+                  </>
+                ) : (
+                  "本學期期別已結束"
+                )}
+              </p>
+            )}
             <PeriodsForm semesterId={semesterId} initialRows={initialPeriodRows} />
           </CardContent>
         </Card>
@@ -179,7 +198,7 @@ export default async function AdminPage() {
         <Card>
           <CardHeader>
             <CardTitle>燈號門檻</CardTitle>
-            <CardDescription>超過這個小時數沒有回應，燈號自動轉紅。</CardDescription>
+            <CardDescription>逾期超過幾小時轉紅燈：期別過了截止時間還沒交，未滿這個小時數是黃燈，滿了就轉紅燈。</CardDescription>
           </CardHeader>
           <CardContent>
             <SettingsForm semesterId={semesterId} initialHours={(semester?.red_after_hours as number) ?? 72} />
@@ -208,11 +227,6 @@ export default async function AdminPage() {
         </Card>
       )}
 
-      {periodList.length > 0 && (
-        <p className="text-sm text-muted-foreground">
-          最近一期截止：{formatTaipei(new Date(periodList[periodList.length - 1].deadline as string))}
-        </p>
-      )}
     </main>
   );
 }

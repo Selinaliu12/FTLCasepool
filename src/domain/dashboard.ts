@@ -49,9 +49,7 @@ export function buildGroupCard(input: {
   const display = displayLight(reporter, sys);
   const onTime = onTimeRate(deliverables, now);
 
-  const upcoming = periods
-    .filter((p) => p.deadline.getTime() > now.getTime())
-    .sort((a, b) => a.deadline.getTime() - b.deadline.getTime())[0];
+  const upcoming = upcomingPeriod(periods, now);
 
   const nextDeadline = upcoming
     ? { at: upcoming.deadline, daysLeft: daysUntil(upcoming.deadline, now) }
@@ -66,6 +64,15 @@ export function buildGroupCard(input: {
     stage,
     nextDeadline,
   };
+}
+
+// 下一個還沒截止的期別（截止時間最早的那一期）；全部都截止了回傳 null。看板與管理頁共用。
+export function upcomingPeriod<P extends { deadline: Date }>(periods: P[], now: Date): P | null {
+  return (
+    periods
+      .filter((p) => p.deadline.getTime() > now.getTime())
+      .sort((a, b) => a.deadline.getTime() - b.deadline.getTime())[0] ?? null
+  );
 }
 
 export function formatNextDeadline(nextDeadline: { at: Date; daysLeft: number } | null): string {

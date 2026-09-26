@@ -37,7 +37,7 @@ export function SettingsForm({ semesterId, initialHours }: { semesterId: string;
           type="number"
           min={1}
           max={720}
-          aria-label="紅燈門檻（小時）"
+          aria-label="逾期超過幾小時轉紅燈"
           value={hours}
           onChange={(e) => {
             setHours(e.target.value);
@@ -45,7 +45,7 @@ export function SettingsForm({ semesterId, initialHours }: { semesterId: string;
           }}
           required
         />
-        <span className="text-sm text-muted-foreground">小時未回應轉紅燈</span>
+        <span className="shrink-0 text-sm text-muted-foreground">小時</span>
       </div>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {saved && <p className="text-sm text-[color:var(--ok)]">已儲存</p>}

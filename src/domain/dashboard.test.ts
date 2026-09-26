@@ -147,3 +147,22 @@ describe("formatNextDeadline", () => {
     expect(formatNextDeadline({ at, daysLeft: 0 })).toBe("10/16（五）23:59 · 今天截止");
   });
 });
+
+// 最終審查 M10：管理頁的「截止」一行之前拿的是期別表的「最後一期」，不是「下一期」。
+describe("upcomingPeriod", () => {
+  const periods = [
+    { seq: 1, deadline: new Date("2026-10-01T15:59:59.999Z") },
+    { seq: 2, deadline: new Date("2026-10-15T15:59:59.999Z") },
+    { seq: 3, deadline: new Date("2026-10-29T15:59:59.999Z") },
+  ];
+
+  it("回傳還沒截止、最早的那一期", async () => {
+    const { upcomingPeriod } = await import("./dashboard");
+    expect(upcomingPeriod(periods, new Date("2026-10-05T00:00:00Z"))?.seq).toBe(2);
+  });
+
+  it("全部都截止了 → null", async () => {
+    const { upcomingPeriod } = await import("./dashboard");
+    expect(upcomingPeriod(periods, new Date("2026-11-01T00:00:00Z"))).toBeNull();
+  });
+});
