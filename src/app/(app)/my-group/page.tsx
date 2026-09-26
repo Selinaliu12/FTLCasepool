@@ -11,6 +11,8 @@ import { lateBy } from "@/domain/progress";
 import { overdueLabel } from "@/domain/lights";
 import { SubmittedToast } from "./submitted-toast";
 import { daysLeft } from "./period-status";
+import { CheckinDialog } from "./checkin-dialog";
+import { LIGHT_LABEL } from "@/domain/lights";
 
 export default async function MyGroupPage() {
   const access = await getAccess();
@@ -37,6 +39,18 @@ export default async function MyGroupPage() {
         <span className="text-sm text-muted-foreground">
           準時率：{data.onTime === null ? "—" : `${Math.round(data.onTime * 100)}%`}
         </span>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs text-muted-foreground">最近回報</p>
+          <p className="text-sm text-foreground">
+            {data.latestReport
+              ? `${LIGHT_LABEL[data.latestReport.light]} · ${data.latestReport.name} · ${formatTaipei(data.latestReport.at)}`
+              : "還沒有組員回報"}
+          </p>
+        </div>
+        <CheckinDialog />
       </div>
 
       <div className="flex flex-col gap-3">

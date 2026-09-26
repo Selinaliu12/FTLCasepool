@@ -20,6 +20,7 @@ export type MyGroup = {
   periods: PeriodRow[];
   display: { light: Light; source: string };
   onTime: number | null;
+  latestReport: { light: Light; name: string; at: Date } | null;
 };
 
 // 用 USER-scoped client（createServerSupabase）而不是 service client，讓這裡的每一個
@@ -63,6 +64,15 @@ export async function loadMyGroup(): Promise<MyGroup> {
     .eq("line_id", lineId);
   if (eventsError) throw eventsError;
 
+  // 「最近回報」：進度報告與中間週點燈號兩種事件裡最新的那一筆，含姓名——line_light_events
+  // 只給狀態看板用（不含 who），這裡另外把 checkins 的 created_by 撈出來，跟已經讀到的
+  // progress_reports（submitted_by）合併找出最新的一筆。
+  const { data: checkins, error: checkinsError } = await supabase
+    .from("checkins")
+    .select("light, created_by, created_at")
+    .eq("line_id", lineId);
+  if (checkinsError) throw checkinsError;
+
   // 顯示送出者「姓名」而不是 email（規格：學生不需要看到組員的帳號）。
   const nameByEmail = new Map((membersRes.data ?? []).map((m) => [m.email as string, m.name as string]));
   const reportByPeriod = new Map((reports ?? []).map((r) => [r.period_id as string, r]));
@@ -99,6 +109,25 @@ export async function loadMyGroup(): Promise<MyGroup> {
   const display = displayLight(reporter, sys);
   const onTime = onTimeRate(deliverables, now);
 
+  type ReporterEvent = { light: Light; at: Date; by: string };
+  const reportEvents: ReporterEvent[] = (reports ?? []).map((r) => ({
+    light: r.light as Light,
+    at: new Date(r.pdf_uploaded_at as string),
+    by: r.submitted_by as string,
+  }));
+  const checkinEvents: ReporterEvent[] = (checkins ?? []).map((c) => ({
+    light: c.light as Light,
+    at: new Date(c.created_at as string),
+    by: c.created_by as string,
+  }));
+  let latestEvent: ReporterEvent | null = null;
+  for (const e of [...reportEvents, ...checkinEvents]) {
+    if (!latestEvent || e.at.getTime() > latestEvent.at.getTime()) latestEvent = e;
+  }
+  const latestReport = latestEvent
+    ? { light: latestEvent.light, name: nameByEmail.get(latestEvent.by) ?? latestEvent.by, at: latestEvent.at }
+    : null;
+
   return {
     groupName: groupRes.data.name as string,
     projectName: groupRes.data.project_name as string,
@@ -106,5 +135,6 @@ export async function loadMyGroup(): Promise<MyGroup> {
     periods,
     display,
     onTime,
+    latestReport,
   };
 }

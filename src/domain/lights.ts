@@ -1,5 +1,11 @@
 export type Light = "green" | "yellow" | "red";
 
+export const LIGHT_LABEL: Record<Light, string> = {
+  green: "綠燈",
+  yellow: "黃燈",
+  red: "紅燈",
+};
+
 export type Deliverable = {
   label: string;
   deadline: Date;
