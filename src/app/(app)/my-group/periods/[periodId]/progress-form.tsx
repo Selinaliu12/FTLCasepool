@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,7 +15,6 @@ import { markSubmittedToast } from "../../submitted-toast";
 type FieldErrors = Partial<Record<keyof ProgressInput, string>>;
 
 export function ProgressForm({ periodId }: { periodId: string }) {
-  const router = useRouter();
   const fileInputId = "progress-pdf";
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -84,9 +82,16 @@ export function ProgressForm({ periodId }: { periodId: string }) {
 
       // Fix round 1：一次送出只做一次導頁（見 submitted-toast.tsx 開頭的註解）——不再靠
       // ?submitted=1 這個 query string 帶著「要跳提示」這件事跑一趟，改用 sessionStorage
-      // 存旗標，直接 push 到乾淨的網址。
+      // 存旗標，直接導到乾淨的網址。
+      //
+      // 最終修正：改成整頁載入（location.assign），不用 router.push。實測送出後 client router
+      // 會對 /my-group 發兩次 RSC 請求（push 一次、接著 layout-router 帶 "refetch" 標記再抓一次），
+      // 第二次會中斷第一次；如果第一次的 RSC 串流已經收到一半，`next dev` 的 React 開發版會在
+      // 處理「被中斷」時踩到自己的 bug（frame.join is not a function）整個畫面崩潰。改成整頁載入
+      // 就沒有 client 端 RSC 串流可以被中斷；送出本來就是一次性的動作，多一次整頁載入的成本可以接受，
+      // 也保證回到組頁看到的是伺服器最新的資料。
       markSubmittedToast();
-      router.push("/my-group");
+      window.location.assign("/my-group");
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "上傳失敗，請重試");
       setUploading(false);

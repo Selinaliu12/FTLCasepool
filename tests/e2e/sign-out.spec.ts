@@ -1,6 +1,14 @@
 import { test, expect, type Page } from "@playwright/test";
+import { resetDb, seedSemester } from "../integration/helpers";
 
 // 最終審查 #6：之前整個網站沒有登出、也沒有導覽列，登入之後只能手動清 cookie。
+//
+// 這支測試會替 a1／admin／off 按「我已了解」；welcome.spec.ts、submit-progress.spec.ts 依賴
+// 「種子帳號還沒按過」。跟 admin.spec.ts／dashboard.spec.ts 一樣，結束後把種子資料還原。
+test.afterAll(async () => {
+  await resetDb();
+  await seedSemester();
+});
 
 async function loginAndPassWelcome(page: Page, email: string, landing: RegExp) {
   await page.goto(`/test-login?email=${email}`);

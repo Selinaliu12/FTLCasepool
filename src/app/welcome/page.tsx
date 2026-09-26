@@ -44,10 +44,10 @@ export default async function WelcomePage() {
           </ol>
           <div className="flex flex-col gap-2">
             <AcceptButton />
-            <p className="flex items-center justify-center gap-1 text-sm text-muted-foreground">
-              不是你的帳號？
+            <div className="flex items-center justify-center gap-1 text-sm text-muted-foreground">
+              <span>不是你的帳號？</span>
               <SignOutButton variant="link" />
-            </p>
+            </div>
           </div>
         </CardContent>
       </Card>
