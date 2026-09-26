@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { Client as PgClient } from "pg";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { env } from "../../src/server/env";
 import { assertLocalSupabaseUrl } from "../../src/server/local-only";
 import type { Access } from "../../src/domain/access";
@@ -283,6 +284,93 @@ export async function deleteCheckinsForLine(lineId: string): Promise<void> {
   const db = service();
   const { error } = await db.from("checkins").delete().eq("line_id", lineId);
   if (error) throw error;
+}
+
+// Task 14（看已交內容）e2e 測試專用：seedSemester() 的種子報告只在資料庫留了一筆 pdf_key，
+// 沒有真的把檔案放進本機 Storage（跟 upload.ts 走的申請上傳網址流程不同）。這裡直接用
+// S3 SDK 把一份最小的 PDF 內容 PUT 到同一把 key，讓「下載 PDF」這個行為在 e2e 裡真的拿得到
+// 內容，不是打到 404。不能 import "@/server/r2"：那個檔案有 "server-only" guard，playwright
+// 的測試行程（不是 Next.js／vitest 環境）載入會直接丟例外，所以這裡用 S3 SDK 自己重建一次
+// 最小的 client（跟 r2.ts 的 client() 邏輯一樣：本機測試走 R2_ENDPOINT，path-style）。
+export async function uploadTestPdf(key: string, bytes: Uint8Array): Promise<void> {
+  const r2 = env.r2;
+  const endpoint = r2.endpoint ?? `https://${r2.accountId}.r2.cloudflarestorage.com`;
+  const s3 = new S3Client({
+    region: r2.region,
+    endpoint,
+    forcePathStyle: !!r2.endpoint,
+    credentials: { accessKeyId: r2.accessKeyId, secretAccessKey: r2.secretAccessKey },
+  });
+  await s3.send(
+    new PutObjectCommand({ Bucket: r2.bucket, Key: key, Body: bytes, ContentType: "application/pdf" })
+  );
+}
+
+// Task 14（看已交內容）測試專用：loadGroupDetail／getPdfDownloadUrl 的測試檔原本各自複製
+// 一份幾乎一模一樣的 asPm／asOfficer／asStudent／asAdminNoMember，集中到這裡供兩邊共用
+// （Fix round 1 controller ruling 9）。這幾個函式不直接依賴 vitest 的型別（helpers.ts 也被
+// playwright 的 global-setup 用到，那裡不是 vitest 執行環境），用結構型別
+// { mockResolvedValue } 描述呼叫端傳進來的、已經 vi.mock 過的 getAccess。
+type AccessMock = { mockResolvedValue: (value: Access) => unknown };
+
+export function asPm(mockGetAccess: AccessMock, semesterId: string): void {
+  mockGetAccess.mockResolvedValue({
+    kind: "ok",
+    email: "pm@g.nccu.edu.tw",
+    isAdmin: false,
+    member: { id: "pm-id", semesterId, email: "pm@g.nccu.edu.tw", name: "專案幹部", role: "pm", groupId: null },
+    semesterId,
+  });
+}
+
+export function asOfficer(mockGetAccess: AccessMock, semesterId: string): void {
+  mockGetAccess.mockResolvedValue({
+    kind: "ok",
+    email: "off@g.nccu.edu.tw",
+    isAdmin: false,
+    member: { id: "off-id", semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", groupId: null },
+    semesterId,
+  });
+}
+
+export function asStudent(
+  mockGetAccess: AccessMock,
+  semesterId: string,
+  groupId: string,
+  email = "a1@g.nccu.edu.tw",
+  name = "甲一"
+): void {
+  mockGetAccess.mockResolvedValue({
+    kind: "ok",
+    email,
+    isAdmin: false,
+    member: { id: "s-id", semesterId, email, name, role: "student", groupId },
+    semesterId,
+  });
+}
+
+export function asAdminNoMember(mockGetAccess: AccessMock, semesterId: string): void {
+  mockGetAccess.mockResolvedValue({
+    kind: "ok",
+    email: "admin@g.nccu.edu.tw",
+    isAdmin: true,
+    member: null,
+    semesterId,
+  });
+}
+
+// Controller ruling 3（Task 14 fix round 1）：管理員即使在名單上也掛了一個非學生角色（這裡用
+// officer 示範），身分還是「管理員 ✓」，不該被 officer 的規則擋下來。呼叫端要先用 service
+// client 把這筆 member 塞進 members 表（email 必須等於 ADMIN_EMAILS 裡的那個信箱，這裡固定用
+// "admin@g.nccu.edu.tw"，跟 .env.local 的設定一致）。
+export function asAdminOfficer(mockGetAccess: AccessMock, semesterId: string, memberId: string): void {
+  mockGetAccess.mockResolvedValue({
+    kind: "ok",
+    email: "admin@g.nccu.edu.tw",
+    isAdmin: true,
+    member: { id: memberId, semesterId, email: "admin@g.nccu.edu.tw", name: "管理員兼其他幹部", role: "officer", groupId: null },
+    semesterId,
+  });
 }
 
 export async function clientAs(email: string): Promise<SupabaseClient> {

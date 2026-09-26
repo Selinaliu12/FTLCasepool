@@ -4,6 +4,7 @@ import { getAccess } from "@/server/session";
 import { loadMyGroup } from "@/server/queries/my-group";
 import { LightBadge } from "@/components/light-badge";
 import { SubmissionTiming } from "@/components/submission-timing";
+import { CheckinHistory } from "@/components/checkin-history";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "cn";
@@ -105,6 +106,8 @@ export default async function MyGroupPage() {
           );
         })}
       </div>
+
+      <CheckinHistory checkins={data.checkins} />
     </main>
   );
 }

@@ -40,4 +40,13 @@ describe("GroupCard", () => {
     render(<GroupCard card={card()} isMine={false} />);
     expect(screen.queryByText("你負責")).toBeNull();
   });
+
+  it("canViewContent 為 true 時顯示『看內容』連到 /groups/[id]，否則不顯示", () => {
+    render(<GroupCard card={card()} isMine={false} canViewContent={true} />);
+    const link = screen.getByRole("link", { name: "看內容" });
+    expect(link.getAttribute("href")).toBe("/groups/g1");
+    cleanup();
+    render(<GroupCard card={card()} isMine={false} canViewContent={false} />);
+    expect(screen.queryByRole("link", { name: "看內容" })).toBeNull();
+  });
 });

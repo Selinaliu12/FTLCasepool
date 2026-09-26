@@ -5,6 +5,7 @@ import type { Light, Deliverable } from "@/domain/lights";
 import { systemLight, reporterLight, displayLight, periodLabel } from "@/domain/lights";
 import { onTimeRate } from "@/domain/on-time";
 import { lockedAt } from "@/domain/lock";
+import { mapCheckinHistory, type CheckinHistoryEntry } from "@/domain/checkin-history";
 
 export type PeriodRow = {
   periodId: string;
@@ -21,6 +22,7 @@ export type MyGroup = {
   display: { light: Light; source: string };
   onTime: number | null;
   latestReport: { light: Light; name: string; at: Date } | null;
+  checkins: CheckinHistoryEntry[];
 };
 
 // 用 USER-scoped client（createServerSupabase）而不是 service client，讓這裡的每一個
@@ -69,8 +71,9 @@ export async function loadMyGroup(): Promise<MyGroup> {
   // progress_reports（submitted_by）合併找出最新的一筆。
   const { data: checkins, error: checkinsError } = await supabase
     .from("checkins")
-    .select("light, created_by, created_at")
-    .eq("line_id", lineId);
+    .select("light, note, created_by, created_at")
+    .eq("line_id", lineId)
+    .order("created_at", { ascending: false });
   if (checkinsError) throw checkinsError;
 
   // 顯示送出者「姓名」而不是 email（規格：學生不需要看到組員的帳號）。
@@ -128,6 +131,16 @@ export async function loadMyGroup(): Promise<MyGroup> {
     ? { light: latestEvent.light, name: nameByEmail.get(latestEvent.by) ?? latestEvent.by, at: latestEvent.at }
     : null;
 
+  const checkinHistory = mapCheckinHistory(
+    (checkins ?? []).map((c) => ({
+      light: c.light as Light,
+      note: c.note as string | null,
+      created_by: c.created_by as string,
+      created_at: c.created_at as string,
+    })),
+    nameByEmail
+  );
+
   return {
     groupName: groupRes.data.name as string,
     projectName: groupRes.data.project_name as string,
@@ -136,5 +149,6 @@ export async function loadMyGroup(): Promise<MyGroup> {
     display,
     onTime,
     latestReport,
+    checkins: checkinHistory,
   };
 }

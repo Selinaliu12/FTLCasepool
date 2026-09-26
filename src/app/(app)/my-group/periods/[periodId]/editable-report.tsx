@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { LightBadge } from "@/components/light-badge";
 import { SubmissionTiming } from "@/components/submission-timing";
+import { PdfDownloadButton } from "@/components/pdf-download-button";
 import { formatTaipei } from "@/domain/time";
 import { validateProgress } from "@/domain/progress";
 import { validatePdfMeta } from "@/domain/pdf";
@@ -181,6 +182,9 @@ export function EditableReport(props: {
         <p className="text-sm font-medium text-foreground">已鎖定</p>
         <ReadonlyFields did={props.did} blocked={props.blocked} nextSteps={props.nextSteps} />
         <ReplaceWarning />
+        <div className="self-start">
+          <PdfDownloadButton reportId={props.reportId} />
+        </div>
       </div>
     );
   }
@@ -310,6 +314,7 @@ export function EditableReport(props: {
         >
           換 PDF
         </Button>
+        <PdfDownloadButton reportId={props.reportId} />
         <input
           ref={fileInputRef}
           type="file"
