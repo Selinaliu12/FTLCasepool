@@ -19,6 +19,11 @@ export function PdfDownloadButton({ reportId }: { reportId: string }) {
         return;
       }
       window.location.assign(result.url);
+    } catch {
+      // server action 本身丟出未預期的例外（網路中斷、R2／資料庫暫時打不通等）：跟
+      // "ok: false" 那種「找不到這份進度」分開處理，用一句通用訊息，不把內部錯誤細節
+      // 顯示給使用者。
+      toast.error("下載失敗，請再試一次");
     } finally {
       setPending(false);
     }

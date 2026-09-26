@@ -12,8 +12,19 @@ function asciiFallback(name: string): string {
   return ascii.trim() || "download.pdf";
 }
 
+// encodeURIComponent() 照 RFC 3986 留下 ' ( ) * ! 不跳脫（它們在 URI 裡是合法的
+// sub-delims），但 RFC 5987 的 attr-char（filename* 的值域）不包含這幾個字元——不額外跳脫
+//的話，組名剛好帶這些字元時，filename* 的值可能被某些反向代理或瀏覽器誤判成 header 語法
+// 的一部分。
+function rfc5987EncodeURIComponent(value: string): string {
+  return encodeURIComponent(value).replace(
+    /['()!*]/g,
+    (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase()
+  );
+}
+
 export function contentDisposition(downloadName: string): string {
   const fallback = asciiFallback(downloadName);
-  const encoded = encodeURIComponent(downloadName);
+  const encoded = rfc5987EncodeURIComponent(downloadName);
   return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }

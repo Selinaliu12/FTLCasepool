@@ -13,4 +13,10 @@ describe("presignPdfGet", () => {
     const disposition = parsed.searchParams.get("response-content-disposition");
     expect(disposition).toBe(contentDisposition(downloadName));
   });
+
+  it("網址 10 分鐘後過期（X-Amz-Expires=600）", async () => {
+    const url = await presignPdfGet("some/key.pdf", "report.pdf");
+    const parsed = new URL(url);
+    expect(parsed.searchParams.get("X-Amz-Expires")).toBe("600");
+  });
 });

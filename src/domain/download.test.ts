@@ -19,4 +19,19 @@ describe("contentDisposition", () => {
     const header = contentDisposition("report.pdf");
     expect(header).toContain('filename="report.pdf"');
   });
+
+  // encodeURIComponent() 不會跳脫 ' ( ) * ! 這幾個字元，但它們在 HTTP header 的
+  // parameter-value（RFC 5987／RFC 2616 token）裡不是安全字元，組名帶這些字元
+  // （例如英文組名 O'Brien's Team）時不跳脫，某些反向代理／瀏覽器會解析錯誤或把 header
+  // 截斷。filename* 的值裡不該出現這幾個字元的原始形式。
+  it("組名含單引號等字元時，filename* 也要跳脫 ' ( ) * !", () => {
+    const header = contentDisposition("115-1-O'Brien(!)*-第1期.pdf");
+    const filenameStar = header.split("filename*=UTF-8''")[1];
+    expect(filenameStar).not.toMatch(/['()!*]/);
+    expect(filenameStar).toContain("%27"); // '
+    expect(filenameStar).toContain("%28"); // (
+    expect(filenameStar).toContain("%29"); // )
+    expect(filenameStar).toContain("%21"); // !
+    expect(filenameStar).toContain("%2A"); // *
+  });
 });

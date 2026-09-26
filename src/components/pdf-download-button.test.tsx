@@ -40,4 +40,13 @@ describe("PdfDownloadButton", () => {
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("找不到這份進度"));
   });
+
+  it("server action 丟出未預期例外時顯示通用錯誤 toast，不會整頁掛掉", async () => {
+    getPdfDownloadUrl.mockRejectedValue(new Error("network down"));
+
+    render(<PdfDownloadButton reportId="r1" />);
+    fireEvent.click(screen.getByRole("button", { name: "下載 PDF" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("下載失敗，請再試一次"));
+  });
 });
