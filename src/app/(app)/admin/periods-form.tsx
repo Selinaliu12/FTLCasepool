@@ -45,6 +45,8 @@ export function PeriodsForm({ semesterId, initialRows }: { semesterId: string; i
       } else {
         setErrors(result.errors);
       }
+    } catch (err) {
+      setErrors([err instanceof Error ? err.message : "儲存失敗"]);
     } finally {
       setPending(false);
     }

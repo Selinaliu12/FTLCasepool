@@ -26,6 +26,8 @@ export function RosterImport({ semesterId, alreadyImported }: { semesterId: stri
       } else {
         setErrors(result.errors);
       }
+    } catch (err) {
+      setErrors([err instanceof Error ? err.message : "匯入失敗"]);
     } finally {
       setPending(false);
     }

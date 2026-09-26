@@ -37,14 +37,43 @@ export default async function AdminPage() {
 
   const db = createServiceSupabase();
 
-  const [{ data: semester }, { data: groups }, { data: members }, { data: periods }, { data: pmAssignments }] =
-    await Promise.all([
-      db.from("semesters").select("id, name, red_after_hours").eq("id", semesterId).single(),
-      db.from("groups").select("id, name, project_name").eq("semester_id", semesterId).order("name"),
-      db.from("members").select("id, name, email, role, group_id").eq("semester_id", semesterId).order("name"),
-      db.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq"),
-      db.from("pm_assignments").select("pm_member_id, group_id"),
-    ]);
+  const [semesterRes, groupsRes, membersRes, periodsRes, pmAssignmentsRes] = await Promise.all([
+    db.from("semesters").select("id, name, red_after_hours").eq("id", semesterId).single(),
+    db.from("groups").select("id, name, project_name").eq("semester_id", semesterId).order("name"),
+    db.from("members").select("id, name, email, role, group_id").eq("semester_id", semesterId).order("name"),
+    db.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq"),
+    db.from("pm_assignments").select("pm_member_id, group_id"),
+  ]);
+
+  const { data: semester, error: semesterError } = semesterRes;
+  const { data: groups, error: groupsError } = groupsRes;
+  const { data: members, error: membersError } = membersRes;
+  const { data: periods, error: periodsError } = periodsRes;
+  const { data: pmAssignments, error: pmAssignmentsError } = pmAssignmentsRes;
+
+  const sectionErrors: Record<string, boolean> = {
+    本學期: !!semesterError,
+    名單匯入: !!(groupsError || membersError),
+    期別表: !!periodsError,
+    專案幹部負責組別: !!(groupsError || membersError || pmAssignmentsError),
+    燈號門檻: !!semesterError,
+    換組: !!(groupsError || membersError),
+  };
+
+  function ErrorCard({ title, section }: { title: string; section: string }) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p role="alert" className="text-sm text-destructive">
+            讀取資料失敗，請重新整理（{section}）
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const groupList = groups ?? [];
   const memberList = members ?? [];
@@ -79,76 +108,100 @@ export default async function AdminPage() {
     <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
       <h1 className="font-heading text-2xl font-bold text-foreground">管理員設定</h1>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>本學期</CardTitle>
-          <CardDescription>目前學期：{semester?.name}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <CreateSemesterForm />
-        </CardContent>
-      </Card>
+      {sectionErrors.本學期 ? (
+        <ErrorCard title="本學期" section="本學期" />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>本學期</CardTitle>
+            <CardDescription>目前學期：{semester?.name}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CreateSemesterForm />
+          </CardContent>
+        </Card>
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>名單匯入</CardTitle>
-          <CardDescription>貼上或上傳 CSV：email、姓名、角色、組別、專案名稱。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <RosterImport semesterId={semesterId} alreadyImported={alreadyImported} />
-        </CardContent>
-      </Card>
+      {sectionErrors.名單匯入 ? (
+        <ErrorCard title="名單匯入" section="名單匯入" />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>名單匯入</CardTitle>
+            <CardDescription>貼上或上傳 CSV：email、姓名、角色、組別、專案名稱。</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RosterImport semesterId={semesterId} alreadyImported={alreadyImported} />
+          </CardContent>
+        </Card>
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>期別表</CardTitle>
-          <CardDescription>依截止日期排序，自動編為第 1、2、3…期。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <PeriodsForm semesterId={semesterId} initialRows={initialPeriodRows} />
-        </CardContent>
-      </Card>
+      {sectionErrors.期別表 ? (
+        <ErrorCard title="期別表" section="期別表" />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>期別表</CardTitle>
+            <CardDescription>依截止日期排序，自動編為第 1、2、3…期。</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PeriodsForm semesterId={semesterId} initialRows={initialPeriodRows} />
+          </CardContent>
+        </Card>
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>專案幹部負責組別</CardTitle>
-          <CardDescription>勾選每位專案幹部負責看哪些組。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <PmAssign
-            pms={pmList.map((p) => ({ id: p.id as string, name: p.name as string }))}
-            groups={groupList.map((g) => ({ id: g.id as string, name: g.name as string }))}
-            initialAssignments={initialAssignments}
-          />
-        </CardContent>
-      </Card>
+      {sectionErrors.專案幹部負責組別 ? (
+        <ErrorCard title="專案幹部負責組別" section="專案幹部負責組別" />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>專案幹部負責組別</CardTitle>
+            <CardDescription>勾選每位專案幹部負責看哪些組。</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PmAssign
+              pms={pmList.map((p) => ({ id: p.id as string, name: p.name as string }))}
+              groups={groupList.map((g) => ({ id: g.id as string, name: g.name as string }))}
+              initialAssignments={initialAssignments}
+            />
+          </CardContent>
+        </Card>
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>燈號門檻</CardTitle>
-          <CardDescription>超過這個小時數沒有回應，燈號自動轉紅。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <SettingsForm semesterId={semesterId} initialHours={(semester?.red_after_hours as number) ?? 72} />
-        </CardContent>
-      </Card>
+      {sectionErrors.燈號門檻 ? (
+        <ErrorCard title="燈號門檻" section="燈號門檻" />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>燈號門檻</CardTitle>
+            <CardDescription>超過這個小時數沒有回應，燈號自動轉紅。</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SettingsForm semesterId={semesterId} initialHours={(semester?.red_after_hours as number) ?? 72} />
+          </CardContent>
+        </Card>
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>換組</CardTitle>
-          <CardDescription>學期中把專案生調到另一組；舊組的進度紀錄不會被搬動。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MoveMemberForm
-            students={studentList.map((s) => ({
-              id: s.id as string,
-              name: s.name as string,
-              groupName: s.group_id ? groupNameById.get(s.group_id as string) ?? null : null,
-            }))}
-            groups={groupList.map((g) => ({ id: g.id as string, name: g.name as string }))}
-          />
-        </CardContent>
-      </Card>
+      {sectionErrors.換組 ? (
+        <ErrorCard title="換組" section="換組" />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>換組</CardTitle>
+            <CardDescription>學期中把專案生調到另一組；舊組的進度紀錄不會被搬動。</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MoveMemberForm
+              students={studentList.map((s) => ({
+                id: s.id as string,
+                name: s.name as string,
+                groupName: s.group_id ? groupNameById.get(s.group_id as string) ?? null : null,
+              }))}
+              groups={groupList.map((g) => ({ id: g.id as string, name: g.name as string }))}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {periodList.length > 0 && (
         <p className="text-sm text-muted-foreground">

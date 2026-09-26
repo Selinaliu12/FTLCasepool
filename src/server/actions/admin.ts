@@ -19,18 +19,24 @@ async function requireAdmin(): Promise<void> {
 
 export async function createSemester(name: string): Promise<{ semesterId: string }> {
   await requireAdmin();
+
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("請輸入學期名稱");
+
   const db = createServiceSupabase();
 
-  // one_current_semester 這個 partial unique index 只允許同時有一個 is_current=true 的學期，
-  // 所以要先把其他學期設成 false，再插入新學期並設成 true，順序不能反過來。
-  const { error: clearError } = await db.from("semesters").update({ is_current: false }).eq("is_current", true);
-  if (clearError) throw clearError;
-
-  const { data, error } = await db.from("semesters").insert({ name, is_current: true }).select("id").single();
-  if (error) throw error;
+  // create_semester()（見 20260927000005_admin_atomic.sql）把「清掉舊的 is_current」跟
+  // 「插入新學期」包在同一個 RPC 呼叫裡：這是一個 Postgres statement，函式裡面途中失敗
+  // （例如學期名稱撞到 unique 限制）會把整個函式做的事整批回滾，不會出現「舊學期已經被清成
+  // 非當前、新學期又插入失敗」這種沒有任何學期是當前學期、把所有人鎖在外面的狀態。
+  const { data, error } = await db.rpc("create_semester", { p_name: trimmed });
+  if (error) {
+    if (error.code === "23505") throw new Error("這個學期名稱已經存在");
+    throw error;
+  }
 
   revalidatePath("/admin");
-  return { semesterId: data.id as string };
+  return { semesterId: data as string };
 }
 
 export async function importRoster(
@@ -42,7 +48,7 @@ export async function importRoster(
 
   const { count } = await db.from("members").select("id", { count: "exact", head: true }).eq("semester_id", semesterId);
   if (count && count > 0) {
-    return { ok: false, errors: ["本學期已匯入名單；學期中的異動請用「換組」」"] };
+    return { ok: false, errors: ["本學期已匯入名單；學期中的異動請用「換組」"] };
   }
 
   const parsed = parseRosterCsv(csv);
@@ -88,30 +94,18 @@ export async function savePeriods(
 
   if (errors.length > 0) return { ok: false, errors };
 
-  // 已經有組別交了進度（progress_reports 參照這個學期的期別）就不能再改期別。
-  const { data: periodRows } = await db.from("periods").select("id").eq("semester_id", semesterId);
-  const periodIds = (periodRows ?? []).map((p) => p.id as string);
-  if (periodIds.length > 0) {
-    const { count: reportCount } = await db
-      .from("progress_reports")
-      .select("id", { count: "exact", head: true })
-      .in("period_id", periodIds);
-    if (reportCount && reportCount > 0) {
-      return { ok: false, errors: ["已經有組別交了進度，不能再改期別"] };
-    }
-  }
-
   const sorted = [...parsedDeadlines].sort((a, b) => a.deadline.getTime() - b.deadline.getTime());
 
-  const { error: delError } = await db.from("periods").delete().eq("semester_id", semesterId);
-  if (delError) throw delError;
-
-  if (sorted.length > 0) {
-    const { error: insError } = await db.from("periods").insert(
-      sorted.map((s, idx) => ({ semester_id: semesterId, seq: idx + 1, deadline: s.deadline.toISOString() }))
-    );
-    if (insError) throw insError;
-  }
+  // save_periods()（見 20260927000005_admin_atomic.sql）把「檢查有沒有組別已經交過進度」跟
+  // 「刪除舊期別＋重建新期別」包在同一個 RPC 呼叫裡（同一個 statement，Postgres 自動包成一個
+  // 交易）。原本這裡是先查一次、通過了才分開刪除／插入，兩次呼叫中間有時間窗：如果剛好有人在
+  // 「查完、還沒刪除」這段空檔送出這一期的進度，會被緊接著的 delete cascade 刪掉，而檢查當下
+  // 看起來是安全的。包成一個函式關掉這個競態。
+  const { error } = await db.rpc("save_periods", {
+    p_semester_id: semesterId,
+    p_deadlines: sorted.map((s) => s.deadline.toISOString()),
+  });
+  if (error) return { ok: false, errors: [error.message] };
 
   revalidatePath("/admin");
   return { ok: true };
@@ -121,19 +115,13 @@ export async function setPmGroups(pmMemberId: string, groupIds: string[]): Promi
   await requireAdmin();
   const db = createServiceSupabase();
 
-  const { data: pm, error: pmError } = await db.from("members").select("role").eq("id", pmMemberId).single();
-  if (pmError) throw pmError;
-  if (pm.role !== "pm") throw new Error("只有專案幹部才能負責組別");
-
-  const { error: delError } = await db.from("pm_assignments").delete().eq("pm_member_id", pmMemberId);
-  if (delError) throw delError;
-
-  if (groupIds.length > 0) {
-    const { error: insError } = await db
-      .from("pm_assignments")
-      .insert(groupIds.map((groupId) => ({ pm_member_id: pmMemberId, group_id: groupId })));
-    if (insError) throw insError;
-  }
+  // set_pm_groups()（見 20260927000005_admin_atomic.sql）在同一個 RPC 呼叫裡驗證每個
+  // group_id 都屬於這位幹部的學期（不屬於就丟「組別不屬於本學期」）、再刪除舊的指派＋插入
+  // 新的。原本是分開的兩次呼叫：先整批刪除、再整批插入，插入中途失敗（例如某個 group_id 其實
+  // 是別的學期的）會留下「舊的已經刪了、新的沒插完」的髒狀態；包成一個函式讓失敗時原本的指派
+  // 完全不受影響。
+  const { error } = await db.rpc("set_pm_groups", { p_pm_member_id: pmMemberId, p_group_ids: groupIds });
+  if (error) throw new Error(error.message);
 
   revalidatePath("/admin");
 }

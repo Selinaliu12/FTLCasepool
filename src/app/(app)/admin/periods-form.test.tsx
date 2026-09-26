@@ -35,4 +35,13 @@ describe("PeriodsForm", () => {
 
     await waitFor(() => expect(savePeriods).toHaveBeenCalledWith("s1", [{ date: "2026-10-01", time: "23:59" }]));
   });
+
+  it("savePeriods 丟例外時，錯誤訊息要顯示出來", async () => {
+    savePeriods.mockRejectedValue(new Error("已經有組別交了進度，不能再改期別"));
+    render(<PeriodsForm semesterId="s1" initialRows={[]} />);
+    fireEvent.change(screen.getByLabelText("第 1 期日期"), { target: { value: "2026-10-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "儲存期別" }));
+
+    await waitFor(() => expect(screen.getByText("已經有組別交了進度，不能再改期別")).toBeTruthy());
+  });
 });

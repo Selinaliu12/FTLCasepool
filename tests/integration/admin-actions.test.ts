@@ -18,7 +18,11 @@ function asStudent(semesterId: string) {
   });
 }
 
-function asAdmin(semesterId: string | null) {
+// kind:"ok" 一定帶著真的 semesterId（Access 的型別本來就是這樣定義的：{kind:"ok", semesterId:
+// string, ...}）。「管理員、但還沒有任何學期」是另一個獨立的 kind:"no_semester"，不是
+// kind:"ok" 加一個 null 的 semesterId——那是型別上不可能出現的狀態，fix round 1 之前的版本
+// 誤用了它（asAdmin(null)）。
+function asAdmin(semesterId: string) {
   mockGetAccess.mockResolvedValue({
     kind: "ok",
     email: "admin@g.nccu.edu.tw",
@@ -26,6 +30,22 @@ function asAdmin(semesterId: string | null) {
     member: null,
     semesterId,
   });
+}
+
+function asAdminNoSemester() {
+  mockGetAccess.mockResolvedValue({ kind: "no_semester", isAdmin: true });
+}
+
+function asNoSemesterNonAdmin() {
+  mockGetAccess.mockResolvedValue({ kind: "no_semester", isAdmin: false });
+}
+
+function asWrongDomain() {
+  mockGetAccess.mockResolvedValue({ kind: "wrong_domain" });
+}
+
+function asNotInRoster() {
+  mockGetAccess.mockResolvedValue({ kind: "not_in_roster" });
 }
 
 describe("requireAdmin", () => {
@@ -50,6 +70,74 @@ describe("requireAdmin", () => {
     await expect(setRedAfterHours(seed.semesterId, 48)).rejects.toThrow("只有系統管理員可以這樣做");
     await expect(moveMember("m1", "g1")).rejects.toThrow("只有系統管理員可以這樣做");
   });
+
+  it("還沒有學期、也不是管理員 → 被拒", async () => {
+    await resetDb(); // 真的沒有任何學期
+    asNoSemesterNonAdmin();
+    const { createSemester } = await import("@/server/actions/admin");
+    await expect(createSemester("115-1")).rejects.toThrow("只有系統管理員可以這樣做");
+  });
+
+  it("wrong_domain → 被拒", async () => {
+    const seed = await seedSemester();
+    asWrongDomain();
+    const { setRedAfterHours } = await import("@/server/actions/admin");
+    await expect(setRedAfterHours(seed.semesterId, 48)).rejects.toThrow("只有系統管理員可以這樣做");
+  });
+
+  it("not_in_roster → 被拒", async () => {
+    const seed = await seedSemester();
+    asNotInRoster();
+    const { setRedAfterHours } = await import("@/server/actions/admin");
+    await expect(setRedAfterHours(seed.semesterId, 48)).rejects.toThrow("只有系統管理員可以這樣做");
+  });
+});
+
+describe("createSemester", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  it("還沒有任何學期時可以建立第一個學期", async () => {
+    asAdminNoSemester();
+    const { createSemester } = await import("@/server/actions/admin");
+    const { semesterId } = await createSemester("115-1");
+
+    const svc = createServiceSupabase();
+    const { data } = await svc.from("semesters").select("id, name, is_current");
+    expect(data).toEqual([{ id: semesterId, name: "115-1", is_current: true }]);
+  });
+
+  it("已經有當前學期時，建新學期只讓新的是當前學期", async () => {
+    const seed = await seedSemester(); // 種好 "115-1"，is_current=true
+    asAdmin(seed.semesterId);
+    const { createSemester } = await import("@/server/actions/admin");
+    const { semesterId: newId } = await createSemester("115-2");
+
+    const svc = createServiceSupabase();
+    const { data } = await svc.from("semesters").select("id, is_current").order("name");
+    expect(data).toEqual([
+      { id: seed.semesterId, is_current: false },
+      { id: newId, is_current: true },
+    ]);
+  });
+
+  it("學期名稱重複：回傳錯誤，而且舊學期仍然是當前學期", async () => {
+    const seed = await seedSemester(); // "115-1"
+    asAdmin(seed.semesterId);
+    const { createSemester } = await import("@/server/actions/admin");
+    await expect(createSemester("115-1")).rejects.toThrow("這個學期名稱已經存在");
+
+    const svc = createServiceSupabase();
+    const { data } = await svc.from("semesters").select("id, is_current");
+    expect(data).toEqual([{ id: seed.semesterId, is_current: true }]);
+  });
+
+  it("空白學期名稱回傳錯誤", async () => {
+    asAdminNoSemester();
+    const { createSemester } = await import("@/server/actions/admin");
+    await expect(createSemester("   ")).rejects.toThrow("請輸入學期名稱");
+  });
 });
 
 const CSV_OK = [
@@ -66,9 +154,11 @@ describe("importRoster", () => {
   });
 
   it("匯入後：2 組、每組 1 條專案線、成員歸組", async () => {
-    asAdmin(null);
-    const { createSemester, importRoster } = await import("@/server/actions/admin");
+    asAdminNoSemester();
+    const { createSemester } = await import("@/server/actions/admin");
     const { semesterId } = await createSemester("115-1");
+    asAdmin(semesterId);
+    const { importRoster } = await import("@/server/actions/admin");
     const r = await importRoster(semesterId, CSV_OK);
     expect(r).toEqual({ ok: true, imported: 4 });
 
@@ -84,10 +174,32 @@ describe("importRoster", () => {
     ]);
   });
 
-  it("CSV 有錯就一筆都不寫入", async () => {
-    asAdmin(null);
+  it("成員真的歸到正確的組（email → 組名）", async () => {
+    asAdminNoSemester();
     const { createSemester, importRoster } = await import("@/server/actions/admin");
     const { semesterId } = await createSemester("115-1");
+    asAdmin(semesterId);
+    await importRoster(semesterId, CSV_OK);
+
+    const svc = createServiceSupabase();
+    const { data: members } = await svc
+      .from("members")
+      .select("email, role, groups!members_group_id_fkey(name)")
+      .eq("semester_id", semesterId)
+      .order("email");
+    expect(members).toEqual([
+      { email: "pm1@g.nccu.edu.tw", role: "pm", groups: null },
+      { email: "s1@g.nccu.edu.tw", role: "student", groups: { name: "第1組" } },
+      { email: "s2@g.nccu.edu.tw", role: "student", groups: { name: "第1組" } },
+      { email: "s3@g.nccu.edu.tw", role: "student", groups: { name: "第2組" } },
+    ]);
+  });
+
+  it("CSV 有錯就一筆都不寫入", async () => {
+    asAdminNoSemester();
+    const { createSemester, importRoster } = await import("@/server/actions/admin");
+    const { semesterId } = await createSemester("115-1");
+    asAdmin(semesterId);
     const badCsv = [
       "email,姓名,角色,組別,專案名稱",
       "s1@g.nccu.edu.tw,甲一,學生,第1組,專案A",
@@ -101,12 +213,13 @@ describe("importRoster", () => {
   });
 
   it("已經匯入過的學期不能再整批匯入", async () => {
-    asAdmin(null);
+    asAdminNoSemester();
     const { createSemester, importRoster } = await import("@/server/actions/admin");
     const { semesterId } = await createSemester("115-1");
+    asAdmin(semesterId);
     await importRoster(semesterId, CSV_OK);
     const r = await importRoster(semesterId, CSV_OK);
-    expect(r).toEqual({ ok: false, errors: ["本學期已匯入名單；學期中的異動請用「換組」」"] });
+    expect(r).toEqual({ ok: false, errors: ["本學期已匯入名單；學期中的異動請用「換組」"] });
   });
 });
 
@@ -116,9 +229,10 @@ describe("savePeriods", () => {
   });
 
   it("依日期排序編成第 1、2、3 期，截止時間照台北時間存", async () => {
-    asAdmin(null);
+    asAdminNoSemester();
     const { createSemester, savePeriods } = await import("@/server/actions/admin");
     const { semesterId } = await createSemester("115-1");
+    asAdmin(semesterId);
     const r = await savePeriods(semesterId, [
       { date: "2026-11-01", time: "23:59" },
       { date: "2026-10-01", time: "23:59" },
@@ -136,9 +250,10 @@ describe("savePeriods", () => {
   });
 
   it("日期重複、格式錯回傳錯誤，不寫入", async () => {
-    asAdmin(null);
+    asAdminNoSemester();
     const { createSemester, savePeriods } = await import("@/server/actions/admin");
     const { semesterId } = await createSemester("115-1");
+    asAdmin(semesterId);
     const r = await savePeriods(semesterId, [
       { date: "2026-10-01", time: "23:59" },
       { date: "2026-10-01", time: "23:59" },
@@ -192,6 +307,29 @@ describe("setPmGroups", () => {
     const { setPmGroups } = await import("@/server/actions/admin");
     await expect(setPmGroups(officer!.id, [seed.groupA])).rejects.toThrow("只有專案幹部才能負責組別");
   });
+
+  it("組別不屬於這位幹部的學期時丟錯，而且原本的指派不受影響", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const svc = createServiceSupabase();
+    const { data: pm } = await svc.from("members").select("id").eq("semester_id", seed.semesterId).eq("role", "pm").single();
+    const { setPmGroups } = await import("@/server/actions/admin");
+
+    // 先指派一個合法的組別，作為「原本的指派」的基準。
+    await setPmGroups(pm!.id, [seed.groupA]);
+
+    const { data: otherSem } = await svc.from("semesters").insert({ name: "115-2" }).select("id").single();
+    const { data: otherGroup } = await svc
+      .from("groups")
+      .insert({ semester_id: otherSem!.id, name: "第1組", project_name: "X" })
+      .select("id")
+      .single();
+
+    await expect(setPmGroups(pm!.id, [seed.groupB, otherGroup!.id])).rejects.toThrow("組別不屬於本學期");
+
+    const { data: assigns } = await svc.from("pm_assignments").select("group_id").eq("pm_member_id", pm!.id);
+    expect(assigns).toEqual([{ group_id: seed.groupA }]);
+  });
 });
 
 describe("setRedAfterHours", () => {
@@ -199,15 +337,25 @@ describe("setRedAfterHours", () => {
     await resetDb();
   });
 
-  it("只收 1–720 的整數", async () => {
+  it("接受邊界值 1 和 720", async () => {
     const seed = await seedSemester();
     asAdmin(seed.semesterId);
     const { setRedAfterHours } = await import("@/server/actions/admin");
-    await setRedAfterHours(seed.semesterId, 48);
     const svc = createServiceSupabase();
-    const { data } = await svc.from("semesters").select("red_after_hours").eq("id", seed.semesterId).single();
-    expect(data?.red_after_hours).toBe(48);
 
+    await setRedAfterHours(seed.semesterId, 1);
+    let { data } = await svc.from("semesters").select("red_after_hours").eq("id", seed.semesterId).single();
+    expect(data?.red_after_hours).toBe(1);
+
+    await setRedAfterHours(seed.semesterId, 720);
+    ({ data } = await svc.from("semesters").select("red_after_hours").eq("id", seed.semesterId).single());
+    expect(data?.red_after_hours).toBe(720);
+  });
+
+  it("拒絕邊界外的 0、721，以及非整數", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const { setRedAfterHours } = await import("@/server/actions/admin");
     await expect(setRedAfterHours(seed.semesterId, 0)).rejects.toThrow("紅燈門檻必須是 1 到 720 之間的整數小時");
     await expect(setRedAfterHours(seed.semesterId, 721)).rejects.toThrow("紅燈門檻必須是 1 到 720 之間的整數小時");
     await expect(setRedAfterHours(seed.semesterId, 1.5)).rejects.toThrow("紅燈門檻必須是 1 到 720 之間的整數小時");
