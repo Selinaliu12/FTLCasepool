@@ -70,9 +70,14 @@ test.describe.serial("看已交內容", () => {
     await expect(page).toHaveURL(/\/dashboard$/);
     await expect(page.getByRole("link", { name: "看內容" })).toHaveCount(0);
 
-    // Next.js dev server 的初次導頁對 notFound() 頁面回的 HTTP 狀態碼不可靠（實測回 200，
-    // 只有正式建置後才會是真的 404），這裡改成驗證畫面真的顯示 Next.js 內建的 404 頁面。
-    await page.goto(`/groups/${groupAId}`);
+    // Fix round 1：這個路由原本掛了 loading.tsx，Next.js 對有 loading.tsx 的區段會用串流
+    // render，回應在 notFound() 真的跑到之前就已經送出 200 的 header 了（實測：dev 跟
+    // `next build && next start` 都回 200，即使畫面顯示的是 404 頁）。拿掉 loading.tsx
+    // 後（見 controller ruling 4），這個路由改成同步 render，notFound() 才能在送出
+    // header 前把狀態碼定案——已用 `next build && next start -p 3100`，登入 off@ 拿真的
+    // session cookie 直接 curl 這個網址驗證過，狀態碼確實是 404（dev server 現在也一樣）。
+    const response = await page.goto(`/groups/${groupAId}`);
+    expect(response?.status()).toBe(404);
     await expect(page.getByText("This page could not be found.")).toBeVisible();
   });
 });
