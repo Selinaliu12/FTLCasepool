@@ -70,7 +70,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
 
   // Step 5：2 小時內 editProgress 改燈號與三句話成功，pdf_uploaded_at 不變。
   it("2 小時內 editProgress 改燈號與三句話成功，pdf_uploaded_at 不變", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const before = await reportRow(seed.lineA, seed.periodIds[0]);
 
     const { editProgress } = await import("@/server/actions/progress");
@@ -90,7 +90,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
 
   // Step 6：超過 2 小時 editProgress／withdrawProgress 回傳「已超過 2 小時，已鎖定不能修改」。
   it("超過 2 小時 editProgress 回傳「已超過 2 小時，已鎖定不能修改」", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
     await backdatePdfUploadedAt(row.id, new Date(Date.now() - 3 * 60 * 60 * 1000));
 
@@ -103,7 +103,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
   });
 
   it("超過 2 小時 withdrawProgress 回傳「已超過 2 小時，已鎖定不能修改」", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
     await backdatePdfUploadedAt(row.id, new Date(Date.now() - 3 * 60 * 60 * 1000));
 
@@ -120,7 +120,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
   // Step 7：真實邊界——直接對資料庫 update／delete 一列已鎖定的資料，被 trigger 拒絕。
   // 就算伺服器程式有 bug（漏了應用層的鎖定檢查），資料庫本身也要擋下來。
   it("直接對資料庫 update 已鎖定的列 → 被 trigger 拒絕", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
     await backdatePdfUploadedAt(row.id, new Date(Date.now() - 3 * 60 * 60 * 1000));
 
@@ -132,7 +132,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
   });
 
   it("直接對資料庫 delete 已鎖定的列 → 被 trigger 拒絕", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
     await backdatePdfUploadedAt(row.id, new Date(Date.now() - 3 * 60 * 60 * 1000));
 
@@ -145,7 +145,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
 
   // Step 8：replaceProgressPdf 把繳交時間改成新檔時間、舊 R2 檔刪除。
   it("replaceProgressPdf 把繳交時間改成新檔時間、舊 R2 檔刪除", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
     const oldKey = row.pdf_key as string;
 
@@ -174,7 +174,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
 
   // Step 9（Review Focus 3）：截止前交、過了截止才換 PDF → 變成逾期，回傳 becameLate。
   it("截止前交、過了截止才換 PDF → 變成逾期，並回傳 becameLate", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
 
     // 期別截止 = 現在 - 30 分鐘；原本 PDF 在截止前 10 分鐘上傳（仍在 2 小時內）。
     const db = createServiceSupabase();
@@ -218,7 +218,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
 
   // Step 10：withdrawProgress 後資料庫沒有該筆、R2 沒有檔案、該期回到未交。
   it("withdrawProgress 後資料庫沒有該筆、R2 沒有檔案", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
 
     const { withdrawProgress } = await import("@/server/actions/progress");
@@ -236,7 +236,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
 
   // 授權：別組的專案生不能碰別組的報告，也不會被告知這份報告存在。
   it("別組的專案生 editProgress 別組的報告 → 找不到這份進度", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
 
     const { editProgress } = await import("@/server/actions/progress");
@@ -248,7 +248,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
   });
 
   it("幹部（非專案生）editProgress → 找不到這份進度", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
     asOfficer(seed.semesterId);
 
@@ -259,7 +259,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
   });
 
   it("同組的另一位組員也可以 editProgress（該組任何組員都可以）", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
 
     const { editProgress } = await import("@/server/actions/progress");
@@ -272,7 +272,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
 
   // replace 的安全鏈：別人的票不能用。
   it("replaceProgressPdf 用別人申請的票 → 被拒，舊檔沒被刪掉", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
 
     const foreignKey = `${SEMESTER_NAME}/${seed.groupA}/foreign.pdf`;
@@ -295,7 +295,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
   // 檔案），但絕對不能動舊檔（report.pdf_key）——舊檔案還在被這份報告使用，換檔失敗不該
   // 影響它。
   it("超過 2 小時 replaceProgressPdf 被拒：票沒被用掉、新物件被刪除、舊物件沒被動", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
     await backdatePdfUploadedAt(row.id, new Date(Date.now() - 3 * 60 * 60 * 1000));
 
@@ -325,7 +325,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
       ["幹部", (semesterId: string) => asOfficer(semesterId)],
       ["PM", (semesterId: string) => asPm(semesterId)],
     ] as const)("%s replaceProgressPdf 別組的報告 → 找不到這份進度", async (_label, setAccess) => {
-      const seed = await seedSemester();
+      const seed = await seedSemester({ acknowledged: true });
       const row = await reportRow(seed.lineA, seed.periodIds[0]);
       setAccess(seed.semesterId);
 
@@ -340,7 +340,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
       ["幹部", (semesterId: string) => asOfficer(semesterId)],
       ["PM", (semesterId: string) => asPm(semesterId)],
     ] as const)("%s withdrawProgress 別組的報告 → 找不到這份進度", async (_label, setAccess) => {
-      const seed = await seedSemester();
+      const seed = await seedSemester({ acknowledged: true });
       const row = await reportRow(seed.lineA, seed.periodIds[0]);
       setAccess(seed.semesterId);
 
@@ -353,7 +353,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
     });
 
     it("別組的專案生 replaceProgressPdf → 找不到這份進度", async () => {
-      const seed = await seedSemester();
+      const seed = await seedSemester({ acknowledged: true });
       const row = await reportRow(seed.lineA, seed.periodIds[0]);
 
       const { replaceProgressPdf } = await import("@/server/actions/progress");
@@ -366,7 +366,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
     });
 
     it("別組的專案生 withdrawProgress → 找不到這份進度", async () => {
-      const seed = await seedSemester();
+      const seed = await seedSemester({ acknowledged: true });
       const row = await reportRow(seed.lineA, seed.periodIds[0]);
 
       const { withdrawProgress } = await import("@/server/actions/progress");
@@ -378,7 +378,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
     });
 
     it("格式錯誤（非 UUID）的 reportId → replaceProgressPdf 回「找不到這份進度」，不是 500", async () => {
-      await seedSemester();
+      await seedSemester({ acknowledged: true });
 
       const { replaceProgressPdf } = await import("@/server/actions/progress");
       const result = await asUser("a1@g.nccu.edu.tw", () =>
@@ -389,7 +389,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
     });
 
     it("格式錯誤（非 UUID）的 reportId → withdrawProgress 回「找不到這份進度」，不是 500", async () => {
-      await seedSemester();
+      await seedSemester({ acknowledged: true });
 
       const { withdrawProgress } = await import("@/server/actions/progress");
       const result = await asUser("a1@g.nccu.edu.tw", () => withdrawProgress(MALFORMED_ID));
@@ -398,7 +398,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
     });
 
     it("格式錯誤（非 UUID）的 reportId → editProgress 回「找不到這份進度」，不是 500", async () => {
-      await seedSemester();
+      await seedSemester({ acknowledged: true });
 
       const { editProgress } = await import("@/server/actions/progress");
       const result = await asUser("a1@g.nccu.edu.tw", () =>
@@ -426,7 +426,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
   // 最後才放行 a1——這樣 a1 手上的 p_old_pdf_key 保證跟資料庫「這一刻」的值不一樣，
   // 才是真正在測 RPC 的 stale_write 防護，而不是靠時間巧合。
   it("兩個組員幾乎同時換檔同一份報告 → 較晚打 RPC 的那個因為 pdf_key 被搶先改過而被拒（stale write）", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
 
     const keyA = `${SEMESTER_NAME}/${seed.groupA}/race-a.pdf`;
@@ -481,7 +481,7 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
   // 回傳的 pdf_key，不是呼叫最初讀到、可能已經過期的值——用「先換檔、再撤回」這個真實的
   // 循序場景驗證：撤回時 R2 上被刪的是換檔後的新 key，不是報告一開始建立時的舊 key。
   it("withdrawProgress 刪的是資料庫實際回傳的 pdf_key（換檔之後才撤回，刪的是新 key）", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const row = await reportRow(seed.lineA, seed.periodIds[0]);
     const originalKey = row.pdf_key as string;
 
@@ -501,5 +501,28 @@ describe("2 小時內修改／換 PDF／撤回；之後鎖定", () => {
     expect(mockDeleteObject).toHaveBeenCalledTimes(1);
     expect(mockDeleteObject).toHaveBeenCalledWith(newKey);
     expect(mockDeleteObject).not.toHaveBeenCalledWith(originalKey);
+  });
+});
+
+// 最終審查 M6：編輯／換 PDF／撤回也一樣要求這學期按過「我已了解」。
+describe("editProgress／replaceProgressPdf／withdrawProgress：還沒按「我已了解」", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  it("三個動作都回傳「請先閱讀並同意使用說明」，報告不變", async () => {
+    const seed = await seedSemester(); // 沒有 acknowledged
+    const before = await reportRow(seed.lineA, seed.periodIds[0]);
+    const { editProgress, replaceProgressPdf, withdrawProgress } = await import("@/server/actions/progress");
+
+    const edit = await asUser("a1@g.nccu.edu.tw", () =>
+      editProgress(before.id, { light: "red", did: "x", blocked: "y", nextSteps: "z" })
+    );
+    const replace = await asUser("a1@g.nccu.edu.tw", () => replaceProgressPdf(before.id, `reports/${seed.groupA}/new.pdf`));
+    const withdraw = await asUser("a1@g.nccu.edu.tw", () => withdrawProgress(before.id));
+
+    for (const r of [edit, replace, withdraw]) expect(r).toEqual({ ok: false, error: "請先閱讀並同意使用說明" });
+    const after = await reportRow(seed.lineA, seed.periodIds[0]);
+    expect(after).toEqual(before);
   });
 });

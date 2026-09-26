@@ -54,7 +54,7 @@ describe("requestPdfUpload", () => {
   });
 
   it("幹部（officer，非專案生）→ 被拒，不簽網址", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asOfficer(seed.semesterId);
     const { requestPdfUpload } = await import("@/server/actions/upload");
     const result = await requestPdfUpload(GOOD_FILE);
@@ -63,7 +63,7 @@ describe("requestPdfUpload", () => {
   });
 
   it("檔案不合規格 → 直接回錯，不簽網址", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asStudent(seed.semesterId, seed.groupA);
     const { requestPdfUpload } = await import("@/server/actions/upload");
     const result = await requestPdfUpload({ name: "a.docx", type: "application/msword", size: 100 });
@@ -72,7 +72,7 @@ describe("requestPdfUpload", () => {
   });
 
   it("專案生上傳合規格的檔案 → key 格式正確、回傳簽好的網址", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asStudent(seed.semesterId, seed.groupA);
     const { requestPdfUpload } = await import("@/server/actions/upload");
     const result = await requestPdfUpload(GOOD_FILE);
@@ -86,7 +86,7 @@ describe("requestPdfUpload", () => {
   });
 
   it("核發 key 的同時留一張票，記錄是誰申請的、還沒用過", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asStudent(seed.semesterId, seed.groupA);
     const { requestPdfUpload } = await import("@/server/actions/upload");
     const result = await requestPdfUpload(GOOD_FILE);
@@ -101,5 +101,23 @@ describe("requestPdfUpload", () => {
     if (error) throw error;
     expect(ticket.issuer_email).toBe("a1@g.nccu.edu.tw");
     expect(ticket.used_at).toBeNull();
+  });
+});
+
+// 最終審查 M6：拿上傳網址也要求這學期按過「我已了解」。
+describe("requestPdfUpload：還沒按「我已了解」", () => {
+  beforeEach(async () => {
+    mockPresignPdfPut.mockReset();
+    mockPresignPdfPut.mockResolvedValue("https://signed.example/put");
+    await resetDb();
+  });
+
+  it("回傳「請先閱讀並同意使用說明」，不簽網址", async () => {
+    const seed = await seedSemester(); // 沒有 acknowledged
+    asStudent(seed.semesterId, seed.groupA);
+    const { requestPdfUpload } = await import("@/server/actions/upload");
+    const result = await requestPdfUpload(GOOD_FILE);
+    expect(result).toEqual({ ok: false, error: "請先閱讀並同意使用說明" });
+    expect(mockPresignPdfPut).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 "use server";
 
 import { getAccess } from "@/server/session";
+import { acknowledgementRequired } from "@/server/queries/acknowledgement";
 import { createServiceSupabase } from "@/server/supabase";
 import { validateProgress } from "@/domain/progress";
 import { MAX_PDF_BYTES } from "@/domain/pdf";
@@ -24,6 +25,8 @@ export async function submitProgress(
   if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
     return { ok: false, error: "只有專案生可以交進度" };
   }
+  const notAcknowledged = await acknowledgementRequired(access.semesterId, access.email);
+  if (notAcknowledged) return notAcknowledged;
 
   const db = createServiceSupabase();
 
@@ -204,6 +207,8 @@ export async function editProgress(
   const db = createServiceSupabase();
   const report = await loadOwnedReport(db, reportId, caller?.groupId ?? null);
   if (!report || !caller) return { ok: false, error: NOT_FOUND };
+  const notAcknowledged = await acknowledgementRequired(caller.semesterId, caller.email);
+  if (notAcknowledged) return notAcknowledged;
 
   if (isLocked(report.pdfUploadedAt, new Date())) return { ok: false, error: LOCKED_ERROR };
 
@@ -269,6 +274,8 @@ export async function replaceProgressPdf(
   const db = createServiceSupabase();
   const report = await loadOwnedReport(db, reportId, caller?.groupId ?? null);
   if (!report || !caller) return { ok: false, error: NOT_FOUND };
+  const notAcknowledged = await acknowledgementRequired(caller.semesterId, caller.email);
+  if (notAcknowledged) return notAcknowledged;
 
   const { data: semester, error: semesterError } = await db
     .from("semesters")
@@ -375,6 +382,8 @@ export async function withdrawProgress(reportId: string): Promise<{ ok: true } |
   const db = createServiceSupabase();
   const report = await loadOwnedReport(db, reportId, caller?.groupId ?? null);
   if (!report || !caller) return { ok: false, error: NOT_FOUND };
+  const notAcknowledged = await acknowledgementRequired(caller.semesterId, caller.email);
+  if (notAcknowledged) return notAcknowledged;
 
   if (isLocked(report.pdfUploadedAt, new Date())) return { ok: false, error: LOCKED_ERROR };
 

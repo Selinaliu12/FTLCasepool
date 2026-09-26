@@ -82,7 +82,7 @@ describe("submitProgress", () => {
   });
 
   it("寫入一筆，繳交時間 = R2 確認後的時間，submitted_by 是送出者", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asStudent(seed.semesterId, seed.groupA);
     mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
 
@@ -123,7 +123,7 @@ describe("submitProgress", () => {
   });
 
   it("R2 上沒有檔案 → 回傳「檔案沒有上傳成功，請重新選擇 PDF」、不寫入、刪掉物件", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asStudent(seed.semesterId, seed.groupA);
     mockInspectUploaded.mockResolvedValue(null);
 
@@ -139,7 +139,7 @@ describe("submitProgress", () => {
   });
 
   it("檔頭不是 PDF → 同一句錯誤訊息、不寫入", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asStudent(seed.semesterId, seed.groupA);
     mockInspectUploaded.mockResolvedValue({ size: 100, isPdf: false });
 
@@ -154,7 +154,7 @@ describe("submitProgress", () => {
   });
 
   it("別組的合法專案生交自己組的期別 → 成功，且不會誤寫進別組的期別", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     // b1 是第2組的人，自己申請、自己用自己的票，交自己組的期別。
     asStudent(seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
     mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
@@ -171,7 +171,7 @@ describe("submitProgress", () => {
   });
 
   it("幹部（非專案生）送出 → 被拒，收到『只有專案生可以交進度』", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asOfficer(seed.semesterId);
 
     const { submitProgress } = await import("@/server/actions/progress");
@@ -182,7 +182,7 @@ describe("submitProgress", () => {
   });
 
   it("不在名單上的人（not_in_roster）送出 → 被拒，收到『只有專案生可以交進度』", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asNotInRoster();
 
     const { submitProgress } = await import("@/server/actions/progress");
@@ -192,7 +192,7 @@ describe("submitProgress", () => {
   });
 
   it("period 屬於別的（非目前）學期 → 『找不到這一期』", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asStudent(seed.semesterId, seed.groupA);
 
     // 另外造一個「不是目前學期」的學期跟期別。
@@ -223,7 +223,7 @@ describe("submitProgress", () => {
     // 這裡改成模擬真實情境——moveMember()（admin.ts）可以把一個專案生換到別組，換組當下
     // 完全不會去動這個人手上還沒用掉的票：票對這個人來說仍然合法（issuer_email 是自己、
     // used_at 是 null），字首卻還停在舊組別。這種情況下，**只有**字首檢查能擋下來。
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
 
     // a1 一開始真的在第1組（seedSemester() 種的），申請了一把字首是第1組的 key。
     asStudent(seed.semesterId, seed.groupA, "a1@g.nccu.edu.tw", "甲一");
@@ -261,7 +261,7 @@ describe("submitProgress", () => {
   });
 
   it("情境 A：A2 重放 A1 已經交出去的 key → A1 的報告與檔案不受影響，A2 收到錯誤", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
 
     const key = goodInput(seed.groupA, "shared").pdfKey;
@@ -290,7 +290,7 @@ describe("submitProgress", () => {
   });
 
   it("情境 B：A2 拿 A1 的 key 交另一期 → 被拒，不會有第二筆報告", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
 
     const key = goodInput(seed.groupA, "shared-b").pdfKey;
@@ -324,7 +324,7 @@ describe("submitProgress", () => {
   });
 
   it("拿同組隊友還沒用過的票交 → 被拒（票不是自己申請的，就算同組也不行）", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
 
     const key = goodInput(seed.groupA, "teammates-ticket").pdfKey;
@@ -341,7 +341,7 @@ describe("submitProgress", () => {
   });
 
   it("同一組兩人同時送出同一期，只留一份，輸的那一方的檔案被刪掉（不是贏家的）", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
 
     const key1 = goodInput(seed.groupA, "k1").pdfKey;
@@ -372,5 +372,34 @@ describe("submitProgress", () => {
     expect(mockDeleteObject).toHaveBeenCalledTimes(1);
     expect(mockDeleteObject).toHaveBeenCalledWith(loserKey);
     expect(mockDeleteObject).not.toHaveBeenCalledWith(winnerKey);
+  });
+});
+
+// 最終審查 M6：還沒按過這學期的「我已了解」（規格 4.2），就算是本組的專案生也不能交進度——
+// (app)/layout.tsx 只擋畫面，server action 是可以直接從瀏覽器呼叫的端點，要自己再擋一次。
+describe("submitProgress：還沒按「我已了解」", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  it("回傳「請先閱讀並同意使用說明」，不寫入", async () => {
+    const seed = await seedSemester(); // 沒有 acknowledged
+    asStudent(seed.semesterId, seed.groupA);
+    const { submitProgress } = await import("@/server/actions/progress");
+    const result = await submitProgress(seed.periodIds[1], {
+      light: "green",
+      did: "做了",
+      blocked: "沒有",
+      nextSteps: "繼續",
+      pdfKey: `reports/${seed.groupA}/x.pdf`,
+    });
+    expect(result).toEqual({ ok: false, error: "請先閱讀並同意使用說明" });
+
+    const db = createServiceSupabase();
+    const { count } = await db
+      .from("progress_reports")
+      .select("id", { count: "exact", head: true })
+      .eq("period_id", seed.periodIds[1]);
+    expect(count).toBe(0);
   });
 });

@@ -57,7 +57,7 @@ describe("submitCheckin", () => {
   });
 
   it("寫入一筆，記錄誰、何時", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asStudent(seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
 
     const { submitCheckin } = await import("@/server/actions/checkin");
@@ -77,7 +77,7 @@ describe("submitCheckin", () => {
   });
 
   it("幹部（非專案生）送出 → 被拒，收到『只有專案生可以點燈號』", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asOfficer(seed.semesterId);
 
     const { submitCheckin } = await import("@/server/actions/checkin");
@@ -88,7 +88,7 @@ describe("submitCheckin", () => {
   });
 
   it("不在名單上的人送出 → 被拒，收到同一句錯誤", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     mockGetAccess.mockResolvedValue({ kind: "not_in_roster" });
 
     const { submitCheckin } = await import("@/server/actions/checkin");
@@ -99,7 +99,7 @@ describe("submitCheckin", () => {
   });
 
   it("紅燈沒補說明 → 伺服器端先擋下來，回『紅燈請補一句卡在哪裡』，不寫入任何列", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asStudent(seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
 
     const { submitCheckin } = await import("@/server/actions/checkin");
@@ -112,7 +112,7 @@ describe("submitCheckin", () => {
   });
 
   it("第2組學生點燈，只寫進第2組的線，不會混進第1組", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asStudent(seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
 
     const { submitCheckin } = await import("@/server/actions/checkin");
@@ -124,7 +124,7 @@ describe("submitCheckin", () => {
   });
 
   it("真實邊界：直接用 service client 插入紅燈＋空白說明，被資料庫 CHECK 擋下來", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     const db = createServiceSupabase();
     const { error } = await db.from("checkins").insert({
       line_id: seed.lineA,
@@ -137,7 +137,7 @@ describe("submitCheckin", () => {
   });
 
   it("紅燈點燈成功後，loadMyGroup（以該學生身分）顯示紅燈、來源『組員回報』，latestReport 指向這筆", async () => {
-    const seed = await seedSemester();
+    const seed = await seedSemester({ acknowledged: true });
     asStudent(seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
     mockCreateServerSupabase.mockResolvedValue(await clientAs("b1@g.nccu.edu.tw"));
 
@@ -154,5 +154,24 @@ describe("submitCheckin", () => {
     expect(data.latestReport?.light).toBe("red");
     expect(data.latestReport?.name).toBe("乙一");
     expect(data.latestReport!.at.getTime()).toBeGreaterThanOrEqual(before.getTime());
+  });
+});
+
+// 最終審查 M6：點燈號也要求這學期按過「我已了解」。
+describe("submitCheckin：還沒按「我已了解」", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  it("回傳「請先閱讀並同意使用說明」，不寫入", async () => {
+    const seed = await seedSemester(); // 沒有 acknowledged
+    asStudent(seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
+    const { submitCheckin } = await import("@/server/actions/checkin");
+    const result = await submitCheckin({ light: "yellow", note: "" });
+    expect(result).toEqual({ ok: false, error: "請先閱讀並同意使用說明" });
+
+    const db = createServiceSupabase();
+    const { count } = await db.from("checkins").select("id", { count: "exact", head: true }).eq("line_id", seed.lineB);
+    expect(count).toBe(1); // 只有 seedSemester 種的那一筆
   });
 });

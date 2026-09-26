@@ -1,6 +1,7 @@
 "use server";
 
 import { getAccess } from "@/server/session";
+import { acknowledgementRequired } from "@/server/queries/acknowledgement";
 import { createServiceSupabase } from "@/server/supabase";
 import { validatePdfMeta } from "@/domain/pdf";
 import { presignPdfPut } from "@/server/r2";
@@ -16,6 +17,8 @@ export async function requestPdfUpload(f: {
   if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
     return { ok: false, error: "只有專案生可以上傳" };
   }
+  const notAcknowledged = await acknowledgementRequired(access.semesterId, access.email);
+  if (notAcknowledged) return notAcknowledged;
 
   const meta = validatePdfMeta(f);
   if (!meta.ok) return meta;

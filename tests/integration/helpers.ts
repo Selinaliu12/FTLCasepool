@@ -83,7 +83,10 @@ export async function ensureLocalStorageBucket(): Promise<void> {
   if (error && !error.message.includes("already exists")) throw error;
 }
 
-export async function seedSemester() {
+// acknowledged：是否替種子成員預先按過「我已了解」。交進度／點燈號／上傳相關的 server action
+// 都要求呼叫者這學期已經按過（最終審查 M6），測那些動作本身的行為時傳 { acknowledged: true }；
+// 預設 false，讓 e2e 的 /welcome 流程維持「第一次登入要先看說明」。
+export async function seedSemester(opts: { acknowledged?: boolean } = {}) {
   const db = service();
 
   const { data: semester, error: semError } = await db
@@ -138,6 +141,13 @@ export async function seedSemester() {
     { semester_id: semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", group_id: null },
   ]);
   if (mError) throw mError;
+
+  if (opts.acknowledged) {
+    const { error: ackError } = await db.from("acknowledgements").insert(
+      ["a1", "a2", "b1", "pm", "off"].map((u) => ({ semester_id: semesterId, email: `${u}@g.nccu.edu.tw` }))
+    );
+    if (ackError) throw ackError;
+  }
 
   const { error: prError } = await db.from("progress_reports").insert({
     line_id: lineA.id,

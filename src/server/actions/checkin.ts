@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getAccess } from "@/server/session";
+import { acknowledgementRequired } from "@/server/queries/acknowledgement";
 import { createServiceSupabase } from "@/server/supabase";
 import { validateCheckin } from "@/domain/progress";
 import type { Light } from "@/domain/lights";
@@ -18,6 +19,8 @@ export async function submitCheckin(
   if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
     return { ok: false, error: REJECTED };
   }
+  const notAcknowledged = await acknowledgementRequired(access.semesterId, access.email);
+  if (notAcknowledged) return notAcknowledged;
 
   const note = input.note ?? "";
   const validation = validateCheckin({ light: input.light, note });
