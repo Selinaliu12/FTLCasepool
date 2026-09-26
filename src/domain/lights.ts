@@ -6,6 +6,14 @@ export const LIGHT_LABEL: Record<Light, string> = {
   red: "紅燈",
 };
 
+// 燈號嚴重程度：紅 > 黃 > 綠。顯示燈（取較嚴重者）、看板排序都用這一份，不要各自再定義。
+export const LIGHT_SEVERITY: Record<Light, number> = { red: 2, yellow: 1, green: 0 };
+
+// 期別名稱全站統一「第 N 期」（有空格）：組頁、看板、系統判定燈的來源文字都用這個。
+export function periodLabel(seq: number): string {
+  return `第 ${seq} 期`;
+}
+
 export type Deliverable = {
   label: string;
   deadline: Date;
@@ -38,8 +46,8 @@ export function systemLight(ds: Deliverable[], now: Date, s: { redAfterHours: nu
     }
 
     const reason = d.returned ? `系統：${d.label}被退回` : `系統：${d.label}${overdueLabel(hours)}`;
-    const severity = light === "red" ? 2 : 1;
-    const worstSeverity = worst ? (worst.light === "red" ? 2 : 1) : -1;
+    const severity = LIGHT_SEVERITY[light];
+    const worstSeverity = worst ? LIGHT_SEVERITY[worst.light] : -1;
 
     if (
       !worst ||
@@ -54,16 +62,14 @@ export function systemLight(ds: Deliverable[], now: Date, s: { redAfterHours: nu
   return { light: worst.light, reason: worst.reason };
 }
 
-const SEVERITY: Record<Light, number> = { red: 2, yellow: 1, green: 0 };
-
 export function displayLight(reporter: Light | null, system: SystemLight): { light: Light; source: string } {
   if (reporter === null) {
     if (system.light === "green") return { light: "green", source: "系統：沒有欠交" };
     return { light: system.light, source: system.reason as string };
   }
 
-  const reporterSev = SEVERITY[reporter];
-  const systemSev = SEVERITY[system.light];
+  const reporterSev = LIGHT_SEVERITY[reporter];
+  const systemSev = LIGHT_SEVERITY[system.light];
 
   if (reporterSev > systemSev) {
     return { light: reporter, source: "組員回報" };

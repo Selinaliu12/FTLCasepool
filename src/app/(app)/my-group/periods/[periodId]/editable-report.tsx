@@ -21,28 +21,9 @@ import { formatTaipei } from "@/domain/time";
 import { validateProgress } from "@/domain/progress";
 import { validatePdfMeta } from "@/domain/pdf";
 import type { Light } from "@/domain/lights";
+import { LIGHT_OPTIONS, putWithProgress } from "./report-shared";
 import { requestPdfUpload } from "@/server/actions/upload";
 import { editProgress, replaceProgressPdf, withdrawProgress } from "@/server/actions/progress";
-
-const LIGHT_OPTIONS: { value: Light; label: string }[] = [
-  { value: "green", label: "綠燈" },
-  { value: "yellow", label: "黃燈" },
-  { value: "red", label: "紅燈" },
-];
-
-function putWithProgress(url: string, file: File, onProgress: (pct: number) => void): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("Content-Type", "application/pdf");
-    xhr.upload.onprogress = (evt) => {
-      if (evt.lengthComputable) onProgress(Math.round((evt.loaded / evt.total) * 100));
-    };
-    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error("上傳失敗，請重試")));
-    xhr.onerror = () => reject(new Error("上傳失敗，請重試"));
-    xhr.send(file);
-  });
-}
 
 export function EditableReport(props: {
   reportId: string;

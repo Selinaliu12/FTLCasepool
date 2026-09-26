@@ -130,3 +130,16 @@ describe("displayLight", () => {
     });
   });
 });
+
+describe("periodLabel／LIGHT_SEVERITY（最終審查 M7：全站共用）", () => {
+  it("periodLabel(3) → 「第 3 期」（有空格）", async () => {
+    const { periodLabel } = await import("./lights");
+    expect(periodLabel(3)).toBe("第 3 期");
+  });
+
+  it("LIGHT_SEVERITY：紅 > 黃 > 綠", async () => {
+    const { LIGHT_SEVERITY } = await import("./lights");
+    expect(LIGHT_SEVERITY.red).toBeGreaterThan(LIGHT_SEVERITY.yellow);
+    expect(LIGHT_SEVERITY.yellow).toBeGreaterThan(LIGHT_SEVERITY.green);
+  });
+});

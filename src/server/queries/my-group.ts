@@ -2,7 +2,7 @@ import "server-only";
 import { getAccess } from "@/server/session";
 import { createServerSupabase } from "@/server/supabase";
 import type { Light, Deliverable } from "@/domain/lights";
-import { systemLight, reporterLight, displayLight } from "@/domain/lights";
+import { systemLight, reporterLight, displayLight, periodLabel } from "@/domain/lights";
 import { onTimeRate } from "@/domain/on-time";
 import { lockedAt } from "@/domain/lock";
 
@@ -97,7 +97,7 @@ export async function loadMyGroup(): Promise<MyGroup> {
   });
 
   const deliverables: Deliverable[] = periods.map((p) => ({
-    label: `第${p.seq}期`,
+    label: periodLabel(p.seq),
     deadline: p.deadline,
     submittedAt: p.report?.submittedAt ?? null,
   }));

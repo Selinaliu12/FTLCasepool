@@ -1,4 +1,4 @@
-import { systemLight, reporterLight, displayLight, type Light, type Deliverable } from "./lights";
+import { systemLight, reporterLight, displayLight, LIGHT_SEVERITY, periodLabel, type Light, type Deliverable } from "./lights";
 import { onTimeRate } from "./on-time";
 import { daysUntil, formatTaipei } from "./time";
 
@@ -11,19 +11,17 @@ export type GroupCard = {
   nextDeadline: { at: Date; daysLeft: number } | null;
 };
 
-const SEVERITY: Record<Light, number> = { red: 2, yellow: 1, green: 0 };
-
 export function worstLight(card: GroupCard): Light {
   let worst: Light = "green";
   for (const line of card.lines) {
-    if (SEVERITY[line.light] > SEVERITY[worst]) worst = line.light;
+    if (LIGHT_SEVERITY[line.light] > LIGHT_SEVERITY[worst]) worst = line.light;
   }
   return worst;
 }
 
 export function sortGroupCards(cards: GroupCard[]): GroupCard[] {
   return [...cards].sort((a, b) => {
-    const diff = SEVERITY[worstLight(b)] - SEVERITY[worstLight(a)];
+    const diff = LIGHT_SEVERITY[worstLight(b)] - LIGHT_SEVERITY[worstLight(a)];
     if (diff !== 0) return diff;
     return a.groupName.localeCompare(b.groupName, "zh-Hant", { numeric: true });
   });
@@ -41,7 +39,7 @@ export function buildGroupCard(input: {
   const { group, lineId, periods, submissions, events, now, redAfterHours } = input;
 
   const deliverables: Deliverable[] = periods.map((p) => ({
-    label: `第 ${p.seq} 期`,
+    label: periodLabel(p.seq),
     deadline: p.deadline,
     submittedAt: submissions.find((s) => s.periodSeq === p.seq)?.submittedAt ?? null,
   }));
@@ -58,7 +56,7 @@ export function buildGroupCard(input: {
   const nextDeadline = upcoming
     ? { at: upcoming.deadline, daysLeft: daysUntil(upcoming.deadline, now) }
     : null;
-  const stage = upcoming ? `第 ${upcoming.seq} 期` : "本學期期別已結束";
+  const stage = upcoming ? periodLabel(upcoming.seq) : "本學期期別已結束";
 
   return {
     groupId: group.id,

@@ -20,7 +20,7 @@ vi.mock("@/server/supabase", async () => {
   const actual = await vi.importActual<typeof import("@/server/supabase")>("@/server/supabase");
   return { ...actual, createServerSupabase: () => mockCreateServerSupabase() };
 });
-import { clientAs } from "./helpers";
+import { clientAs, backdatePeriodDeadline } from "./helpers";
 
 const REJECTED = "只有專案生可以點燈號";
 
@@ -154,6 +154,25 @@ describe("submitCheckin", () => {
     expect(data.latestReport?.light).toBe("red");
     expect(data.latestReport?.name).toBe("乙一");
     expect(data.latestReport!.at.getTime()).toBeGreaterThanOrEqual(before.getTime());
+  });
+});
+
+// 最終審查 M7：期別名稱全站統一成「第 N 期」（有空格）。看板（dashboard.ts）早就是這樣，
+// 學生自己的組頁（my-group.ts）之前寫成「第N期」，同一個逾期在兩個畫面長得不一樣。
+describe("loadMyGroup：系統判定燈的來源文字", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  it("第 1 期逾期 4 天沒交 → 來源「系統：第 1 期逾期 4 天」", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    await backdatePeriodDeadline(seed.periodIds[0], new Date(Date.now() - 4 * 24 * 3_600_000 - 60_000));
+    asStudent(seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("b1@g.nccu.edu.tw"));
+
+    const { loadMyGroup } = await import("@/server/queries/my-group");
+    const data = await loadMyGroup();
+    expect(data.display).toEqual({ light: "red", source: "系統：第 1 期逾期 4 天" });
   });
 });
 
