@@ -5,6 +5,7 @@ import type { Light, Deliverable } from "@/domain/lights";
 import { systemLight, reporterLight, displayLight, periodLabel } from "@/domain/lights";
 import { onTimeRate } from "@/domain/on-time";
 import { lockedAt } from "@/domain/lock";
+import { mapCheckinHistory, type CheckinHistoryEntry } from "@/domain/checkin-history";
 
 export type PeriodRow = {
   periodId: string;
@@ -12,8 +13,6 @@ export type PeriodRow = {
   deadline: Date;
   report: null | { submittedAt: Date; submittedBy: string; light: Light; lockedAt: Date };
 };
-
-export type MyGroupCheckin = { light: Light; note: string | null; by: string; at: Date };
 
 export type MyGroup = {
   groupName: string;
@@ -23,7 +22,7 @@ export type MyGroup = {
   display: { light: Light; source: string };
   onTime: number | null;
   latestReport: { light: Light; name: string; at: Date } | null;
-  checkins: MyGroupCheckin[];
+  checkins: CheckinHistoryEntry[];
 };
 
 // 用 USER-scoped client（createServerSupabase）而不是 service client，讓這裡的每一個
@@ -132,12 +131,15 @@ export async function loadMyGroup(): Promise<MyGroup> {
     ? { light: latestEvent.light, name: nameByEmail.get(latestEvent.by) ?? latestEvent.by, at: latestEvent.at }
     : null;
 
-  const checkinHistory: MyGroupCheckin[] = (checkins ?? []).map((c) => ({
-    light: c.light as Light,
-    note: c.note as string | null,
-    by: nameByEmail.get(c.created_by as string) ?? (c.created_by as string),
-    at: new Date(c.created_at as string),
-  }));
+  const checkinHistory = mapCheckinHistory(
+    (checkins ?? []).map((c) => ({
+      light: c.light as Light,
+      note: c.note as string | null,
+      created_by: c.created_by as string,
+      created_at: c.created_at as string,
+    })),
+    nameByEmail
+  );
 
   return {
     groupName: groupRes.data.name as string,
