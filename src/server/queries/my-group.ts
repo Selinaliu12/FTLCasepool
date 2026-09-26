@@ -13,6 +13,8 @@ export type PeriodRow = {
   report: null | { submittedAt: Date; submittedBy: string; light: Light; lockedAt: Date };
 };
 
+export type MyGroupCheckin = { light: Light; note: string | null; by: string; at: Date };
+
 export type MyGroup = {
   groupName: string;
   projectName: string;
@@ -21,6 +23,7 @@ export type MyGroup = {
   display: { light: Light; source: string };
   onTime: number | null;
   latestReport: { light: Light; name: string; at: Date } | null;
+  checkins: MyGroupCheckin[];
 };
 
 // 用 USER-scoped client（createServerSupabase）而不是 service client，讓這裡的每一個
@@ -69,8 +72,9 @@ export async function loadMyGroup(): Promise<MyGroup> {
   // progress_reports（submitted_by）合併找出最新的一筆。
   const { data: checkins, error: checkinsError } = await supabase
     .from("checkins")
-    .select("light, created_by, created_at")
-    .eq("line_id", lineId);
+    .select("light, note, created_by, created_at")
+    .eq("line_id", lineId)
+    .order("created_at", { ascending: false });
   if (checkinsError) throw checkinsError;
 
   // 顯示送出者「姓名」而不是 email（規格：學生不需要看到組員的帳號）。
@@ -128,6 +132,13 @@ export async function loadMyGroup(): Promise<MyGroup> {
     ? { light: latestEvent.light, name: nameByEmail.get(latestEvent.by) ?? latestEvent.by, at: latestEvent.at }
     : null;
 
+  const checkinHistory: MyGroupCheckin[] = (checkins ?? []).map((c) => ({
+    light: c.light as Light,
+    note: c.note as string | null,
+    by: nameByEmail.get(c.created_by as string) ?? (c.created_by as string),
+    at: new Date(c.created_at as string),
+  }));
+
   return {
     groupName: groupRes.data.name as string,
     projectName: groupRes.data.project_name as string,
@@ -136,5 +147,6 @@ export async function loadMyGroup(): Promise<MyGroup> {
     display,
     onTime,
     latestReport,
+    checkins: checkinHistory,
   };
 }
