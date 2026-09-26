@@ -1,39 +1,34 @@
-"use client";
-
-import { createBrowserClient } from "@supabase/ssr";
-import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { LoginButton } from "./login-button";
 
-export default function LoginPage() {
-  async function handleLogin() {
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${location.origin}/auth/callback`,
-        queryParams: { hd: "g.nccu.edu.tw", prompt: "select_account" },
-      },
-    });
-  }
+// /auth/callback 與 requireOk() 失敗時會帶 ?error= 導回這裡；沒有這段文案時，使用者只會看到登入頁
+// 「又出現一次」，不知道是帳號網域不對還是登入流程出錯。
+const LOGIN_ERRORS: Record<string, string> = {
+  domain: "請用 @g.nccu.edu.tw 學校帳號登入",
+  auth: "登入失敗，請再試一次",
+};
+
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string | string[] }> }) {
+  const { error } = await searchParams;
+  const message = typeof error === "string" ? LOGIN_ERRORS[error] : undefined;
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card
-        className="w-full max-w-sm gap-8 !py-8"
-        style={{ boxShadow: "var(--card-shadow)" }}
-      >
+      <Card className="w-full max-w-sm gap-8 !py-8" style={{ boxShadow: "var(--card-shadow)" }}>
         <CardHeader className="px-8">
-          <CardTitle className="text-center font-heading text-3xl font-bold text-foreground">
-            FTL 競賽池
-          </CardTitle>
+          <CardTitle className="text-center font-heading text-3xl font-bold text-foreground">FTL 競賽池</CardTitle>
         </CardHeader>
-        <CardContent className="px-8">
-          <Button size="lg" className="h-11 w-full text-base" onClick={handleLogin}>
-            用學校 Google 帳號登入
-          </Button>
+        <CardContent className="flex flex-col gap-4 px-8">
+          {message && (
+            <Alert
+              variant="destructive"
+              className="rounded-[var(--r-sm,12px)] border-[var(--danger)]/30 bg-[var(--danger)]/10 px-4 py-3 text-[var(--danger)]"
+            >
+              <AlertDescription className="text-[var(--danger)]">{message}</AlertDescription>
+            </Alert>
+          )}
+          <LoginButton />
         </CardContent>
       </Card>
     </main>
