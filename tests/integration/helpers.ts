@@ -34,6 +34,9 @@ export async function resetDb(): Promise<void> {
   // 依外鍵相依順序刪除（子表先刪）。semesters 上的 cascade 理論上會連動刪掉大部分資料，
   // 但逐表刪除讓這個函式不依賴 cascade 設定，測試之間的清空行為更明確。
   await db.from("checkins").delete().neq("id", ZERO_UUID);
+  // upload_tickets 沒有外鍵掛在 semesters／groups 底下（key 是任意字串，見
+  // supabase/migrations/20260927000006_upload_tickets.sql），cascade 刪不到它，要自己清。
+  await db.from("upload_tickets").delete().not("key", "is", null);
   await db.from("progress_reports").delete().neq("id", ZERO_UUID);
   await db.from("periods").delete().neq("id", ZERO_UUID);
   await db.from("lines").delete().neq("id", ZERO_UUID);

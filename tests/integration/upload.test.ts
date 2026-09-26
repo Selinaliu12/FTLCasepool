@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resetDb, seedSemester } from "./helpers";
+import { createServiceSupabase } from "@/server/supabase";
 
 // requestPdfUpload 一律先呼叫 getAccess()，這裡跟 admin-actions.test.ts 一樣用 vi.mock
 // 假造 @/server/session，讓每個測試自己決定「呼叫者是誰」，不用真的登入。
@@ -82,5 +83,23 @@ describe("requestPdfUpload", () => {
       new RegExp(`^115-1/${seed.groupA}/[0-9a-f-]{36}\\.pdf$`)
     );
     expect(mockPresignPdfPut).toHaveBeenCalledWith(result.key, GOOD_FILE.size);
+  });
+
+  it("核發 key 的同時留一張票，記錄是誰申請的、還沒用過", async () => {
+    const seed = await seedSemester();
+    asStudent(seed.semesterId, seed.groupA);
+    const { requestPdfUpload } = await import("@/server/actions/upload");
+    const result = await requestPdfUpload(GOOD_FILE);
+    if (!result.ok) throw new Error("expected ok");
+
+    const db = createServiceSupabase();
+    const { data: ticket, error } = await db
+      .from("upload_tickets")
+      .select("key, issuer_email, used_at")
+      .eq("key", result.key)
+      .single();
+    if (error) throw error;
+    expect(ticket.issuer_email).toBe("a1@g.nccu.edu.tw");
+    expect(ticket.used_at).toBeNull();
   });
 });

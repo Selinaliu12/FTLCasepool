@@ -20,6 +20,7 @@ vi.mock("@/server/r2", () => ({
 }));
 
 const SEMESTER_NAME = "115-1"; // 跟 seedSemester() 建立的學期名稱一致
+const UPLOAD_FAILED = "檔案沒有上傳成功，請重新選擇 PDF";
 
 function asStudent(semesterId: string, groupId: string, email = "a1@g.nccu.edu.tw", name = "甲一") {
   mockGetAccess.mockResolvedValue({
@@ -41,6 +42,10 @@ function asOfficer(semesterId: string) {
   });
 }
 
+function asNotInRoster() {
+  mockGetAccess.mockResolvedValue({ kind: "not_in_roster" });
+}
+
 function goodInput(groupId: string, keySuffix: string) {
   return {
     light: "green" as const,
@@ -49,6 +54,23 @@ function goodInput(groupId: string, keySuffix: string) {
     nextSteps: "下週開始測試",
     pdfKey: `${SEMESTER_NAME}/${groupId}/${keySuffix}.pdf`,
   };
+}
+
+// requestPdfUpload() 在核發 key 的同時會留一張票（見 upload.ts、
+// supabase/migrations/20260927000006_upload_tickets.sql）。這裡直接用 service client 造票，
+// 不用真的先跑一次 requestPdfUpload——upload.test.ts 已經驗證過那條路徑會留票；這裡只關心
+// submitProgress 怎麼「用」這張票。
+async function issueTicket(key: string, issuerEmail: string) {
+  const db = createServiceSupabase();
+  const { error } = await db.from("upload_tickets").insert({ key, issuer_email: issuerEmail });
+  if (error) throw error;
+}
+
+async function reportsFor(lineId: string, periodId: string) {
+  const db = createServiceSupabase();
+  const { data, error } = await db.from("progress_reports").select("*").eq("line_id", lineId).eq("period_id", periodId);
+  if (error) throw error;
+  return data;
 }
 
 describe("submitProgress", () => {
@@ -64,9 +86,12 @@ describe("submitProgress", () => {
     asStudent(seed.semesterId, seed.groupA);
     mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
 
+    const input = goodInput(seed.groupA, "a");
+    await issueTicket(input.pdfKey, "a1@g.nccu.edu.tw");
+
     const { submitProgress } = await import("@/server/actions/progress");
     const before = new Date();
-    const result = await submitProgress(seed.periodIds[1], goodInput(seed.groupA, "a"));
+    const result = await submitProgress(seed.periodIds[1], input);
     const after = new Date();
 
     expect(result).toEqual({ ok: true });
@@ -86,6 +111,15 @@ describe("submitProgress", () => {
     const uploadedAt = new Date(row.pdf_uploaded_at).getTime();
     expect(uploadedAt).toBeGreaterThanOrEqual(before.getTime());
     expect(uploadedAt).toBeLessThanOrEqual(after.getTime());
+
+    // 票被標記用掉。
+    const { data: ticket, error: ticketError } = await db
+      .from("upload_tickets")
+      .select("used_at")
+      .eq("key", input.pdfKey)
+      .single();
+    if (ticketError) throw ticketError;
+    expect(ticket.used_at).not.toBeNull();
   });
 
   it("R2 上沒有檔案 → 回傳「檔案沒有上傳成功，請重新選擇 PDF」、不寫入、刪掉物件", async () => {
@@ -93,21 +127,15 @@ describe("submitProgress", () => {
     asStudent(seed.semesterId, seed.groupA);
     mockInspectUploaded.mockResolvedValue(null);
 
-    const { submitProgress } = await import("@/server/actions/progress");
     const input = goodInput(seed.groupA, "b");
+    await issueTicket(input.pdfKey, "a1@g.nccu.edu.tw");
+
+    const { submitProgress } = await import("@/server/actions/progress");
     const result = await submitProgress(seed.periodIds[1], input);
 
-    expect(result).toEqual({ ok: false, error: "檔案沒有上傳成功，請重新選擇 PDF" });
+    expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
     expect(mockDeleteObject).toHaveBeenCalledWith(input.pdfKey);
-
-    const db = createServiceSupabase();
-    const { data: rows, error } = await db
-      .from("progress_reports")
-      .select("id")
-      .eq("line_id", seed.lineA)
-      .eq("period_id", seed.periodIds[1]);
-    if (error) throw error;
-    expect(rows).toHaveLength(0);
+    expect(await reportsFor(seed.lineA, seed.periodIds[1])).toHaveLength(0);
   });
 
   it("檔頭不是 PDF → 同一句錯誤訊息、不寫入", async () => {
@@ -115,37 +143,34 @@ describe("submitProgress", () => {
     asStudent(seed.semesterId, seed.groupA);
     mockInspectUploaded.mockResolvedValue({ size: 100, isPdf: false });
 
-    const { submitProgress } = await import("@/server/actions/progress");
     const input = goodInput(seed.groupA, "c");
+    await issueTicket(input.pdfKey, "a1@g.nccu.edu.tw");
+
+    const { submitProgress } = await import("@/server/actions/progress");
     const result = await submitProgress(seed.periodIds[1], input);
 
-    expect(result).toEqual({ ok: false, error: "檔案沒有上傳成功，請重新選擇 PDF" });
+    expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
     expect(mockDeleteObject).toHaveBeenCalledWith(input.pdfKey);
   });
 
-  it("不是這組的人（其他組專案生）送出 → 被拒，不會查到別組的期別", async () => {
+  it("別組的合法專案生交自己組的期別 → 成功，且不會誤寫進別組的期別", async () => {
     const seed = await seedSemester();
-    // b1 是第2組的人，pdfKey 用第1組的 key 硬闖也一樣被擋，因為身分本身就不是專案生歸屬那組。
+    // b1 是第2組的人，自己申請、自己用自己的票，交自己組的期別。
     asStudent(seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
     mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
 
+    const input = goodInput(seed.groupB, "d");
+    await issueTicket(input.pdfKey, "b1@g.nccu.edu.tw");
+
     const { submitProgress } = await import("@/server/actions/progress");
-    const result = await submitProgress(seed.periodIds[1], goodInput(seed.groupB, "d"));
+    const result = await submitProgress(seed.periodIds[1], input);
 
-    // b1 是第2組合法的專案生，這筆其實應該成功寫進第2組的線；用它來確認「別組的人」不會誤寫進第1組。
     expect(result).toEqual({ ok: true });
-
-    const db = createServiceSupabase();
-    const { data: rows, error } = await db
-      .from("progress_reports")
-      .select("id")
-      .eq("line_id", seed.lineA)
-      .eq("period_id", seed.periodIds[1]);
-    if (error) throw error;
-    expect(rows).toHaveLength(0);
+    // 這筆寫進第2組的線，不會混進第1組。
+    expect(await reportsFor(seed.lineA, seed.periodIds[1])).toHaveLength(0);
   });
 
-  it("幹部（非專案生）送出 → 被拒", async () => {
+  it("幹部（非專案生）送出 → 被拒，收到『只有專案生可以交進度』", async () => {
     const seed = await seedSemester();
     asOfficer(seed.semesterId);
 
@@ -153,18 +178,156 @@ describe("submitProgress", () => {
     const result = await submitProgress(seed.periodIds[1], goodInput(seed.groupA, "e"));
 
     expect(result).toEqual({ ok: false, error: "只有專案生可以交進度" });
+    expect(mockInspectUploaded).not.toHaveBeenCalled();
   });
 
-  it("同一組兩人同時送出同一期，只留一份，另一人收到可理解的訊息", async () => {
+  it("不在名單上的人（not_in_roster）送出 → 被拒，收到『只有專案生可以交進度』", async () => {
+    const seed = await seedSemester();
+    asNotInRoster();
+
+    const { submitProgress } = await import("@/server/actions/progress");
+    const result = await submitProgress(seed.periodIds[1], goodInput(seed.groupA, "f"));
+
+    expect(result).toEqual({ ok: false, error: "只有專案生可以交進度" });
+  });
+
+  it("period 屬於別的（非目前）學期 → 『找不到這一期』", async () => {
+    const seed = await seedSemester();
+    asStudent(seed.semesterId, seed.groupA);
+
+    // 另外造一個「不是目前學期」的學期跟期別。
+    const db = createServiceSupabase();
+    const { data: otherSemester, error: semError } = await db
+      .from("semesters")
+      .insert({ name: "114-2", is_current: false })
+      .select()
+      .single();
+    if (semError) throw semError;
+    const { data: otherPeriod, error: periodError } = await db
+      .from("periods")
+      .insert({ semester_id: otherSemester.id, seq: 1, deadline: "2025-01-01T00:00:00Z" })
+      .select()
+      .single();
+    if (periodError) throw periodError;
+
+    const { submitProgress } = await import("@/server/actions/progress");
+    const result = await submitProgress(otherPeriod.id, goodInput(seed.groupA, "g"));
+
+    expect(result).toEqual({ ok: false, error: "找不到這一期" });
+    expect(mockInspectUploaded).not.toHaveBeenCalled();
+  });
+
+  it("key 的字首是別組的（不是自己這組）→『檔案沒有上傳成功』，不呼叫 inspectUploaded／deleteObject", async () => {
+    const seed = await seedSemester();
+    // b1 是第2組，但硬塞一把字首是第1組的 key（b1 從沒申請過這把 key，也不可能通過票務檢查，
+    // 但這裡要確認連 inspectUploaded／deleteObject 都不會被呼叫——在字首檢查那一關就先擋掉）。
+    asStudent(seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
+    const input = goodInput(seed.groupA, "x");
+
+    const { submitProgress } = await import("@/server/actions/progress");
+    const result = await submitProgress(seed.periodIds[1], input);
+
+    expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+    expect(mockInspectUploaded).not.toHaveBeenCalled();
+    expect(mockDeleteObject).not.toHaveBeenCalledWith(input.pdfKey);
+    expect(await reportsFor(seed.lineB, seed.periodIds[1])).toHaveLength(0);
+  });
+
+  it("情境 A：A2 重放 A1 已經交出去的 key → A1 的報告與檔案不受影響，A2 收到錯誤", async () => {
     const seed = await seedSemester();
     mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
 
+    const key = goodInput(seed.groupA, "shared").pdfKey;
+    await issueTicket(key, "a1@g.nccu.edu.tw");
+
     const { submitProgress } = await import("@/server/actions/progress");
-    const input = (key: string) => goodInput(seed.groupA, key);
+
+    // A1 先合法交出去。
+    asStudent(seed.semesterId, seed.groupA, "a1@g.nccu.edu.tw", "甲一");
+    const first = await submitProgress(seed.periodIds[1], { ...goodInput(seed.groupA, "shared"), pdfKey: key });
+    expect(first).toEqual({ ok: true });
+    mockDeleteObject.mockClear();
+
+    // A2 重放同一把 key，交同一期。
+    asStudent(seed.semesterId, seed.groupA, "a2@g.nccu.edu.tw", "甲二");
+    const second = await submitProgress(seed.periodIds[1], { ...goodInput(seed.groupA, "shared"), pdfKey: key });
+
+    expect(second).toEqual({ ok: false, error: UPLOAD_FAILED });
+    // A1 剛交出去的檔案不能被這次失敗的重放請求刪掉。
+    expect(mockDeleteObject).not.toHaveBeenCalled();
+
+    const rows = await reportsFor(seed.lineA, seed.periodIds[1]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].submitted_by).toBe("a1@g.nccu.edu.tw");
+    expect(rows[0].pdf_key).toBe(key);
+  });
+
+  it("情境 B：A2 拿 A1 的 key 交另一期 → 被拒，不會有第二筆報告", async () => {
+    const seed = await seedSemester();
+    mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
+
+    const key = goodInput(seed.groupA, "shared-b").pdfKey;
+    await issueTicket(key, "a1@g.nccu.edu.tw");
+
+    const { submitProgress } = await import("@/server/actions/progress");
+
+    // A1 交第 2 期（periodIds[1]）。
+    asStudent(seed.semesterId, seed.groupA, "a1@g.nccu.edu.tw", "甲一");
+    const first = await submitProgress(seed.periodIds[1], { ...goodInput(seed.groupA, "shared-b"), pdfKey: key });
+    expect(first).toEqual({ ok: true });
+    mockDeleteObject.mockClear();
+
+    // A2 想拿同一把 key 交第 1 期（periodIds[0]，seedSemester() 已經幫第1組交過，這裡故意選
+    // 一個「還沒交」的期別也一樣會被票務檔掉，用 periodIds[1] 已經交過的來測反而會先撞到
+    // unique(line_id, period_id)，蓋掉票務檢查真正要測的東西，所以特地造一個新期別）。
+    const db = createServiceSupabase();
+    const { data: extraPeriod, error } = await db
+      .from("periods")
+      .insert({ semester_id: seed.semesterId, seq: 99, deadline: "2026-12-31T00:00:00Z" })
+      .select()
+      .single();
+    if (error) throw error;
+
+    asStudent(seed.semesterId, seed.groupA, "a2@g.nccu.edu.tw", "甲二");
+    const second = await submitProgress(extraPeriod.id, { ...goodInput(seed.groupA, "shared-b"), pdfKey: key });
+
+    expect(second).toEqual({ ok: false, error: UPLOAD_FAILED });
+    expect(mockDeleteObject).not.toHaveBeenCalled();
+    expect(await reportsFor(seed.lineA, extraPeriod.id)).toHaveLength(0);
+  });
+
+  it("拿同組隊友還沒用過的票交 → 被拒（票不是自己申請的，就算同組也不行）", async () => {
+    const seed = await seedSemester();
+    mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
+
+    const key = goodInput(seed.groupA, "teammates-ticket").pdfKey;
+    await issueTicket(key, "a1@g.nccu.edu.tw"); // a1 申請的，還沒用過
+
+    const { submitProgress } = await import("@/server/actions/progress");
+    asStudent(seed.semesterId, seed.groupA, "a2@g.nccu.edu.tw", "甲二");
+    const result = await submitProgress(seed.periodIds[1], { ...goodInput(seed.groupA, "teammates-ticket"), pdfKey: key });
+
+    expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+    expect(mockInspectUploaded).not.toHaveBeenCalled();
+    expect(mockDeleteObject).not.toHaveBeenCalled();
+    expect(await reportsFor(seed.lineA, seed.periodIds[1])).toHaveLength(0);
+  });
+
+  it("同一組兩人同時送出同一期，只留一份，輸的那一方的檔案被刪掉（不是贏家的）", async () => {
+    const seed = await seedSemester();
+    mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
+
+    const key1 = goodInput(seed.groupA, "k1").pdfKey;
+    const key2 = goodInput(seed.groupA, "k2").pdfKey;
+    await issueTicket(key1, "a1@g.nccu.edu.tw");
+    await issueTicket(key2, "a2@g.nccu.edu.tw");
+
+    const { submitProgress } = await import("@/server/actions/progress");
+    const input = (key: string) => ({ ...goodInput(seed.groupA, "unused"), pdfKey: key });
 
     const [r1, r2] = await Promise.all([
-      asUser("a1@g.nccu.edu.tw", () => submitProgress(seed.periodIds[1], input("k1"))),
-      asUser("a2@g.nccu.edu.tw", () => submitProgress(seed.periodIds[1], input("k2"))),
+      asUser("a1@g.nccu.edu.tw", () => submitProgress(seed.periodIds[1], input(key1))),
+      asUser("a2@g.nccu.edu.tw", () => submitProgress(seed.periodIds[1], input(key2))),
     ]);
 
     expect([r1, r2].filter((r) => r.ok)).toHaveLength(1);
@@ -172,16 +335,15 @@ describe("submitProgress", () => {
       ok: false,
       error: "這一期剛剛已經有組員交了，請重新整理",
     });
-    // 輸的那一方要把自己剛上傳的 R2 檔案刪掉。
-    expect(mockDeleteObject).toHaveBeenCalledTimes(1);
 
-    const db = createServiceSupabase();
-    const { data: rows, error } = await db
-      .from("progress_reports")
-      .select("id")
-      .eq("line_id", seed.lineA)
-      .eq("period_id", seed.periodIds[1]);
-    if (error) throw error;
+    const rows = await reportsFor(seed.lineA, seed.periodIds[1]);
     expect(rows).toHaveLength(1);
+    const winnerKey = rows[0].pdf_key as string;
+    const loserKey = winnerKey === key1 ? key2 : key1;
+
+    // 輸的那一方要把「自己」剛上傳的 R2 檔案刪掉，不是贏家的那份。
+    expect(mockDeleteObject).toHaveBeenCalledTimes(1);
+    expect(mockDeleteObject).toHaveBeenCalledWith(loserKey);
+    expect(mockDeleteObject).not.toHaveBeenCalledWith(winnerKey);
   });
 });

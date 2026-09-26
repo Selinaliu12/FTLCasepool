@@ -10,6 +10,7 @@ import { formatTaipei } from "@/domain/time";
 import { lateBy } from "@/domain/progress";
 import { overdueLabel } from "@/domain/lights";
 import { SubmittedToast } from "./submitted-toast";
+import { daysLeft } from "./period-status";
 
 export default async function MyGroupPage() {
   const access = await getAccess();
@@ -41,7 +42,7 @@ export default async function MyGroupPage() {
       <div className="flex flex-col gap-3">
         {data.periods.map((p) => {
           const overdue = !p.report ? lateBy(p.deadline, now) : { late: false as const };
-          const daysLeft = Math.ceil((p.deadline.getTime() - now.getTime()) / 86_400_000);
+          const remainingDays = daysLeft(p.deadline, now);
 
           return (
             <Card key={p.periodId}>
@@ -64,7 +65,7 @@ export default async function MyGroupPage() {
                   </p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    未交 · 剩 {daysLeft} 天
+                    未交 · 剩 {remainingDays} 天
                   </p>
                 )}
                 {/* 這是導頁連結，不是就地動作，所以用真的 <a>（Link）配上按鈕樣式，

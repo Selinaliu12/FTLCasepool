@@ -26,5 +26,7 @@ test("學生登入 → 組頁 → 交一期進度（上傳 PDF）→ 回組頁�
 
   await expect(page).toHaveURL(/\/my-group/, { timeout: 15_000 });
   await expect(page.getByText("已送出，2 小時內可以修改")).toBeVisible();
-  await expect(page.getByText(/已交 · 乙一/)).toBeVisible();
+  // 「已交 · 乙一 · 10/16（五）21:03」這種格式：姓名後面接 formatTaipei() 的輸出
+  // （M/DD（週幾）HH:mm），不是只檢查有沒有出現名字。
+  await expect(page.getByText(/已交 · 乙一 · \d{1,2}\/\d{2}（[日一二三四五六]）\d{2}:\d{2}/)).toBeVisible();
 });
