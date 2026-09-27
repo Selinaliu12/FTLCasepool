@@ -19,15 +19,29 @@ export type GroupCardLine = {
   nextStage?: { label: string; at: Date; text: string } | null;
 };
 
+// Task 4（規格 §14 第 5、6 點）：組員「姓名 · 系級」（系級 null → 「—」由元件層決定）。
+export type GroupCardMember = { name: string; deptYear: string | null };
+
 export type GroupCard = {
   groupId: string;
   groupName: string;
-  projectName: string;
+  // Adjustments controller ruling：專案名稱選填，只有填了才顯示（由元件層決定）。
+  projectName: string | null;
+  // 組別備註（「訂題後的主題」）：沒填是 null，顯示「尚未訂題」由元件層決定。
+  note: string | null;
+  // 依姓名排序（見 sortMembersByName），buildGroupCard 已經排好序。
+  members: GroupCardMember[];
   lines: GroupCardLine[];
   stage: string;
   // lineLabel：這個截止日屬於哪一條線（「專案」或「<比賽名稱> <階段>」）。
   nextDeadline: { at: Date; daysLeft: number; lineLabel: string } | null;
 };
+
+// 依姓名為數字感知排序（第1組在第10組前面同一套規則），dashboard／my-group／group-detail
+// 的組員清單共用。
+export function sortMembersByName<M extends { name: string }>(members: M[]): M[] {
+  return [...members].sort((a, b) => a.name.localeCompare(b.name, "zh-Hant", { numeric: true }));
+}
 
 export function worstLight(card: GroupCard): Light {
   let worst: Light = "green";
@@ -47,15 +61,17 @@ export function sortGroupCards(cards: GroupCard[]): GroupCard[] {
 }
 
 export function buildGroupCard(input: {
-  group: { id: string; name: string; projectName: string };
+  group: { id: string; name: string; projectName: string | null };
   lineId: string;
   periods: { seq: number; deadline: Date }[];
   submissions: { periodSeq: number; submittedAt: Date }[];
   events: { light: Light; at: Date }[];
   now: Date;
   redAfterHours: number;
+  note?: string | null;
+  members?: GroupCardMember[];
 }): GroupCard {
-  const { group, lineId, periods, submissions, events, now, redAfterHours } = input;
+  const { group, lineId, periods, submissions, events, now, redAfterHours, note = null, members = [] } = input;
 
   const deliverables: Deliverable[] = periods.map((p) => ({
     label: periodLabel(p.seq),
@@ -79,6 +95,8 @@ export function buildGroupCard(input: {
     groupId: group.id,
     groupName: group.name,
     projectName: group.projectName,
+    note,
+    members: sortMembersByName(members),
     lines: [{ lineId, kind: "project", label: "專案", status: null, light: display.light, source: display.source, onTime }],
     stage,
     nextDeadline,

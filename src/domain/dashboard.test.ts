@@ -5,6 +5,7 @@ import {
   buildGroupCard,
   formatNextDeadline,
   foldCompetitionDeadlines,
+  sortMembersByName,
   type GroupCard,
 } from "./dashboard";
 import { systemLight, reporterLight, displayLight, type Deliverable } from "./lights";
@@ -16,6 +17,8 @@ function card(overrides: Partial<GroupCard> = {}): GroupCard {
     groupId: "g1",
     groupName: "第一組",
     projectName: "專案 A",
+    note: null,
+    members: [],
     lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "組員回報", onTime: 1 }],
     stage: "第 2 期",
     nextDeadline: null,
@@ -167,6 +170,73 @@ describe("buildGroupCard", () => {
       { lineId: "l1", kind: "project", label: "專案", status: null, light: expectedDisplay.light, source: expectedDisplay.source, onTime: expectedOnTime },
     ]);
   });
+
+  // Task 4（規格 §14 第 5、6 點）：看板卡片帶出組別備註（原樣，null 或非空字串；「尚未訂題」
+  // 是顯示層的事）與組員清單（依姓名排序）。
+  it("帶出組別備註（原樣傳遞，沒填是 null）", () => {
+    const withNote = buildGroupCard({
+      group: { id: "g1", name: "第一組", projectName: "專案 A" },
+      lineId: "l1",
+      periods: [],
+      submissions: [],
+      events: [],
+      now,
+      redAfterHours: 72,
+      note: "智慧記帳系統",
+      members: [],
+    });
+    expect(withNote.note).toBe("智慧記帳系統");
+
+    const withoutNote = buildGroupCard({
+      group: { id: "g1", name: "第一組", projectName: "專案 A" },
+      lineId: "l1",
+      periods: [],
+      submissions: [],
+      events: [],
+      now,
+      redAfterHours: 72,
+      note: null,
+      members: [],
+    });
+    expect(withoutNote.note).toBeNull();
+  });
+
+  it("組員清單依姓名排序，系級原樣傳遞（null 也是，顯示成『—』是元件層的事）", () => {
+    const result = buildGroupCard({
+      group: { id: "g1", name: "第一組", projectName: "專案 A" },
+      lineId: "l1",
+      periods: [],
+      submissions: [],
+      events: [],
+      now,
+      redAfterHours: 72,
+      note: null,
+      members: [
+        { name: "王小明", deptYear: "資科三" },
+        { name: "陳大文", deptYear: null },
+        { name: "林小美", deptYear: "資科二" },
+      ],
+    });
+    expect(result.members).toEqual([
+      { name: "王小明", deptYear: "資科三" },
+      { name: "林小美", deptYear: "資科二" },
+      { name: "陳大文", deptYear: null },
+    ]);
+  });
+});
+
+describe("sortMembersByName", () => {
+  it("依姓名為數字感知排序（中文姓名照字典序）", () => {
+    const sorted = sortMembersByName([{ name: "王小明" }, { name: "陳大文" }, { name: "林小美" }]);
+    expect(sorted.map((m) => m.name)).toEqual(["王小明", "林小美", "陳大文"]);
+  });
+
+  it("不改變原本傳入的陣列", () => {
+    const input = [{ name: "王小明" }, { name: "陳大文" }];
+    const copy = [...input];
+    sortMembersByName(input);
+    expect(input).toEqual(copy);
+  });
 });
 
 describe("formatNextDeadline", () => {
@@ -215,6 +285,8 @@ describe("foldCompetitionDeadlines", () => {
       groupId: "g",
       groupName: "第1組",
       projectName: "P",
+      note: null,
+      members: [],
       lines: [{ lineId: "p", kind: "project", label: "專案", status: null, light: "green", source: "s", onTime: null }],
       stage: "第 2 期",
       nextDeadline: { at: projectDeadline, daysLeft: 6, lineLabel: "專案" },
