@@ -68,6 +68,16 @@ describe("validateCompetition", () => {
     const result = validateCompetition(baseInput({ organizer: "", theme: "", eligibility: "", teamSize: "", prize: "" }));
     expect(result).toEqual({ ok: true });
   });
+
+  // Minor 1（controller ruling，fix round 1）：報名截止日缺的時候，沒辦法拿它跟繳件截止日比較
+  // 早晚——只該報「請填報名截止日」這一個錯誤，不該連帶在 submissionDeadline 上也生出一個
+  // 「早於報名截止」之類的錯誤（signupDeadline 是 null，根本沒有東西可以比較）。
+  it("報名截止日缺、但繳件截止日有填 → 只報報名截止日缺，不會連帶報繳件截止日的錯", () => {
+    const result = validateCompetition(
+      baseInput({ signupDeadline: null, submissionDeadline: new Date("2026-10-10T15:59:59.999Z") })
+    );
+    expect(result).toEqual({ ok: false, errors: { signupDeadline: "請填報名截止日" } });
+  });
 });
 
 function card(overrides: Partial<CompetitionCard> = {}): CompetitionCard {

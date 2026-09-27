@@ -119,6 +119,20 @@ describe("createCompetition", () => {
     const result = await createCompetition({ ...validForm, signupDate: "" });
     expect(result).toEqual({ ok: false, errors: { signupDeadline: "請填報名截止日" } });
   });
+
+  // Minor 1（controller ruling，fix round 1）：signupTime 沒填（undefined／空字串）時，時間
+  // 預設 23:59，沿用 parseTaipeiDeadline 補成 23:59:59.999（台北時區），對應存進資料庫的
+  // UTC 時間是同一天 15:59:59.999Z。
+  it("signupTime 留空，存進去的 signup_deadline 是台北時間 23:59:59.999", async () => {
+    asPm(seed.semesterId);
+    const result = await createCompetition({ ...validForm, signupDate: "2026-12-01", signupTime: "" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    const db = createServiceSupabase();
+    const { data } = await db.from("competitions").select("signup_deadline").eq("id", result.id).single();
+    expect(new Date(data!.signup_deadline as string).toISOString()).toBe("2026-12-01T15:59:59.999Z");
+  });
 });
 
 describe("updateCompetition", () => {
@@ -160,6 +174,37 @@ describe("updateCompetition", () => {
     await expect(updateCompetition("00000000-0000-0000-0000-000000000000", validForm)).rejects.toThrow(
       "找不到這場比賽"
     );
+  });
+
+  // Minor 1（controller ruling，fix round 1）：id 格式正確、確實存在，但屬於別的學期——不能因為
+  // 呼叫者是本學期的幹部就讓他改到別學期的資料。findOwnCompetition 用
+  // `.eq("semester_id", access.semesterId)` 擋掉，跟「id 根本不存在」回傳同一個錯誤，不透露
+  // 「這個 id 其實存在，只是不是你的學期」。
+  it("id 存在但屬於別的學期，回傳找不到這場比賽", async () => {
+    const service = createServiceSupabase();
+    const { data: otherSemester, error: otherSemesterError } = await service
+      .from("semesters")
+      .insert({ name: "別的學期", is_current: false })
+      .select()
+      .single();
+    if (otherSemesterError) throw otherSemesterError;
+
+    const { data: otherComp, error: otherCompError } = await service
+      .from("competitions")
+      .insert({
+        semester_id: otherSemester.id,
+        name: "別學期的比賽",
+        url: "https://example.com/other-semester",
+        signup_deadline: "2026-12-01T15:59:59.999Z",
+        status: "draft",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (otherCompError) throw otherCompError;
+
+    asPm(seed.semesterId);
+    await expect(updateCompetition(otherComp.id as string, validForm)).rejects.toThrow("找不到這場比賽");
   });
 });
 

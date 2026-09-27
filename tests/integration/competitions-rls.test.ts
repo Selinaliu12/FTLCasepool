@@ -1,5 +1,5 @@
 import { beforeAll, describe, it, expect } from "vitest";
-import { resetDb, seedSemester, clientAs, withRawPg } from "./helpers";
+import { resetDb, seedSemester, clientAs } from "./helpers";
 import { createServiceSupabase } from "../../src/server/supabase";
 
 let seed: Awaited<ReturnType<typeof seedSemester>>;
@@ -96,35 +96,42 @@ describe("RLS：competitions", () => {
     expect(del.error).not.toBeNull();
   });
 
-  // Mutation check：暫時把 read_competitions 政策放寬成「任何人都能看草稿」，確認學生真的能
-  // 看到草稿（政策確實在把關，不是測試本身沒生效）——驗證完立刻恢復原政策。
-  it("mutation check：放寬政策後學生看得到草稿，恢復後看不到", async () => {
-    await withRawPg(async (client) => {
-      await client.query("drop policy read_competitions on competitions");
-      await client.query(
-        `create policy read_competitions on competitions for select to authenticated using (true)`
-      );
-    });
+  // Minor 1：read_competitions 的第一個條件是 `semester_id = 當前學期`——一個名單內的人
+  // 就算是已發布的比賽，只要不屬於當前學期，也不該看得到。用一個額外的、is_current=false
+  // 的學期＋一張已發布的比賽驗證這個邊界（跟「已發布就所有人看得到」這條規則分開測）。
+  it("已發布，但屬於別的學期的卡片，本學期名單上的人看不到", async () => {
+    const service = createServiceSupabase();
+    const { data: otherSemester, error: otherSemesterError } = await service
+      .from("semesters")
+      .insert({ name: "別的學期", is_current: false })
+      .select()
+      .single();
+    if (otherSemesterError) throw otherSemesterError;
 
-    const loosened = await clientAs("a1@g.nccu.edu.tw");
-    const loosenedResult = await loosened.from("competitions").select("id").eq("id", draftId);
-    expect(loosenedResult.data).toHaveLength(1);
+    const { data: otherComp, error: otherCompError } = await service
+      .from("competitions")
+      .insert({
+        semester_id: otherSemester.id,
+        name: "別學期已發布賽",
+        url: "https://example.com/other-semester",
+        signup_deadline: "2026-12-01T15:59:59.999Z",
+        status: "published",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (otherCompError) throw otherCompError;
 
-    await withRawPg(async (client) => {
-      await client.query("drop policy read_competitions on competitions");
-      await client.query(
-        `create policy read_competitions on competitions for select to authenticated using (
-           semester_id = (select id from semesters where is_current limit 1)
-           and (
-             (status = 'published' and (me()).id is not null)
-             or is_staff()
-           )
-         )`
-      );
-    });
-
-    const restored = await clientAs("a1@g.nccu.edu.tw");
-    const restoredResult = await restored.from("competitions").select("id").eq("id", draftId);
-    expect(restoredResult.data).toEqual([]);
+    const db = await clientAs("a1@g.nccu.edu.tw");
+    const { data, error } = await db.from("competitions").select("id").eq("id", otherComp.id as string);
+    expect(error).toBeNull();
+    expect(data).toEqual([]);
   });
 });
+
+// Mutation check（controller ruling — IMPORTANT 1）：read_competitions 這條政策沒有寫自動化
+// 的「放寬→紅燈→恢復」測試（原本 committed 的版本會 drop/recreate 政策又沒有
+// try/finally，assert 失敗會讓本機 DB 永遠停在放寬狀態）。改成在修 fix round 1 時手動跑一次，
+// 命令與輸出記錄在 task-2-report.md 的「Fix round 1」章節；跑完已經用同一份 migration 的
+// SQL 復原，並用 `select pg_get_expr(polqual, polrelid) from pg_policy where
+// polname='read_competitions'` 確認跟 migration 檔裡的文字一致。

@@ -131,6 +131,32 @@ describe("loadLobby", () => {
     expect(lobby.canEdit).toBe(true);
     expect(lobby.drafts.map((c) => c.id)).toEqual([comps.draftId]);
   });
+
+  // Minor 6（controller ruling，fix round 1）：草稿也要依報名截止日由近到遠排序，不是資料庫
+  // 回傳的原始（建立）順序。額外建一筆比既有草稿（12/01）截止日更早（11/20）的草稿，
+  // 確認它排在前面。
+  it("草稿依報名截止日由近到遠排序", async () => {
+    const db = createServiceSupabase();
+    const { data: earlierDraft, error } = await db
+      .from("competitions")
+      .insert({
+        semester_id: seed.semesterId,
+        name: "更早截止的草稿",
+        url: "https://example.com/earlier-draft",
+        signup_deadline: "2026-11-20T15:59:59.999Z",
+        status: "draft",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (error) throw error;
+
+    asPm(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
+
+    const lobby = await loadLobby(NOW);
+    expect(lobby.drafts.map((c) => c.id)).toEqual([earlierDraft.id as string, comps.draftId]);
+  });
 });
 
 describe("loadCompetition", () => {
@@ -166,5 +192,37 @@ describe("loadCompetition", () => {
     mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
 
     await expect(loadCompetition("abc")).resolves.toBeNull();
+  });
+
+  // Minor 1（controller ruling，fix round 1）：id 格式正確、幹部身分也對，但這場比賽屬於別的
+  // 學期——loadCompetition 用 `.eq("semester_id", access.semesterId)` 擋掉，回傳 null（頁面轉
+  // 404），不能因為呼叫者是幹部就看得到別學期的資料。
+  it("格式正確、幹部身分也對，但屬於別的學期的比賽，回傳 null", async () => {
+    const service = createServiceSupabase();
+    const { data: otherSemester, error: otherSemesterError } = await service
+      .from("semesters")
+      .insert({ name: "別的學期", is_current: false })
+      .select()
+      .single();
+    if (otherSemesterError) throw otherSemesterError;
+
+    const { data: otherComp, error: otherCompError } = await service
+      .from("competitions")
+      .insert({
+        semester_id: otherSemester.id,
+        name: "別學期的草稿",
+        url: "https://example.com/other-semester-draft",
+        signup_deadline: "2026-12-01T15:59:59.999Z",
+        status: "draft",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (otherCompError) throw otherCompError;
+
+    asPm(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
+
+    await expect(loadCompetition(otherComp.id as string)).resolves.toBeNull();
   });
 });
