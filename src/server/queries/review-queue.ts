@@ -3,7 +3,7 @@ import { getAccess } from "@/server/session";
 import { createServerSupabase } from "@/server/supabase";
 import { isLocked } from "@/domain/lock";
 import { daysUntil } from "@/domain/time";
-import { STAGE_LABEL, type StageKey } from "@/domain/competition-line";
+import { STAGE_LABEL, isLineEnded, type StageKey, type EntryResult } from "@/domain/competition-line";
 
 export type ReviewQueueItem = {
   submissionId: string;
@@ -74,7 +74,15 @@ export async function loadReviewQueue(now: Date = new Date()): Promise<ReviewQue
       const entry = entryById.get(l.entry_id as string);
       const competitionRaw = entry?.competitions ?? null;
       const competition = Array.isArray(competitionRaw) ? competitionRaw[0] : competitionRaw;
-      const ended = !!entry && (entry.withdrawn_at !== null || entry.result === "awarded" || entry.result === "not_selected");
+      // Final review minor 7：「線結束」一律用 isLineEnded（已退出，或結果是得獎／未入選），不在
+      // 這裡另寫一份判斷。
+      const ended =
+        !!entry &&
+        isLineEnded({
+          confirmedAt: null,
+          withdrawnAt: entry.withdrawn_at ? new Date(entry.withdrawn_at) : null,
+          result: entry.result as EntryResult,
+        });
       return [
         l.id as string,
         { groupId: l.group_id as string, competitionName: competition?.name ?? "", ended },
