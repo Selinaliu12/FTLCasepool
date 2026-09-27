@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getAccess } from "@/server/session";
 import { loadMyGroup } from "@/server/queries/my-group";
+import { loadMyGroupEntries } from "@/server/queries/entries";
+import { ENTRY_STATUS_LABEL } from "@/domain/entries";
 import { LightBadge } from "@/components/light-badge";
 import { SubmissionTiming } from "@/components/submission-timing";
 import { CheckinHistory } from "@/components/checkin-history";
@@ -25,6 +27,7 @@ export default async function MyGroupPage() {
   }
 
   const data = await loadMyGroup();
+  const entries = await loadMyGroupEntries();
   const now = new Date();
 
   return (
@@ -111,6 +114,24 @@ export default async function MyGroupPage() {
           );
         })}
       </div>
+
+      {entries.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2 className="font-heading text-lg font-bold text-foreground">比賽</h2>
+          <div className="flex flex-col gap-2">
+            {entries.map((e) => (
+              <Link
+                key={e.entryId}
+                href={`/my-group/competitions/${e.entryId}`}
+                className="flex items-center justify-between rounded-[var(--r-sm,12px)] border border-[var(--line,#DEE9F8)] p-3 text-sm hover:bg-muted"
+              >
+                <span className="text-foreground">{e.competitionName}</span>
+                <span className="text-muted-foreground">{ENTRY_STATUS_LABEL[e.status]}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       <CheckinHistory checkins={data.checkins} />
     </main>

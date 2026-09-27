@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
+import { AttachCompetitionButton } from "@/components/attach-competition-button";
 import { formatTaipei } from "@/domain/time";
 import { deadlineLabel } from "@/domain/competition-label";
 import type { CompetitionCard as CompetitionCardData } from "@/domain/competition";
@@ -11,11 +12,16 @@ export function CompetitionCard({
   now,
   draft = false,
   canEdit = false,
+  showAttach = false,
+  attachedEntryId = null,
 }: {
   card: CompetitionCardData;
   now: Date;
   draft?: boolean;
   canEdit?: boolean;
+  // Task 3：學生在「開放中」卡片上看到「掛到我們組」／「已掛到你們組」。
+  showAttach?: boolean;
+  attachedEntryId?: string | null;
 }) {
   return (
     <Card>
@@ -89,6 +95,7 @@ export function CompetitionCard({
             編輯
           </Link>
         )}
+        {showAttach && <AttachCompetitionButton competitionId={card.id} entryId={attachedEntryId} />}
       </CardContent>
     </Card>
   );

@@ -36,7 +36,14 @@ export default async function CompetitionsPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             {lobby.open.map((c) => (
-              <CompetitionCard key={c.id} card={c} now={now} canEdit={lobby.canEdit} />
+              <CompetitionCard
+                key={c.id}
+                card={c}
+                now={now}
+                canEdit={lobby.canEdit}
+                showAttach={lobby.isStudent}
+                attachedEntryId={lobby.myGroupAttached[c.id] ?? null}
+              />
             ))}
           </div>
         )}

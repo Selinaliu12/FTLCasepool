@@ -9,6 +9,10 @@ export type Lobby = {
   closed: CompetitionCard[];
   drafts: CompetitionCard[];
   canEdit: boolean;
+  // Task 3：學生才會有值——「掛到我們組」按鈕要不要顯示、顯示哪個文案，看這個組有沒有已經
+  // 掛過（未退出）這場比賽。key 是 competitionId，value 是那筆報名的 entryId。
+  isStudent: boolean;
+  myGroupAttached: Record<string, string>;
 };
 
 const COLUMNS =
@@ -57,10 +61,11 @@ function isStaffOrAdmin(access: Extract<Awaited<ReturnType<typeof getAccess>>, {
 export async function loadLobby(now: Date = new Date()): Promise<Lobby> {
   const access = await getAccess();
   if (access.kind !== "ok") {
-    return { open: [], closed: [], drafts: [], canEdit: false };
+    return { open: [], closed: [], drafts: [], canEdit: false, isStudent: false, myGroupAttached: {} };
   }
 
   const canEdit = isStaffOrAdmin(access);
+  const isStudent = access.member?.role === "student" && !!access.member.groupId;
   const db = access.isAdmin ? createServiceSupabase() : await createServerSupabase();
 
   const { data, error } = await db.from("competitions").select(COLUMNS).eq("semester_id", access.semesterId);
@@ -76,7 +81,18 @@ export async function loadLobby(now: Date = new Date()): Promise<Lobby> {
 
   const { open, closed } = sortLobby(published, now);
 
-  return { open, closed, drafts: draftCards, canEdit };
+  let myGroupAttached: Record<string, string> = {};
+  if (isStudent && access.member?.groupId) {
+    const { data: entries, error: entriesError } = await db
+      .from("competition_entries")
+      .select("id, competition_id")
+      .eq("group_id", access.member.groupId)
+      .is("withdrawn_at", null);
+    if (entriesError) throw entriesError;
+    myGroupAttached = Object.fromEntries((entries ?? []).map((e) => [e.competition_id as string, e.id as string]));
+  }
+
+  return { open, closed, drafts: draftCards, canEdit, isStudent, myGroupAttached };
 }
 
 // 編輯頁用：看不到（不是幹部／管理員、或這場比賽不屬於本學期、或 id 亂填）一律回傳 null，
