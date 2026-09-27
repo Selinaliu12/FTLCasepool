@@ -115,7 +115,11 @@ test.describe.serial("專案幹部審核與待你審核", () => {
 
     await expect(page.getByRole("button", { name: "通過" })).toBeVisible();
     await page.getByRole("button", { name: "通過" }).click();
+    // Final review minor 1：通過會先跳對話框，可以附選填評語。
+    await page.getByLabel("通過評語（選填）").fill("報名證明清楚");
+    await page.getByRole("button", { name: "確定通過" }).click();
     await expect(page.getByRole("main").getByText("已通過")).toBeVisible();
+    await expect(page.getByRole("main").getByText("（報名證明清楚）")).toBeVisible();
 
     // 回看板：這筆已經不在待你審核裡了。
     await page.goto("/dashboard");

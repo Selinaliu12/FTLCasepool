@@ -273,7 +273,7 @@ function StageCard({
               <li key={s.id} className="flex flex-wrap items-center gap-2">
                 <span>
                   第 {s.version} 版 · {REVIEW_STATUS_LABEL[s.reviewStatus]} · {formatTaipei(new Date(s.pdfUploadedAt))}
-                  {s.comment && s.reviewStatus === "returned" ? `（${s.comment}）` : ""}
+                  {s.comment && s.reviewStatus !== "pending" ? `（${s.comment}）` : ""}
                 </span>
                 <StageDownloadButton submissionId={s.id} />
               </li>

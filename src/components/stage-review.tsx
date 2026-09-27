@@ -62,7 +62,8 @@ export function StageReview({
             </span>
             <Badge variant="secondary">{REVIEW_STATUS_LABEL[s.reviewStatus]}</Badge>
             <DownloadButton submissionId={s.id} />
-            {s.reviewStatus === "returned" && s.comment && (
+            {/* Final review minor 1：通過也可以附評語，通過／退回的評語都顯示。 */}
+            {s.reviewStatus !== "pending" && s.comment && (
               <span className="text-muted-foreground">（{s.comment}）</span>
             )}
           </li>
@@ -102,18 +103,25 @@ function DownloadButton({ submissionId }: { submissionId: string }) {
 function ReviewActions({ submissionId }: { submissionId: string }) {
   const router = useRouter();
   const [returnOpen, setReturnOpen] = useState(false);
+  const [approveOpen, setApproveOpen] = useState(false);
   const [comment, setComment] = useState("");
+  const [approveComment, setApproveComment] = useState("");
   const [pending, setPending] = useState(false);
 
+  // Final review minor 1：通過可以附選填評語（review_stage() 本來就會存 comment，空白存成
+  // null）。留空就送 null。
   async function onApprove() {
     setPending(true);
     try {
-      const result = await reviewStage(submissionId, "approved", null);
+      const trimmed = approveComment.trim();
+      const result = await reviewStage(submissionId, "approved", trimmed === "" ? null : trimmed);
       if (!result.ok) {
         toast.error(result.error);
         return;
       }
       toast.success("已通過");
+      setApproveOpen(false);
+      setApproveComment("");
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "操作失敗，請重試");
@@ -143,12 +151,33 @@ function ReviewActions({ submissionId }: { submissionId: string }) {
 
   return (
     <div className="flex gap-2">
-      <Button type="button" disabled={pending} onClick={onApprove}>
+      <Button type="button" disabled={pending} onClick={() => setApproveOpen(true)}>
         通過
       </Button>
       <Button type="button" variant="destructive" disabled={pending} onClick={() => setReturnOpen(true)}>
         退回
       </Button>
+
+      <Dialog open={approveOpen} onOpenChange={setApproveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>通過這一版</DialogTitle>
+            <DialogDescription>可以留一句評語給組員（選填），組員會在報名頁看到。</DialogDescription>
+          </DialogHeader>
+          <Textarea
+            aria-label="通過評語（選填）"
+            value={approveComment}
+            onChange={(e) => setApproveComment(e.target.value)}
+            placeholder="評語（選填）"
+          />
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" disabled={pending} />}>取消</DialogClose>
+            <Button type="button" disabled={pending} onClick={onApprove}>
+              {pending ? "送出中…" : "確定通過"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={returnOpen} onOpenChange={setReturnOpen}>
         <DialogContent>

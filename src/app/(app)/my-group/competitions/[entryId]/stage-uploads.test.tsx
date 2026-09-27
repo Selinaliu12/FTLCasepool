@@ -93,6 +93,29 @@ describe("StageUploads", () => {
     expect(screen.getByText(/格式不對/)).toBeTruthy();
   });
 
+  // Final review minor 1：PM 通過時附的評語，組員在報名頁也看得到。
+  it("已通過的版本顯示通過評語", () => {
+    const submissions: StageSubmission[] = [
+      {
+        id: "s1",
+        stage: "signup",
+        version: 1,
+        reviewStatus: "approved",
+        pdfUploadedAt: new Date(Date.now() - 3 * 3_600_000).toISOString(),
+        comment: "做得很好",
+      },
+    ];
+    render(
+      <StageUploads
+        entryId="e1"
+        stages={[stage({ latest: { version: 1, status: "approved", locked: true } })]}
+        submissions={submissions}
+        ended={false}
+      />
+    );
+    expect(screen.getByText(/做得很好/)).toBeTruthy();
+  });
+
   it("比賽已結束、還沒交過：不顯示上傳按鈕，改顯示已結束", () => {
     render(<StageUploads entryId="e1" stages={[stage()]} submissions={[]} ended={true} />);
     expect(screen.queryByRole("button", { name: "上傳" })).toBeNull();

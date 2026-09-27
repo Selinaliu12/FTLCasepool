@@ -180,6 +180,28 @@ describe("reviewStage", () => {
     expect(row.reviewed_at).not.toBeNull();
   });
 
+  // Final review minor 1：通過也可以附評語（選填）；review_stage() 本來就存 comment，這裡確認
+  // 通過時評語會留下、空白評語存成 null。
+  it("通過可以附選填評語：評語留存；空白評語存成 null", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { lineId } = await confirmedEntry(seed.groupA, competition.id);
+    const pmId = await pmMemberId();
+    await assignPm(pmId, seed.groupA);
+    const withComment = await insertSubmission(lineId, seed.groupA);
+
+    asPmMember(seed.semesterId, pmId);
+    const { reviewStage } = await import("@/server/actions/stages");
+    expect(await asUser("pm@g.nccu.edu.tw", () => reviewStage(withComment.id, "approved", "做得很好"))).toEqual({ ok: true });
+    const row = await fetchSubmission(withComment.id);
+    expect(row.review_status).toBe("approved");
+    expect(row.comment).toBe("做得很好");
+
+    const blank = await insertSubmission(lineId, seed.groupA, { stage: "submission" });
+    expect(await asUser("pm@g.nccu.edu.tw", () => reviewStage(blank.id, "approved", "   "))).toEqual({ ok: true });
+    expect((await fetchSubmission(blank.id)).comment).toBeNull();
+  });
+
   it("退回必須填原因", async () => {
     const seed = await seedSemester({ acknowledged: true });
     const competition = await createCompetition(seed.semesterId);
