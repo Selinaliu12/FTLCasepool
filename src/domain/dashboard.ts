@@ -2,11 +2,20 @@ import { systemLight, reporterLight, displayLight, LIGHT_SEVERITY, periodLabel, 
 import { onTimeRate } from "./on-time";
 import { daysUntil, formatTaipei } from "./time";
 
+export type GroupCardLine = {
+  lineId: string;
+  kind: "project" | "competition";
+  label: string;
+  light: Light;
+  source: string;
+  onTime: number | null;
+};
+
 export type GroupCard = {
   groupId: string;
   groupName: string;
   projectName: string;
-  lines: { lineId: string; kind: "project"; light: Light; source: string; onTime: number | null }[];
+  lines: GroupCardLine[];
   stage: string;
   nextDeadline: { at: Date; daysLeft: number } | null;
 };
@@ -60,7 +69,7 @@ export function buildGroupCard(input: {
     groupId: group.id,
     groupName: group.name,
     projectName: group.projectName,
-    lines: [{ lineId, kind: "project", light: display.light, source: display.source, onTime }],
+    lines: [{ lineId, kind: "project", label: "專案", light: display.light, source: display.source, onTime }],
     stage,
     nextDeadline,
   };

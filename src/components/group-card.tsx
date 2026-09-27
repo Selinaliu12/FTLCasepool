@@ -22,7 +22,8 @@ export function GroupCard({
   canViewContent?: boolean;
 }) {
   const light = worstLight(card);
-  const line = card.lines[0];
+  const projectLine = card.lines.find((l) => l.kind === "project");
+  const competitionLines = card.lines.filter((l) => l.kind === "competition");
 
   return (
     <Card className={cn(BORDER_CLASS[light])}>
@@ -36,7 +37,7 @@ export function GroupCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {line ? <LightBadge light={line.light} source={line.source} /> : null}
+        {projectLine ? <LightBadge light={projectLine.light} source={projectLine.source} /> : null}
         <div>
           <p className="text-xs text-muted-foreground">目前階段</p>
           <p className="text-sm text-foreground">{card.stage}</p>
@@ -48,9 +49,27 @@ export function GroupCard({
         <div>
           <p className="text-xs text-muted-foreground">準時率</p>
           <p className="text-sm text-foreground">
-            {line?.onTime === null || line?.onTime === undefined ? "—" : `${Math.round(line.onTime * 100)}%`}
+            {projectLine?.onTime === null || projectLine?.onTime === undefined
+              ? "—"
+              : `${Math.round(projectLine.onTime * 100)}%`}
           </p>
         </div>
+        {competitionLines.length > 0 ? (
+          <div className="flex flex-col gap-2 border-t border-[var(--line,#DEE9F8)] pt-3">
+            <p className="text-xs text-muted-foreground">比賽</p>
+            {competitionLines.map((l) => (
+              <div key={l.lineId} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm text-foreground">{l.label}</span>
+                <div className="flex items-center gap-2">
+                  <LightBadge light={l.light} source={l.source} />
+                  <span className="text-xs text-muted-foreground">
+                    {l.onTime === null ? "—" : `準時 ${Math.round(l.onTime * 100)}%`}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {canViewContent ? (
           <Link href={`/groups/${card.groupId}`} className={cn(buttonVariants({ variant: "outline" }), "self-start")}>
             看內容

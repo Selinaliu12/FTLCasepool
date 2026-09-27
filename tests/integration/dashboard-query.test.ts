@@ -168,4 +168,61 @@ describe("loadDashboard", () => {
     expect(result.cards[0].lines[0].light).toBe("red");
     expect(result.cards[0].lines[0].source).toBe("系統：第 1 期逾期 4 天");
   });
+
+  it("組卡包含比賽線：報名逾期紅燈、比賽名稱當 label，並帶進 worstLight", async () => {
+    const db = createServiceSupabase();
+    // 用還沒到第 1 期截止日 (10/1) 的時間點，讓兩組的專案線都還是綠燈——這樣才能確認
+    // 「整組排最前」是比賽線的紅燈帶出來的，不是專案線本身逾期。
+    const now = new Date("2026-09-25T00:00:00Z");
+    const overdueSignup = new Date(now.getTime() - 96 * 3_600_000);
+
+    // 種子資料幫第1組留了一筆紅燈的期中點燈（跟這個情境無關），先清掉，不然兩組都紅燈時
+    // 「第2組排最前」這個斷言會被同色時的組名排序蓋過去。
+    const { error: ciError } = await db.from("checkins").delete().eq("line_id", seed.lineA);
+    if (ciError) throw ciError;
+
+    const { data: competition, error: competitionError } = await db
+      .from("competitions")
+      .insert({
+        semester_id: seed.semesterId,
+        name: "黑客松",
+        url: "https://example.com",
+        signup_deadline: overdueSignup.toISOString(),
+        status: "published",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (competitionError) throw competitionError;
+
+    const { data: entry, error: entryError } = await db
+      .from("competition_entries")
+      .insert({
+        group_id: seed.groupB,
+        competition_id: competition.id,
+        created_by: "b1@g.nccu.edu.tw",
+        confirmed_at: new Date("2026-09-01T00:00:00Z").toISOString(),
+      })
+      .select()
+      .single();
+    if (entryError) throw entryError;
+
+    const { error: lineError } = await db
+      .from("lines")
+      .insert({ group_id: seed.groupB, kind: "competition", entry_id: entry.id });
+    if (lineError) throw lineError;
+
+    asOfficer(seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("off@g.nccu.edu.tw"));
+
+    const result = await loadDashboard(now);
+    const groupB = result.cards.find((c) => c.groupName === "第2組")!;
+    const competitionLine = groupB.lines.find((l) => l.kind === "competition")!;
+    expect(competitionLine.label).toBe("黑客松");
+    expect(competitionLine.light).toBe("red");
+    expect(competitionLine.source).toBe("系統：黑客松 報名逾期 4 天");
+    // 排序看的是「組內所有線」最嚴重的燈：第2組的專案線是綠燈，但比賽線紅燈，整組還是要排最前面。
+    expect(result.cards[0].groupName).toBe("第2組");
+    expect(deepScanForContentKeys(result)).toEqual([]);
+  });
 });

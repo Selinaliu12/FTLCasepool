@@ -138,7 +138,7 @@ describe("competitionLineLight", () => {
   });
 
   it("逾期未滿 72 小時 → 黃燈，原因帶比賽名與階段名", () => {
-    const now = new Date(comp.signupDeadline.getTime() + 10 * 3_600_000);
+    const now = new Date(comp.signupDeadline!.getTime() + 10 * 3_600_000);
     const stages = competitionStages(comp, confirmedEntry, [], now);
     const light = competitionLineLight("黑客松", stages, now, { redAfterHours: 72 });
     expect(light.light).toBe("yellow");
@@ -146,7 +146,7 @@ describe("competitionLineLight", () => {
   });
 
   it("逾期滿 72 小時 → 紅燈", () => {
-    const now = new Date(comp.signupDeadline.getTime() + 96 * 3_600_000);
+    const now = new Date(comp.signupDeadline!.getTime() + 96 * 3_600_000);
     const stages = competitionStages(comp, confirmedEntry, [], now);
     const light = competitionLineLight("黑客松", stages, now, { redAfterHours: 72 });
     expect(light.light).toBe("red");
@@ -166,7 +166,7 @@ describe("competitionLineLight", () => {
 
   it("已退出的報名不判燈（一律綠）", () => {
     const withdrawn: EntryInput = { confirmedAt: new Date("2026-09-01T00:00:00Z"), withdrawnAt: new Date("2026-09-15T00:00:00Z"), result: null };
-    const now = new Date(comp.signupDeadline.getTime() + 96 * 3_600_000);
+    const now = new Date(comp.signupDeadline!.getTime() + 96 * 3_600_000);
     const stages = competitionStages(comp, withdrawn, [], now);
     const light = competitionLineLight("黑客松", stages, now, { redAfterHours: 72 });
     expect(light).toEqual({ light: "green", reason: null });
@@ -174,7 +174,7 @@ describe("competitionLineLight", () => {
 
   it("未入選之後，還沒交的決賽階段不判逾期", () => {
     const notSelected: EntryInput = { confirmedAt: new Date("2026-09-01T00:00:00Z"), withdrawnAt: null, result: "not_selected" };
-    const now = new Date(comp.finalDate.getTime() + 96 * 3_600_000);
+    const now = new Date(comp.finalDate!.getTime() + 96 * 3_600_000);
     const stages = competitionStages(comp, notSelected, [], now);
     const light = competitionLineLight("黑客松", stages, now, { redAfterHours: 72 });
     expect(light).toEqual({ light: "green", reason: null });
