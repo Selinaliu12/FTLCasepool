@@ -18,6 +18,12 @@ const ENDED_ERROR = "這場比賽已經結束，不能再上傳";
 const STAGE_ACTIVE_ERROR = "這個階段已經交了，等審核結果或被退回後再重交";
 const STALE_WRITE_ERROR = "這個階段的繳交剛剛被組員改過，請重新整理";
 
+const REVIEW_COMMENT_REQUIRED = "退回請寫原因";
+const REVIEW_NOT_LOCKED = "還在 2 小時可修改時間內，鎖定後才能審核";
+const REVIEW_ALREADY_REVIEWED = "這一版已經審核過了";
+const REVIEW_NOT_LATEST = "只能審核最新的一版";
+const REVIEW_ENDED = "這場比賽已經結束";
+
 type OkAccess = Extract<Access, { kind: "ok" }>;
 type StudentAccess = OkAccess & { member: NonNullable<OkAccess["member"]> & { groupId: string } };
 
@@ -315,5 +321,92 @@ export async function withdrawStage(submissionId: string): Promise<{ ok: true } 
 
   await deleteObject(deletedKey as string).catch(() => {});
 
+  return { ok: true };
+}
+
+// reviewStage：只有「負責這個組」的專案幹部可以審——跟擁有權檢查（loadOwnedSubmission）同一種
+// 「統一回找不到」模式，但這裡查的是 pm_assignments 而不是 groupId 相等。任何不符合的身分
+// （幹部但沒被指派這組、其他幹部、學生、管理員沒有 pm member 列）一律回 NOT_FOUND，不透露
+// 「這筆繳交存在，只是你沒被指派」（Review Focus 4：換負責組別要在下一次呼叫立刻生效，這裡
+// 每次呼叫都重新查 pm_assignments，不快取，天然滿足）。
+async function loadReviewableSubmission(
+  db: Db,
+  submissionId: string,
+  pmMemberId: string
+): Promise<{ groupId: string } | null> {
+  if (!isUuid(submissionId)) return null;
+
+  const { data: submission, error: subError } = await db
+    .from("stage_submissions")
+    .select("id, line_id")
+    .eq("id", submissionId)
+    .maybeSingle();
+  if (subError) throw subError;
+  if (!submission) return null;
+
+  const { data: line, error: lineError } = await db
+    .from("lines")
+    .select("group_id")
+    .eq("id", submission.line_id as string)
+    .single();
+  if (lineError) throw lineError;
+
+  const { data: assignment, error: assignError } = await db
+    .from("pm_assignments")
+    .select("group_id")
+    .eq("pm_member_id", pmMemberId)
+    .eq("group_id", line.group_id as string)
+    .maybeSingle();
+  if (assignError) throw assignError;
+  if (!assignment) return null;
+
+  return { groupId: line.group_id as string };
+}
+
+// 通過／退回一筆已鎖定、待審、最新一版的繳交。不變量（最新版、pending、線未結束、退回要填
+// 原因）都在 review_stage() RPC 裡用 FOR UPDATE 原子性檢查（見
+// 20260927000017_stage_review.sql）；這裡只負責「呼叫者是不是負責這組的 PM」與把 RPC 的錯誤
+// 代碼對照成中文訊息。鎖定判斷交給 stage_submissions_lock trigger（真正的 UPDATE 只改 review
+// 欄位，還沒鎖定會被 trigger 擋下 NOT_LOCKED）。
+export async function reviewStage(
+  submissionId: string,
+  decision: "approved" | "returned",
+  comment: string | null
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const access = await getAccess();
+  if (access.kind !== "ok" || !access.member || access.member.role !== "pm") {
+    return { ok: false, error: NOT_FOUND };
+  }
+
+  if (decision === "returned" && (!comment || comment.trim() === "")) {
+    return { ok: false, error: REVIEW_COMMENT_REQUIRED };
+  }
+
+  const db = createServiceSupabase();
+  const reviewable = await loadReviewableSubmission(db, submissionId, access.member.id);
+  if (!reviewable) return { ok: false, error: NOT_FOUND };
+
+  const notAcknowledged = await acknowledgementRequired(access.semesterId, access.email);
+  if (notAcknowledged) return notAcknowledged;
+
+  const { error: rpcError } = await db.rpc("review_stage", {
+    p_submission_id: submissionId,
+    p_reviewer: access.email,
+    p_decision: decision,
+    p_comment: comment,
+  });
+
+  if (rpcError) {
+    if (rpcError.message.includes("NOT_LOCKED")) return { ok: false, error: REVIEW_NOT_LOCKED };
+    if (rpcError.message.includes("already_reviewed")) return { ok: false, error: REVIEW_ALREADY_REVIEWED };
+    if (rpcError.message.includes("not_latest")) return { ok: false, error: REVIEW_NOT_LATEST };
+    if (rpcError.message.includes("ended")) return { ok: false, error: REVIEW_ENDED };
+    if (rpcError.message.includes("comment_required")) return { ok: false, error: REVIEW_COMMENT_REQUIRED };
+    if (rpcError.message.includes("submission_not_found")) return { ok: false, error: NOT_FOUND };
+    throw rpcError;
+  }
+
+  revalidatePath(`/groups/${reviewable.groupId}`);
+  revalidatePath("/");
   return { ok: true };
 }
