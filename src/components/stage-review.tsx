@@ -28,20 +28,29 @@ const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
 };
 
 // 組頁的比賽線審核區：每一版顯示版本／狀態／評語／下載按鈕；最新一版如果已鎖定、還在
-// pending，且看的人是 PM，才顯示通過／退回按鈕（canReview 由呼叫端依 pm_assignments 決定，
-// 跟 reviewStage() 的權限檢查同一份資料來源——這裡只是不讓沒被指派的 PM 看到按鈕，真正的
-// 授權還是 server action 自己做，按下去才會真的檢查一次）。
+// pending、線還沒結束，且看的人是 PM，才顯示通過／退回按鈕（canReview 由呼叫端依
+// pm_assignments 決定，跟 reviewStage() 的權限檢查同一份資料來源——這裡只是不讓沒被指派的 PM
+// 看到按鈕，真正的授權還是 server action 自己做，按下去才會真的檢查一次）。
+//
+// fix round 1 Minor 4（controller ruling）：ended（線已經結束——已退出／未入選／得獎）時
+// 一律不顯示這兩個按鈕，即使剛好還留著一筆鎖定、pending 的版本（reviewStage() 本來就會用
+// REVIEW_ENDED 擋下這個動作，但按鈕沒有先藏起來的話，PM 會點了才發現不能用）。呼叫端
+// （/groups/[groupId]）用 line.light === null 判斷 ended——competitionLineDisplay() 對結束的線
+// 一律回傳 light: null（見 domain/competition-line.ts），跟「目前沒有欠交、燈是綠色」不是
+// 同一件事。
 export function StageReview({
   submissions,
   canReview,
+  ended,
 }: {
   submissions: StageSubmissionDetail[];
   canReview: boolean;
+  ended: boolean;
 }) {
   if (submissions.length === 0) return null;
 
   const latest = submissions[submissions.length - 1];
-  const showActions = canReview && latest.reviewStatus === "pending" && latest.locked;
+  const showActions = !ended && canReview && latest.reviewStatus === "pending" && latest.locked;
 
   return (
     <div className="flex flex-col gap-2">

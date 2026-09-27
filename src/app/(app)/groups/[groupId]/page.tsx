@@ -133,7 +133,7 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
                   return (
                     <div key={stage.key} className="flex flex-col gap-1 border-t border-[var(--line,#DEE9F8)] pt-2">
                       <span className="font-medium text-foreground">{stage.label}</span>
-                      <StageReview submissions={stageSubmissions} canReview={canReview} />
+                      <StageReview submissions={stageSubmissions} canReview={canReview} ended={line.light === null} />
                     </div>
                   );
                 })}
