@@ -18,9 +18,21 @@ import { confirmEntry, withdrawEntry, setEntryMembers } from "@/server/actions/e
 import type { EntryDetail } from "@/server/queries/entries";
 
 // 已經確認過的參賽成員清單：換組的人不會消失，標成「（已換組）」（controller ruling，
-// fix round 1）——不然看起來像這個人從沒參加過這場比賽。
+// fix round 1）——不然看起來像這個人從沒參加過這場比賽。fix round 2（cosmetic）：如果
+// entry_members 指到的那筆 member 整列都不在了（不是換組，是真的查不到名字），movedOut 還是
+// true 但 name 會是空字串——這時候顯示「（已不在名單）」，不要顯示空白名字＋「（已換組）」。
 function memberLabel(m: { name: string; movedOut: boolean }): string {
-  return m.movedOut ? `${m.name}（已換組）` : m.name;
+  if (!m.movedOut) return m.name;
+  return m.name ? `${m.name}（已換組）` : "（已不在名單）";
+}
+
+// fix round 2：候選名單（可以勾選的人）只有「現在還在這組的專案生」。已換組的成員即使原本
+// 在 entry.selectedMemberIds 裡，也不該留在 selected 狀態裡——不然那個 id 永遠不會出現在
+// checkbox 列表，使用者永遠沒辦法把它勾掉，每次儲存都會被 update_entry_members() 擋下來
+// （只能勾選自己組的專案生）。進入編輯模式、以及「取消」還原時都要套用這個過濾。
+function currentGroupSelection(entry: EntryDetail): string[] {
+  const groupStudentIds = new Set(entry.groupStudents.map((s) => s.id));
+  return entry.selectedMemberIds.filter((id) => groupStudentIds.has(id));
 }
 
 // 勾選參賽成員的表單（確認報名前、以及確認之後的「編輯參賽成員」共用）。只能勾自己組現在的
@@ -53,9 +65,13 @@ function MemberCheckboxes({
 // 紀錄會保留）。
 export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemberId: string | null }) {
   const router = useRouter();
-  const [selected, setSelected] = useState<string[]>(
-    entry.selectedMemberIds.length > 0 ? entry.selectedMemberIds : myMemberId ? [myMemberId] : []
-  );
+  // fix round 2：初始值也要先過濾掉已經換組的成員（currentGroupSelection），不能直接拿
+  // entry.selectedMemberIds——換組的人不會出現在候選 checkbox 列表裡，selected 裡如果留著
+  // 那個 id，使用者永遠沒辦法把它勾掉。
+  const [selected, setSelected] = useState<string[]>(() => {
+    const filtered = currentGroupSelection(entry);
+    return filtered.length > 0 ? filtered : myMemberId ? [myMemberId] : [];
+  });
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -119,10 +135,20 @@ export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemb
   }
 
   if (entry.status === "in_progress" || entry.status === "withdrawn") {
+    // fix round 2：已換組的成員（movedOut）不在候選名單裡，儲存時會被整份新名單覆蓋掉、
+    // 自然被移除——進編輯模式前先提醒使用者。空字串名字（member 那筆資料整列都不見了）也算，
+    // 一律用「（已不在名單）」代替空白。
+    const movedOutNames = entry.selectedMembers.filter((m) => m.movedOut).map((m) => m.name || "（已不在名單）");
+
     if (editing) {
       return (
         <div className="flex flex-col gap-3">
           <MemberCheckboxes groupStudents={entry.groupStudents} selected={selected} onToggle={toggle} />
+          {movedOutNames.length > 0 && (
+            <p className="text-sm text-muted-foreground">
+              已換組的同學（{movedOutNames.join("、")}）儲存後會從參賽名單移除
+            </p>
+          )}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2">
             <Button type="button" onClick={onSaveMembers} disabled={pending}>
@@ -134,7 +160,7 @@ export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemb
               disabled={pending}
               onClick={() => {
                 setEditing(false);
-                setSelected(entry.selectedMemberIds);
+                setSelected(currentGroupSelection(entry));
                 setError(null);
               }}
             >
@@ -155,7 +181,15 @@ export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemb
         {entry.status === "in_progress" && (
           <>
             <div className="flex gap-2">
-              <Button type="button" variant="outline" className="self-start" onClick={() => setEditing(true)}>
+              <Button
+                type="button"
+                variant="outline"
+                className="self-start"
+                onClick={() => {
+                  setSelected(currentGroupSelection(entry));
+                  setEditing(true);
+                }}
+              >
                 編輯參賽成員
               </Button>
               <Button type="button" variant="outline" className="self-start" onClick={() => setWithdrawOpen(true)}>

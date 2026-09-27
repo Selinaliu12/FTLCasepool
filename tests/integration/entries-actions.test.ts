@@ -8,6 +8,17 @@ vi.mock("@/server/session", () => ({ getAccess: () => mockGetAccess() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { attachCompetition, setEntryMembers, confirmEntry, withdrawEntry } from "@/server/actions/entries";
+import { moveMember } from "@/server/actions/admin";
+
+function asAdmin(semesterId: string) {
+  mockGetAccess.mockResolvedValue({
+    kind: "ok",
+    email: "admin@g.nccu.edu.tw",
+    isAdmin: true,
+    member: null,
+    semesterId,
+  });
+}
 
 async function createCompetition(
   semesterId: string,
@@ -217,6 +228,27 @@ describe("setEntryMembers", () => {
     // 確認報名建立的線不會因為改參賽成員而重複建立／消失。
     const { data: lines } = await db.from("lines").select("id").eq("entry_id", entryId);
     expect(lines).toHaveLength(1);
+  });
+
+  // Important（fix round 2）：一個已經勾選、後來換到別組的成員，仍然可以用剩下（還在這組）
+  // 的成員名單成功改參賽成員——update_entry_members() 本身沒有問題（fix round 1 就已經測過
+  // 「勾別組的人被拒」），這裡是端到端驗證「換組之後，交一份不含那個人的新名單」這個實際
+  // 會發生的操作路徑本身是通的（UI 那邊的 bug 在 entry-actions.tsx，component test 另外測）。
+  it("成員換組後，setEntryMembers 送一份只含目前組員的名單會成功", async () => {
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    const ids = await studentIds(seed.semesterId, seed.groupA);
+    await confirmEntry(entryId, [ids[0], ids[1]]);
+
+    asAdmin(seed.semesterId);
+    await moveMember(ids[1], seed.groupB);
+
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    const result = await setEntryMembers(entryId, [ids[0]]);
+    expect(result).toEqual({ ok: true });
+
+    const db = createServiceSupabase();
+    const { data } = await db.from("entry_members").select("member_id").eq("entry_id", entryId);
+    expect((data ?? []).map((r) => r.member_id)).toEqual([ids[0]]);
   });
 
   // IMPORTANT 1（fix round 1）：退出後不能再編輯參賽成員。
