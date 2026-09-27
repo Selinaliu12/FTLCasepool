@@ -389,24 +389,34 @@ export async function reviewStage(
   const notAcknowledged = await acknowledgementRequired(access.semesterId, access.email);
   if (notAcknowledged) return notAcknowledged;
 
+  // p_pm_member_id：review_stage() 自己的交易裡會再查一次 pm_assignments（fix round 1
+  // Minor 1，見 20260927000018_review_assignment.sql）——關掉「這裡查完、RPC 真的 UPDATE
+  // 之前，管理員剛好把這個 PM 從這組移走」這個 TOCTOU 視窗。上面的 loadReviewableSubmission
+  // 還是留著：不是重複防護，是提早用一次查詢就回統一的「找不到這筆繳交」，不用每次都跑到
+  // RPC 才知道沒有權限。
   const { error: rpcError } = await db.rpc("review_stage", {
     p_submission_id: submissionId,
     p_reviewer: access.email,
+    p_pm_member_id: access.member.id,
     p_decision: decision,
     p_comment: comment,
   });
 
   if (rpcError) {
-    if (rpcError.message.includes("NOT_LOCKED")) return { ok: false, error: REVIEW_NOT_LOCKED };
-    if (rpcError.message.includes("already_reviewed")) return { ok: false, error: REVIEW_ALREADY_REVIEWED };
-    if (rpcError.message.includes("not_latest")) return { ok: false, error: REVIEW_NOT_LATEST };
-    if (rpcError.message.includes("ended")) return { ok: false, error: REVIEW_ENDED };
-    if (rpcError.message.includes("comment_required")) return { ok: false, error: REVIEW_COMMENT_REQUIRED };
-    if (rpcError.message.includes("submission_not_found")) return { ok: false, error: NOT_FOUND };
+    // fix round 1 Minor 5：用精確比對而不是 includes——這些都是資料庫用
+    // raise exception '<message>' 丟出的自訂訊息，message 就是那個字串本身，不需要（也不該）
+    // 用子字串比對，避免未來新增的錯誤代碼剛好是另一個代碼的子字串時互相誤判。
+    if (rpcError.message === "NOT_LOCKED") return { ok: false, error: REVIEW_NOT_LOCKED };
+    if (rpcError.message === "already_reviewed") return { ok: false, error: REVIEW_ALREADY_REVIEWED };
+    if (rpcError.message === "not_latest") return { ok: false, error: REVIEW_NOT_LATEST };
+    if (rpcError.message === "ended") return { ok: false, error: REVIEW_ENDED };
+    if (rpcError.message === "comment_required") return { ok: false, error: REVIEW_COMMENT_REQUIRED };
+    if (rpcError.message === "submission_not_found") return { ok: false, error: NOT_FOUND };
+    if (rpcError.message === "not_assigned") return { ok: false, error: NOT_FOUND };
     throw rpcError;
   }
 
   revalidatePath(`/groups/${reviewable.groupId}`);
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   return { ok: true };
 }

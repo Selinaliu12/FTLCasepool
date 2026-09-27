@@ -408,4 +408,58 @@ describe("reviewStage", () => {
     const line = detail?.competitionLines.find((l) => l.lineId === lineId);
     expect(line?.light).toBe("yellow");
   });
+
+  // fix round 1 Minor 1（controller ruling）：review_stage() 自己在交易裡查 pm_assignments，
+  // 不是只靠應用層（reviewStage()）先查一次再呼叫——直接繞過應用層呼叫 RPC，驗證這道防線
+  // 真的存在。p_pm_member_id 沒有被指派這組時，RPC 本身就要擋下來，不能只靠呼叫端記得先查。
+  it("RPC 層：直接呼叫 review_stage()，p_pm_member_id 沒被指派這組時擋下來（not_assigned）", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { lineId } = await confirmedEntry(seed.groupA, competition.id);
+    const pmId = await pmMemberId();
+    // 故意不指派 pmId 到 groupA。
+    const submission = await insertSubmission(lineId, seed.groupA);
+
+    const db = createServiceSupabase();
+    const { error } = await db.rpc("review_stage", {
+      p_submission_id: submission.id,
+      p_reviewer: "pm@g.nccu.edu.tw",
+      p_pm_member_id: pmId,
+      p_decision: "approved",
+      p_comment: null,
+    });
+
+    expect(error).not.toBeNull();
+    expect(error!.message).toBe("not_assigned");
+
+    const row = await fetchSubmission(submission.id);
+    expect(row.review_status).toBe("pending");
+  });
+
+  // fix round 1 Minor 2（controller ruling）：跟上面同一個理由——comment_required 這個不變量
+  // 也要在 RPC 這一層直接驗證，不能只靠應用層（reviewStage() 呼叫前先擋空白評語）證明它存在。
+  it("RPC 層：直接呼叫 review_stage()，退回附空白評語時擋下來（comment_required），這一列還是 pending", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { lineId } = await confirmedEntry(seed.groupA, competition.id);
+    const pmId = await pmMemberId();
+    await assignPm(pmId, seed.groupA);
+    const submission = await insertSubmission(lineId, seed.groupA);
+
+    const db = createServiceSupabase();
+    const { error } = await db.rpc("review_stage", {
+      p_submission_id: submission.id,
+      p_reviewer: "pm@g.nccu.edu.tw",
+      p_pm_member_id: pmId,
+      p_decision: "returned",
+      p_comment: "   ",
+    });
+
+    expect(error).not.toBeNull();
+    expect(error!.message).toBe("comment_required");
+
+    const row = await fetchSubmission(submission.id);
+    expect(row.review_status).toBe("pending");
+    expect(row.comment).toBeNull();
+  });
 });
