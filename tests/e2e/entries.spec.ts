@@ -61,7 +61,16 @@ test.describe.serial("掛比賽、確認報名、取消報名", () => {
 
     await expect(page.getByText("準備中")).toBeVisible();
     await expect(page.getByText("甲一、甲二").or(page.getByText("甲二、甲一"))).toBeVisible();
+    await expect(page.getByRole("button", { name: "編輯參賽成員" })).toBeVisible();
     await expect(page.getByRole("button", { name: "取消報名" })).toBeVisible();
+
+    // fix round 1：確認後還是可以編輯參賽成員（規格「確認後不能再改參賽成員以外的設定」）。
+    // 把甲二取消勾選，只剩甲一。
+    await page.getByRole("button", { name: "編輯參賽成員" }).click();
+    await page.getByText("甲二", { exact: true }).click();
+    await page.getByRole("button", { name: "儲存" }).click();
+    await expect(page.getByRole("button", { name: "編輯參賽成員" })).toBeVisible();
+    await expect(page.getByText("甲一", { exact: true })).toBeVisible();
 
     await page.goto("/my-group");
     await expect(page.getByRole("heading", { name: "比賽" })).toBeVisible();
@@ -69,10 +78,13 @@ test.describe.serial("掛比賽、確認報名、取消報名", () => {
     await expect(page.getByText("準備中")).toBeVisible();
   });
 
+  // Minor 9（fix round 1）：真的點下去，不是只檢查連結存在——要走到報名頁才算數。
   test("大廳卡片顯示已掛到你們組，點連結回到報名頁", async ({ page }) => {
     await loginAndPassWelcome(page, "a1@g.nccu.edu.tw", /\/my-group$/);
     await page.goto("/competitions");
-    await expect(page.getByRole("link", { name: "已掛到你們組" })).toBeVisible();
+    await page.getByRole("link", { name: "已掛到你們組" }).click();
+    await expect(page).toHaveURL(/\/my-group\/competitions\/[0-9a-f-]+$/);
+    await expect(page.getByText("全國黑客松")).toBeVisible();
   });
 
   test("取消報名後回到 /my-group 顯示已退出，且大廳可以重新掛", async ({ page }) => {

@@ -5,6 +5,7 @@ import { createServiceSupabase } from "../../src/server/supabase";
 let seed: Awaited<ReturnType<typeof seedSemester>>;
 let entryId: string;
 let competitionId: string;
+let memberAId: string;
 
 beforeAll(async () => {
   await resetDb();
@@ -40,7 +41,8 @@ beforeAll(async () => {
     .eq("semester_id", seed.semesterId)
     .eq("email", "a1@g.nccu.edu.tw")
     .single();
-  const { error: emError } = await db.from("entry_members").insert({ entry_id: entryId, member_id: member!.id });
+  memberAId = member!.id as string;
+  const { error: emError } = await db.from("entry_members").insert({ entry_id: entryId, member_id: memberAId });
   if (emError) throw emError;
 });
 
@@ -103,9 +105,21 @@ describe("RLS：competition_entries／entry_members", () => {
     expect(del.error).not.toBeNull();
   });
 
+  // p_member_ids 帶一個真的合法的成員（memberAId，這組的專案生）：如果 execute 權限不小心開給
+  // authenticated，這個呼叫實際上會成功（確認報名／改成員都會通過函式內的業務邏輯檢查），
+  // 讓這個測試真的能分辨「權限擋下來」跟「呼叫成功但業務邏輯本來就會擋」——只傳空陣列的話，
+  // 不管有沒有權限最後都會回傳錯誤，測不出權限有沒有被誤開。
   it("使用者連線不能直接呼叫 confirm_entry", async () => {
     const db = await clientAs("a1@g.nccu.edu.tw");
-    const { error } = await db.rpc("confirm_entry", { p_entry_id: entryId, p_member_ids: [] });
+    const { error } = await db.rpc("confirm_entry", { p_entry_id: entryId, p_member_ids: [memberAId] });
+    expect(error).not.toBeNull();
+  });
+
+  // fix round 1：update_entry_members()（改參賽成員用的新 RPC）跟 confirm_entry() 同一套
+  // 規矩，只給 service_role。
+  it("使用者連線不能直接呼叫 update_entry_members", async () => {
+    const db = await clientAs("a1@g.nccu.edu.tw");
+    const { error } = await db.rpc("update_entry_members", { p_entry_id: entryId, p_member_ids: [memberAId] });
     expect(error).not.toBeNull();
   });
 });

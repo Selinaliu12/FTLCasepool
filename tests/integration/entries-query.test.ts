@@ -97,6 +97,30 @@ describe("loadEntryDetail", () => {
     expect(detail!.groupStudents.map((s) => s.name).sort()).toEqual(["甲一", "甲二"]);
   });
 
+  // Controller ruling（fix round 1）：確認過的參賽成員如果換組，entry_members 那筆紀錄不會被
+  // 刪掉，顯示的時候要標成 movedOut，不能直接從名單消失。
+  it("已選的成員換組後，selectedMembers 標成 movedOut，不會消失", async () => {
+    const db = createServiceSupabase();
+    const { data: a2 } = await db
+      .from("members")
+      .select("id")
+      .eq("semester_id", seed.semesterId)
+      .eq("email", "a2@g.nccu.edu.tw")
+      .single();
+    await db.from("entry_members").insert({ entry_id: entryId, member_id: a2!.id });
+
+    // a2 換到第2組。
+    await db.from("members").update({ group_id: seed.groupB }).eq("id", a2!.id);
+
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+    const detail = await loadEntryDetail(entryId);
+    expect(detail).not.toBeNull();
+    expect(detail!.selectedMembers).toEqual([{ id: a2!.id, name: "甲二", movedOut: true }]);
+    // 換組之後不再是這組的學生，不會出現在勾選候選名單裡。
+    expect(detail!.groupStudents.map((s) => s.id)).not.toContain(a2!.id);
+  });
+
   it("別組的學生看不到（回傳 null）", async () => {
     asStudent(mockGetAccess, seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
     mockCreateServerSupabase.mockResolvedValue(await clientAs("b1@g.nccu.edu.tw"));

@@ -94,6 +94,22 @@ test.describe(`b2-t3 視覺自我檢查截圖 ${ROUND}`, () => {
       await page.screenshot({ path: `.screenshots/${ROUND}-b2-t3-entry-confirmed-${size.name}.png`, fullPage: true });
     });
 
+    // fix round 1：確認後還是可以編輯參賽成員（規格「確認後不能再改參賽成員以外的設定」）。
+    test(`/my-group/competitions/[entryId]（確認後編輯參賽成員）@ ${size.name}`, async ({ page }) => {
+      await setupPublishedCompetition();
+      await page.setViewportSize({ width: size.width, height: size.height });
+      await loginAndPassWelcome(page, "a1@g.nccu.edu.tw", /\/my-group$/);
+      await page.goto("/competitions");
+      await page.getByRole("button", { name: "掛到我們組" }).click();
+      await page.getByRole("button", { name: "確認報名" }).click();
+      await page.getByRole("button", { name: "確定" }).click();
+      await expect(page.getByRole("button", { name: "編輯參賽成員" })).toBeVisible();
+
+      await page.getByRole("button", { name: "編輯參賽成員" }).click();
+      await expect(page.getByRole("button", { name: "儲存" })).toBeVisible();
+      await page.screenshot({ path: `.screenshots/${ROUND}-b2-t3-entry-edit-members-${size.name}.png`, fullPage: true });
+    });
+
     test(`/my-group（比賽區塊）@ ${size.name}`, async ({ page }) => {
       const { competitionId, groupB } = await setupPublishedCompetition();
       const { error } = await serviceSupabase()
