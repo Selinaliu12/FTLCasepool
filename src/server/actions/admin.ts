@@ -161,15 +161,34 @@ export async function moveMember(memberId: string, toGroupId: string): Promise<v
 
   const { data: member, error: memberError } = await db
     .from("members")
-    .select("role, semester_id")
+    .select("email, role, semester_id")
     .eq("id", memberId)
     .single();
   if (memberError) throw memberError;
   if (member.role !== "student") throw new Error("只有專案生可以換組");
 
-  const { data: group, error: groupError } = await db.from("groups").select("semester_id").eq("id", toGroupId).single();
+  const { data: group, error: groupError } = await db.from("groups").select("semester_id, name").eq("id", toGroupId).single();
   if (groupError) throw groupError;
   if (group.semester_id !== member.semester_id) throw new Error("目標組別必須在同一個學期");
+
+  // §14：同一個人可以同時有多列專案生身份（多組），moveMember 只搬動這一列，不動這個人在
+  // 其他組別的身份列。如果這個人在目標組已經有一列專案生身份（跟被搬動的這一列是不同的
+  // members 列），搬過去會撞 members_identity_key 唯一索引，先在這裡查出來給一句看得懂的
+  // 錯誤訊息，而不是讓呼叫端收到資料庫的 23505。組名本身就是「第N組」的格式（CSV 匯入時
+  // 直接拿組別欄位當組名），訊息直接套用組名即可，不用另外算序號。
+  const { data: existing, error: existingError } = await db
+    .from("members")
+    .select("id")
+    .eq("semester_id", member.semester_id)
+    .eq("email", member.email)
+    .eq("role", "student")
+    .eq("group_id", toGroupId)
+    .neq("id", memberId)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing) {
+    throw new Error(`這位同學已經在${group.name}了`);
+  }
 
   const { error } = await db.from("members").update({ group_id: toGroupId }).eq("id", memberId);
   if (error) throw error;

@@ -141,11 +141,11 @@ describe("createSemester", () => {
 });
 
 const CSV_OK = [
-  "email,姓名,角色,組別,專案名稱",
-  "s1@g.nccu.edu.tw,甲一,專案生,第1組,專案A",
-  "s2@g.nccu.edu.tw,甲二,專案生,第1組,專案A",
-  "s3@g.nccu.edu.tw,乙一,專案生,第2組,專案B",
-  "pm1@g.nccu.edu.tw,幹部,專案幹部,,",
+  "email,姓名,角色,學號,系級,組別,專案名稱",
+  "s1@g.nccu.edu.tw,甲一,專案生,110701001,資科三,第1組,專案A",
+  "s2@g.nccu.edu.tw,甲二,專案生,110701002,資科三,第1組,專案A",
+  "s3@g.nccu.edu.tw,乙一,專案生,110701003,資科三,第2組,專案B",
+  "pm1@g.nccu.edu.tw,幹部,專案幹部,,,,",
 ].join("\n");
 
 describe("importRoster", () => {
@@ -201,8 +201,8 @@ describe("importRoster", () => {
     const { semesterId } = await createSemester("115-1");
     asAdmin(semesterId);
     const badCsv = [
-      "email,姓名,角色,組別,專案名稱",
-      "s1@g.nccu.edu.tw,甲一,學生,第1組,專案A",
+      "email,姓名,角色,學號,系級,組別,專案名稱",
+      "s1@g.nccu.edu.tw,甲一,學生,110701001,資科三,第1組,專案A",
     ].join("\n");
     const r = await importRoster(semesterId, badCsv);
     expect(r).toEqual({ ok: false, errors: ["第 2 列：角色「學生」不是 專案幹部／其他幹部／專案生"] });
@@ -220,6 +220,58 @@ describe("importRoster", () => {
     await importRoster(semesterId, CSV_OK);
     const r = await importRoster(semesterId, CSV_OK);
     expect(r).toEqual({ ok: false, errors: ["本學期已匯入名單；學期中的異動請用「換組」"] });
+  });
+
+  // §14：同一個人可以同時是兩組的專案生，也可以身兼專案幹部——三列身份都要各自寫進 members。
+  it("多列匯入：同一人在兩組是專案生，同時也是專案幹部", async () => {
+    asAdminNoSemester();
+    const { createSemester, importRoster } = await import("@/server/actions/admin");
+    const { semesterId } = await createSemester("115-1");
+    asAdmin(semesterId);
+    const csv = [
+      "email,姓名,角色,學號,系級,組別,專案名稱",
+      "multi@g.nccu.edu.tw,王小明,專案生,110701001,資科三,第1組,專案A",
+      "multi@g.nccu.edu.tw,王小明,專案生,110701001,資科三,第2組,專案B",
+      "multi@g.nccu.edu.tw,王小明,專案幹部,110701001,資科三,,",
+      "s2@g.nccu.edu.tw,甲二,專案生,110701002,資科三,第1組,專案A",
+    ].join("\n");
+    const r = await importRoster(semesterId, csv);
+    expect(r).toEqual({ ok: true, imported: 4 });
+
+    const svc = createServiceSupabase();
+    const { data: rows } = await svc
+      .from("members")
+      .select("role, student_id, dept_year, groups!members_group_id_fkey(name)")
+      .eq("semester_id", semesterId)
+      .eq("email", "multi@g.nccu.edu.tw");
+    type Row = { role: string; student_id: string | null; dept_year: string | null; groups: { name: string } | null };
+    const sorted = ((rows ?? []) as unknown as Row[]).sort((a, b) => (a.groups?.name ?? "").localeCompare(b.groups?.name ?? ""));
+    expect(sorted).toEqual([
+      { role: "pm", student_id: "110701001", dept_year: "資科三", groups: null },
+      { role: "student", student_id: "110701001", dept_year: "資科三", groups: { name: "第1組" } },
+      { role: "student", student_id: "110701001", dept_year: "資科三", groups: { name: "第2組" } },
+    ]);
+  });
+
+  it("資料不一致（同信箱姓名不同）被拒，一筆都不寫入", async () => {
+    asAdminNoSemester();
+    const { createSemester, importRoster } = await import("@/server/actions/admin");
+    const { semesterId } = await createSemester("115-1");
+    asAdmin(semesterId);
+    const csv = [
+      "email,姓名,角色,學號,系級,組別,專案名稱",
+      "multi@g.nccu.edu.tw,王小明,專案生,110701001,資科三,第1組,專案A",
+      "multi@g.nccu.edu.tw,王小明二,專案生,110701001,資科三,第2組,專案B",
+    ].join("\n");
+    const r = await importRoster(semesterId, csv);
+    expect(r).toEqual({
+      ok: false,
+      errors: ["第 3 列：同一個信箱的姓名／學號／系級要一致（和第 2 列不同）"],
+    });
+
+    const svc = createServiceSupabase();
+    const { count } = await svc.from("members").select("id", { count: "exact", head: true }).eq("semester_id", semesterId);
+    expect(count).toBe(0);
   });
 });
 
@@ -556,5 +608,22 @@ describe("moveMember", () => {
     const { data: a1 } = await svc.from("members").select("id").eq("semester_id", seed.semesterId).eq("email", "a1@g.nccu.edu.tw").single();
     const { moveMember } = await import("@/server/actions/admin");
     await expect(moveMember(a1!.id, otherGroup!.id)).rejects.toThrow("目標組別必須在同一個學期");
+  });
+
+  // §14：moveMember 只搬動那一列。如果這個人在目標組已經有另一列專案生身份，
+  // 搬過去會撞 members_identity_key，要回一句看得懂的錯誤，而不是資料庫的 23505。
+  it("同一人在目標組已有專案生身份 → 這位同學已經在第N組了", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const svc = createServiceSupabase();
+    const { data: a1 } = await svc.from("members").select("id").eq("semester_id", seed.semesterId).eq("email", "a1@g.nccu.edu.tw").single();
+    // 讓 a1 同時也是第2組的專案生（多列身份）。
+    const { error: insertError } = await svc
+      .from("members")
+      .insert({ semester_id: seed.semesterId, email: "a1@g.nccu.edu.tw", name: "甲一", role: "student", group_id: seed.groupB });
+    expect(insertError).toBeNull();
+
+    const { moveMember } = await import("@/server/actions/admin");
+    await expect(moveMember(a1!.id, seed.groupB)).rejects.toThrow("這位同學已經在第2組了");
   });
 });
