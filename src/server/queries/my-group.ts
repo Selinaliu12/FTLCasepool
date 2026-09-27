@@ -11,6 +11,7 @@ export type PeriodRow = {
   periodId: string;
   seq: number;
   deadline: Date;
+  suggestion: string | null;
   report: null | { submittedAt: Date; submittedBy: string; light: Light; lockedAt: Date };
 };
 
@@ -41,7 +42,7 @@ export async function loadMyGroup(): Promise<MyGroup> {
   const [groupRes, lineRes, periodsRes, semesterRes, membersRes] = await Promise.all([
     supabase.from("groups").select("name, project_name").eq("id", groupId).single(),
     supabase.from("lines").select("id").eq("group_id", groupId).eq("kind", "project").single(),
-    supabase.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq"),
+    supabase.from("periods").select("id, seq, deadline, suggestion").eq("semester_id", semesterId).order("seq"),
     supabase.from("semesters").select("red_after_hours").eq("id", semesterId).single(),
     supabase.from("members").select("email, name").eq("semester_id", semesterId),
   ]);
@@ -88,6 +89,7 @@ export async function loadMyGroup(): Promise<MyGroup> {
       periodId: p.id as string,
       seq: p.seq as number,
       deadline: new Date(p.deadline as string),
+      suggestion: (p.suggestion as string | null) ?? null,
       report: report
         ? {
             submittedAt: new Date(report.pdf_uploaded_at as string),

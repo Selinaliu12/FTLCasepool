@@ -193,7 +193,7 @@ export function ProgressForm({ periodId }: { periodId: string }) {
 
       <div className="flex flex-col gap-1">
         <label htmlFor={fileInputId} className="text-sm font-medium">
-          PDF（建議內容：本期成果截圖、會議紀錄、下期分工）
+          PDF
         </label>
         <input
           id={fileInputId}

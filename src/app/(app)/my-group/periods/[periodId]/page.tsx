@@ -65,6 +65,11 @@ export default async function PeriodPage({ params }: { params: Promise<{ periodI
           本期已{overdueLabel(overdue.hours)}，仍可補交
         </p>
       )}
+      {period.suggestion && (
+        <p className="whitespace-pre-line text-sm text-muted-foreground">
+          本期建議繳交：{period.suggestion}
+        </p>
+      )}
       <ProgressForm periodId={periodId} />
     </main>
   );

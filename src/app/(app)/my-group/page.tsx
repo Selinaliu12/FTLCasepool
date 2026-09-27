@@ -71,6 +71,11 @@ export default async function MyGroupPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
+                {p.suggestion && (
+                  <p className="whitespace-pre-line text-sm text-muted-foreground">
+                    本期建議繳交：{p.suggestion}
+                  </p>
+                )}
                 {p.report ? (
                   <div className="flex flex-col gap-0.5">
                     <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">

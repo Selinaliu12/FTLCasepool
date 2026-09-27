@@ -43,7 +43,7 @@ export default async function AdminPage() {
     db.from("semesters").select("id, name, red_after_hours").eq("id", semesterId).single(),
     db.from("groups").select("id, name, project_name").eq("semester_id", semesterId).order("name"),
     db.from("members").select("id, name, email, role, group_id").eq("semester_id", semesterId).order("name"),
-    db.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq"),
+    db.from("periods").select("id, seq, deadline, suggestion").eq("semester_id", semesterId).order("seq"),
     db.from("pm_assignments").select("pm_member_id, group_id"),
   ]);
 
@@ -112,6 +112,7 @@ export default async function AdminPage() {
   const initialPeriodRows: PeriodRow[] = periodList.map((p) => ({
     id: p.id as string,
     ...taipeiInputValues(new Date(p.deadline as string)),
+    suggestion: (p.suggestion as string | null) ?? "",
     readOnly: (p.seq as number) <= lastFrozenSeq,
     hasReports: reportedPeriodIds.has(p.id as string),
   }));

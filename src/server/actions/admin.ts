@@ -61,7 +61,7 @@ export async function importRoster(
   return { ok: true, imported: parsed.rows.length };
 }
 
-export type PeriodInput = { id?: string; date: string; time: string };
+export type PeriodInput = { id?: string; date: string; time: string; suggestion?: string };
 
 export async function savePeriods(
   semesterId: string,
@@ -80,7 +80,7 @@ export async function savePeriods(
   if (existingError) return { ok: false, errors: [existingError.message] };
   const existingById = new Map((existing ?? []).map((p) => [p.id as string, new Date(p.deadline as string)]));
 
-  const parsed: { i: number; id: string | null; deadline: Date }[] = [];
+  const parsed: { i: number; id: string | null; deadline: Date; suggestion?: string }[] = [];
   const errors: string[] = [];
   rows.forEach((r, idx) => {
     const n = idx + 1;
@@ -88,12 +88,12 @@ export async function savePeriods(
     if (current) {
       const shown = taipeiInputValues(current);
       if (shown.date === r.date && shown.time === r.time) {
-        parsed.push({ i: n, id: r.id!, deadline: current });
+        parsed.push({ i: n, id: r.id!, deadline: current, suggestion: r.suggestion });
         return;
       }
     }
     try {
-      parsed.push({ i: n, id: r.id ?? null, deadline: parseTaipeiDeadline(r.date, r.time) });
+      parsed.push({ i: n, id: r.id ?? null, deadline: parseTaipeiDeadline(r.date, r.time), suggestion: r.suggestion });
     } catch {
       errors.push(`第 ${n} 列：日期或時間格式錯誤`);
     }
@@ -120,7 +120,7 @@ export async function savePeriods(
   // 日期時間轉成時間戳。
   const { error } = await db.rpc("save_periods", {
     p_semester_id: semesterId,
-    p_rows: parsed.map((p) => ({ id: p.id, deadline: p.deadline.toISOString() })),
+    p_rows: parsed.map((p) => ({ id: p.id, deadline: p.deadline.toISOString(), suggestion: p.suggestion ?? null })),
   });
   if (error) return { ok: false, errors: [error.message] };
 
