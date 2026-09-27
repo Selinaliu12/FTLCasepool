@@ -152,7 +152,66 @@ describe("loadReviewQueue", () => {
       stage: "signup",
       version: 1,
     });
-    expect(queue[0].waitingDays).toBeGreaterThanOrEqual(0);
+  });
+
+  // waitingDays 是台北日曆天數（daysUntil 的反向），不是 24 小時制的小時數：跨過台北午夜就算
+  // 多一天，即使實際只過了兩個半小時。固定 uploadedAt／now，斷言精確值——不能只斷言
+  // >= 0（Math.max(0, …) 之後永遠成立，不管 daysUntil 算對還是算錯都會綠燈）。
+  it("waitingDays：上傳 2026-09-26T15:30Z（台北 23:30）、now 2026-09-26T18:00Z（台北隔天 02:00）→ 1", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { lineId } = await confirmedEntry(seed.groupA, competition.id);
+    const pmId = await pmMemberId();
+    await assignPm(pmId, seed.groupA);
+    const uploadedAt = new Date("2026-09-26T15:30:00.000Z");
+    const now = new Date("2026-09-26T18:00:00.000Z");
+    await insertSubmission(lineId, seed.groupA, { stage: "signup", uploadedAt });
+
+    asPmMember(seed.semesterId, pmId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
+    const { loadReviewQueue } = await import("@/server/queries/review-queue");
+    const queue = await asUser("pm@g.nccu.edu.tw", () => loadReviewQueue(now));
+
+    expect(queue).toHaveLength(1);
+    expect(queue[0].waitingDays).toBe(1);
+  });
+
+  it("waitingDays：跨 3 個台北日曆天 → 3", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { lineId } = await confirmedEntry(seed.groupA, competition.id);
+    const pmId = await pmMemberId();
+    await assignPm(pmId, seed.groupA);
+    const uploadedAt = new Date("2026-09-20T04:00:00.000Z"); // 台北 9/20 12:00
+    const now = new Date("2026-09-23T10:00:00.000Z"); // 台北 9/23 18:00
+    await insertSubmission(lineId, seed.groupA, { stage: "signup", uploadedAt });
+
+    asPmMember(seed.semesterId, pmId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
+    const { loadReviewQueue } = await import("@/server/queries/review-queue");
+    const queue = await asUser("pm@g.nccu.edu.tw", () => loadReviewQueue(now));
+
+    expect(queue).toHaveLength(1);
+    expect(queue[0].waitingDays).toBe(3);
+  });
+
+  it("waitingDays：同一個台北日曆天內（還沒跨午夜）→ 0", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { lineId } = await confirmedEntry(seed.groupA, competition.id);
+    const pmId = await pmMemberId();
+    await assignPm(pmId, seed.groupA);
+    const uploadedAt = new Date("2026-09-26T02:00:00.000Z"); // 台北 9/26 10:00
+    const now = new Date("2026-09-26T10:00:00.000Z"); // 台北 9/26 18:00，鎖定滿 2 小時、同一天
+    await insertSubmission(lineId, seed.groupA, { stage: "signup", uploadedAt });
+
+    asPmMember(seed.semesterId, pmId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
+    const { loadReviewQueue } = await import("@/server/queries/review-queue");
+    const queue = await asUser("pm@g.nccu.edu.tw", () => loadReviewQueue(now));
+
+    expect(queue).toHaveLength(1);
+    expect(queue[0].waitingDays).toBe(0);
   });
 
   it("不滿 2 小時（還沒鎖定）不出現在佇列", async () => {
