@@ -31,8 +31,10 @@ async function loginAndPassWelcome(page: Page, email: string, waitForUrl: RegExp
   await expect(page).toHaveURL(waitForUrl);
 }
 
-test.describe.serial("b2-t2 視覺自我檢查截圖", () => {
+test.describe.serial("b2-t2 視覺自我檢查截圖 round2（fix round 1 之後）", () => {
   test.skip(!CAPTURE, "手動截圖用；預設跳過。執行方式見檔案開頭註解（CAPTURE_SCREENSHOTS=1）。");
+
+  let publishedId: string;
 
   test.beforeAll(async () => {
     fs.mkdirSync(".screenshots", { recursive: true });
@@ -41,40 +43,44 @@ test.describe.serial("b2-t2 視覺自我檢查截圖", () => {
     await serviceSupabase().from("acknowledgements").insert({ semester_id: seed.semesterId, email: "admin@g.nccu.edu.tw" });
 
     const svc = serviceSupabase();
-    const { error } = await svc.from("competitions").insert([
-      {
-        semester_id: seed.semesterId,
-        name: "全國大學生黑客松",
-        organizer: "教育部",
-        theme: "永續發展",
-        eligibility: "大專院校在學學生",
-        team_size: "3-5 人",
-        prize: "冠軍 10 萬元",
-        url: "https://example.com/hackathon",
-        signup_deadline: "2099-12-01T15:59:59.999Z",
-        submission_deadline: "2099-12-20T15:59:59.999Z",
-        final_date: "2099-12-25T15:59:59.999Z",
-        status: "published",
-        created_by: "pm@g.nccu.edu.tw",
-      },
-      {
-        semester_id: seed.semesterId,
-        name: "已截止的比賽",
-        url: "https://example.com/closed",
-        signup_deadline: "2020-01-01T15:59:59.999Z",
-        status: "published",
-        created_by: "pm@g.nccu.edu.tw",
-      },
-      {
-        semester_id: seed.semesterId,
-        name: "還沒發布的草稿",
-        url: "https://example.com/draft",
-        signup_deadline: "2099-12-01T15:59:59.999Z",
-        status: "draft",
-        created_by: "pm@g.nccu.edu.tw",
-      },
-    ]);
+    const { data, error } = await svc
+      .from("competitions")
+      .insert([
+        {
+          semester_id: seed.semesterId,
+          name: "全國大學生黑客松",
+          organizer: "教育部",
+          theme: "永續發展",
+          eligibility: "大專院校在學學生",
+          team_size: "3-5 人",
+          prize: "冠軍 10 萬元",
+          url: "https://example.com/hackathon",
+          signup_deadline: "2099-12-01T15:59:59.999Z",
+          submission_deadline: "2099-12-20T15:59:59.999Z",
+          final_date: "2099-12-25T15:59:59.999Z",
+          status: "published",
+          created_by: "pm@g.nccu.edu.tw",
+        },
+        {
+          semester_id: seed.semesterId,
+          name: "已截止的比賽",
+          url: "https://example.com/closed",
+          signup_deadline: "2020-01-01T15:59:59.999Z",
+          status: "published",
+          created_by: "pm@g.nccu.edu.tw",
+        },
+        {
+          semester_id: seed.semesterId,
+          name: "還沒發布的草稿",
+          url: "https://example.com/draft",
+          signup_deadline: "2099-11-01T15:59:59.999Z",
+          status: "draft",
+          created_by: "pm@g.nccu.edu.tw",
+        },
+      ])
+      .select();
     if (error) throw error;
+    publishedId = (data ?? []).find((c) => c.name === "全國大學生黑客松")!.id as string;
   });
 
   test.afterAll(async () => {
@@ -83,14 +89,15 @@ test.describe.serial("b2-t2 視覺自我檢查截圖", () => {
   });
 
   for (const size of SIZES) {
-    test(`/competitions（幹部：開放＋已截止＋草稿）@ ${size.name}`, async ({ page }) => {
+    test(`/competitions（幹部：報名中標題＋開放＋已截止＋草稿）@ ${size.name}`, async ({ page }) => {
       await page.setViewportSize({ width: size.width, height: size.height });
       await loginAndPassWelcome(page, "pm@g.nccu.edu.tw", /\/dashboard$/);
       await page.goto("/competitions");
+      await expect(page.getByRole("heading", { name: "報名中" })).toBeVisible();
       await expect(page.getByText("全國大學生黑客松")).toBeVisible();
       await expect(page.getByText("已截止的比賽")).toBeVisible();
       await expect(page.getByText("還沒發布的草稿")).toBeVisible();
-      await page.screenshot({ path: `.screenshots/b2-t2-lobby-staff-${size.name}.png`, fullPage: true });
+      await page.screenshot({ path: `.screenshots/round2-b2-t2-lobby-staff-${size.name}.png`, fullPage: true });
     });
 
     test(`/competitions（學生：看不到草稿與新增按鈕）@ ${size.name}`, async ({ page }) => {
@@ -99,7 +106,7 @@ test.describe.serial("b2-t2 視覺自我檢查截圖", () => {
       await page.goto("/competitions");
       await expect(page.getByText("全國大學生黑客松")).toBeVisible();
       await expect(page.getByText("還沒發布的草稿")).toHaveCount(0);
-      await page.screenshot({ path: `.screenshots/b2-t2-lobby-student-${size.name}.png`, fullPage: true });
+      await page.screenshot({ path: `.screenshots/round2-b2-t2-lobby-student-${size.name}.png`, fullPage: true });
     });
 
     test(`/competitions/new（帶錯誤訊息）@ ${size.name}`, async ({ page }) => {
@@ -110,7 +117,18 @@ test.describe.serial("b2-t2 視覺自我檢查截圖", () => {
       await expect(page.getByText("請填比賽名稱")).toBeVisible();
       await expect(page.getByText("請填正確的官方連結")).toBeVisible();
       await expect(page.getByText("請填報名截止日")).toBeVisible();
-      await page.screenshot({ path: `.screenshots/b2-t2-new-form-errors-${size.name}.png`, fullPage: true });
+      await page.screenshot({ path: `.screenshots/round2-b2-t2-new-form-errors-${size.name}.png`, fullPage: true });
+    });
+
+    // Minor 3（fix round 1）：已發布的卡片編輯頁——左邊按鈕改標成「儲存」（不是「存草稿」），
+    // 右邊有明確的「取消發布」。
+    test(`/competitions/[id]/edit（已發布：儲存＋取消發布按鈕）@ ${size.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: size.width, height: size.height });
+      await loginAndPassWelcome(page, "pm@g.nccu.edu.tw", /\/dashboard$/);
+      await page.goto(`/competitions/${publishedId}/edit`);
+      await expect(page.getByRole("button", { name: "儲存" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "取消發布" })).toBeVisible();
+      await page.screenshot({ path: `.screenshots/round2-b2-t2-edit-published-${size.name}.png`, fullPage: true });
     });
   }
 });
