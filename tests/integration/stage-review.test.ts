@@ -321,6 +321,28 @@ describe("reviewStage", () => {
     expect(result).toEqual({ ok: false, error: NOT_FOUND });
   });
 
+  it("換負責組別後，審核權限立即生效（Review Focus 4）", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { lineId } = await confirmedEntry(seed.groupA, competition.id);
+    const pmId = await pmMemberId();
+    const submission = await insertSubmission(lineId, seed.groupA);
+
+    asPmMember(seed.semesterId, pmId);
+    const { reviewStage } = await import("@/server/actions/stages");
+
+    // 還沒指派這組：拿到統一的找不到。
+    expect(await asUser("pm@g.nccu.edu.tw", () => reviewStage(submission.id, "approved", null))).toEqual({
+      ok: false,
+      error: NOT_FOUND,
+    });
+
+    // 指派之後，同一個 submission 立刻可以審核，不需要重新登入或任何快取失效動作。
+    await assignPm(pmId, seed.groupA);
+    const result = await asUser("pm@g.nccu.edu.tw", () => reviewStage(submission.id, "approved", null));
+    expect(result).toEqual({ ok: true });
+  });
+
   it("找不到這筆繳交（亂填 id）", async () => {
     const seed = await seedSemester({ acknowledged: true });
     const pmId = await pmMemberId();
