@@ -225,4 +225,119 @@ describe("loadDashboard", () => {
     expect(result.cards[0].groupName).toBe("第2組");
     expect(deepScanForContentKeys(result)).toEqual([]);
   });
+
+  // fix round 1（controller ruling）：已退出的比賽線整條從看板濾掉，不是「顯示但沒有燈」。
+  it("已退出的比賽線不會出現在組卡上", async () => {
+    const db = createServiceSupabase();
+    const now = new Date("2026-09-25T00:00:00Z");
+    const { error: ciError } = await db.from("checkins").delete().eq("line_id", seed.lineA);
+    if (ciError) throw ciError;
+
+    const { data: competition, error: competitionError } = await db
+      .from("competitions")
+      .insert({
+        semester_id: seed.semesterId,
+        name: "黑客松",
+        url: "https://example.com",
+        signup_deadline: "2099-12-01T15:59:59.999Z",
+        status: "published",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (competitionError) throw competitionError;
+
+    const { data: entry, error: entryError } = await db
+      .from("competition_entries")
+      .insert({
+        group_id: seed.groupB,
+        competition_id: competition.id,
+        created_by: "b1@g.nccu.edu.tw",
+        confirmed_at: new Date("2026-09-01T00:00:00Z").toISOString(),
+        withdrawn_at: new Date("2026-09-10T00:00:00Z").toISOString(),
+      })
+      .select()
+      .single();
+    if (entryError) throw entryError;
+
+    const { error: lineError } = await db
+      .from("lines")
+      .insert({ group_id: seed.groupB, kind: "competition", entry_id: entry.id });
+    if (lineError) throw lineError;
+
+    asOfficer(seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("off@g.nccu.edu.tw"));
+
+    const result = await loadDashboard(now);
+    const groupB = result.cards.find((c) => c.groupName === "第2組")!;
+    expect(groupB.lines.some((l) => l.kind === "competition")).toBe(false);
+  });
+
+  // fix round 1（controller ruling）：得獎、且有一個階段被退回沒重交的線，light 是 null，
+  // 不會被誤判成紅／黃燈而影響整組的排序——第2組的專案線是綠燈，比賽線已結束、不判燈，
+  // 整組排序仍然看「有效」的燈，跟第1組（也是綠燈）同色依組名排序。
+  it("得獎且有階段被退回的比賽線：light 為 null，不影響整組排序", async () => {
+    const db = createServiceSupabase();
+    const now = new Date("2026-09-25T00:00:00Z");
+    const { error: ciError } = await db.from("checkins").delete().in("line_id", [seed.lineA, seed.lineB]);
+    if (ciError) throw ciError;
+
+    const { data: competition, error: competitionError } = await db
+      .from("competitions")
+      .insert({
+        semester_id: seed.semesterId,
+        name: "黑客松",
+        url: "https://example.com",
+        signup_deadline: "2026-08-01T15:59:59.999Z",
+        status: "published",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (competitionError) throw competitionError;
+
+    const { data: entry, error: entryError } = await db
+      .from("competition_entries")
+      .insert({
+        group_id: seed.groupB,
+        competition_id: competition.id,
+        created_by: "b1@g.nccu.edu.tw",
+        confirmed_at: new Date("2026-07-01T00:00:00Z").toISOString(),
+        result: "awarded",
+      })
+      .select()
+      .single();
+    if (entryError) throw entryError;
+
+    const { data: line, error: lineError } = await db
+      .from("lines")
+      .insert({ group_id: seed.groupB, kind: "competition", entry_id: entry.id })
+      .select()
+      .single();
+    if (lineError) throw lineError;
+
+    const { error: subError } = await db.from("stage_submissions").insert({
+      line_id: line.id,
+      stage: "signup",
+      version: 1,
+      pdf_key: `stage-submissions/${line.id}/signup-v1.pdf`,
+      pdf_size: 1024,
+      pdf_uploaded_at: new Date("2026-07-15T00:00:00Z").toISOString(),
+      pdf_uploaded_by: "b1@g.nccu.edu.tw",
+      submitted_by: "b1@g.nccu.edu.tw",
+      review_status: "returned",
+    });
+    if (subError) throw subError;
+
+    asOfficer(seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("off@g.nccu.edu.tw"));
+
+    const result = await loadDashboard(now);
+    const groupB = result.cards.find((c) => c.groupName === "第2組")!;
+    const competitionLine = groupB.lines.find((l) => l.kind === "competition")!;
+    expect(competitionLine.light).toBeNull();
+    expect(competitionLine.status).toBe("得獎");
+    // 兩組都只剩綠燈的有效線 → 同色依組名排序，不會因為比賽線「看起來」有問題被排到最前面。
+    expect(result.cards.map((c) => c.groupName)).toEqual(["第1組", "第2組"]);
+  });
 });

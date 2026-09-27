@@ -1,6 +1,8 @@
 import { beforeAll, describe, it, expect } from "vitest";
+import { createClient } from "@supabase/supabase-js";
 import { resetDb, seedSemester, clientAs } from "./helpers";
 import { createServiceSupabase } from "../../src/server/supabase";
+import { env } from "../../src/server/env";
 
 let seed: Awaited<ReturnType<typeof seedSemester>>;
 let lineId: string;
@@ -146,6 +148,15 @@ describe("RLS：stage_status（狀態視圖，其他幹部也看得到）", () =
     const { data, error } = await db.from("stage_status").select("line_id").eq("line_id", lineId);
     expect(error).toBeNull();
     expect(data).toEqual([]);
+  });
+
+  // fix round 1 #5：匿名連線（anon key，沒登入）讀不到 stage_status——grant select 只給
+  // authenticated，跟既有 line_light_events 的 anon 測試（tests/integration/rls.test.ts）同一套。
+  it("匿名連線（anon key，沒登入）讀不到 stage_status", async () => {
+    const anon = createClient(env.supabaseUrl, env.supabaseAnonKey);
+    const { data, error } = await anon.from("stage_status").select("line_id");
+    expect(error).not.toBeNull();
+    expect(data).toBeNull();
   });
 });
 

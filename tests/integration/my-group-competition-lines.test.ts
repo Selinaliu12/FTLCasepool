@@ -85,7 +85,7 @@ describe("loadMyGroup：比賽線", () => {
     expect(line.status).toBe("準備中");
     expect(line.stages.map((s) => s.key)).toEqual(["signup", "submission", "final"]);
     expect(line.stages.every((s) => s.required)).toBe(true);
-    expect(line.display.light).toMatch(/^(red|yellow|green)$/);
+    expect(line.light).toMatch(/^(red|yellow|green)$/);
     expect(line.onTime === null || typeof line.onTime === "number").toBe(true);
   });
 
@@ -131,7 +131,9 @@ describe("loadMyGroup：比賽線", () => {
     expect(result.competitionLines).toEqual([]);
   });
 
-  it("已退出的報名仍會列出，狀態為已退出、沒有系統燈理由", async () => {
+  // fix round 1（controller ruling）：已退出的線 light 是 null，不是綠燈——兩者意義不同
+  // （null＝已結束，不畫 LightBadge）。
+  it("已退出的報名仍會列出，狀態為已退出、light 為 null", async () => {
     const competition = await createCompetition(seed.semesterId);
     const { entryId } = await confirmedEntry(seed.groupA, competition.id as string);
     const db = createServiceSupabase();
@@ -143,6 +145,40 @@ describe("loadMyGroup：比賽線", () => {
     const result = await loadMyGroup();
     expect(result.competitionLines).toHaveLength(1);
     expect(result.competitionLines[0].status).toBe("已退出");
-    expect(result.competitionLines[0].display).toEqual({ light: "green", source: "系統：沒有欠交" });
+    expect(result.competitionLines[0].light).toBeNull();
+    expect(result.competitionLines[0].source).toBeNull();
+  });
+
+  // fix round 1：得獎、且有一個階段被退回沒重交的線，light 仍是 null（已結束不判燈），
+  // status 是得獎。
+  it("得獎的報名：status 為得獎，light 為 null（即使有一個階段被退回）", async () => {
+    const competition = await createCompetition(seed.semesterId);
+    const { entryId, lineId } = await confirmedEntry(seed.groupA, competition.id as string);
+    const db = createServiceSupabase();
+    const { error: resultError } = await db
+      .from("competition_entries")
+      .update({ result: "awarded" })
+      .eq("id", entryId);
+    if (resultError) throw resultError;
+    const { error: subError } = await db.from("stage_submissions").insert({
+      line_id: lineId,
+      stage: "signup",
+      version: 1,
+      pdf_key: `stage-submissions/${lineId}/signup-v1.pdf`,
+      pdf_size: 1024,
+      pdf_uploaded_at: new Date().toISOString(),
+      pdf_uploaded_by: "a1@g.nccu.edu.tw",
+      submitted_by: "a1@g.nccu.edu.tw",
+      review_status: "returned",
+    });
+    if (subError) throw subError;
+
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+    const result = await loadMyGroup();
+    expect(result.competitionLines).toHaveLength(1);
+    expect(result.competitionLines[0].status).toBe("得獎");
+    expect(result.competitionLines[0].light).toBeNull();
+    expect(result.competitionLines[0].source).toBeNull();
   });
 });

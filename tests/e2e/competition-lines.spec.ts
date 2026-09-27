@@ -71,7 +71,7 @@ test.describe.serial("比賽線的階段、燈號、看板（batch 2 task 4）",
 
     await expect(page.getByText("全國大學生黑客松")).toBeVisible();
     await expect(page.getByText("準備中")).toBeVisible();
-    await expect(page.getByText("報名")).toBeVisible();
+    await expect(page.getByText("報名", { exact: true })).toBeVisible();
     await expect(page.getByText("繳件")).toBeVisible();
     await expect(page.getByText("決賽")).toBeVisible();
     await expect(page.getByText("尚未公布")).toBeVisible(); // 決賽日期沒填

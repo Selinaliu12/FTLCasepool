@@ -74,6 +74,45 @@ async function setupConfirmedEntry(overdueSignup: boolean): Promise<{ groupA: st
   return { groupA: seed.groupA };
 }
 
+// fix round 1：得獎的線沒有系統燈，改顯示成果徽章——需要一組截圖確認 UI 真的長這樣。
+async function setupAwardedEntry(): Promise<void> {
+  await resetDb();
+  const seed = await seedSemester({ acknowledged: true });
+  const db = serviceSupabase();
+
+  const { data: competition, error: competitionError } = await db
+    .from("competitions")
+    .insert({
+      semester_id: seed.semesterId,
+      name: "全國大學生黑客松",
+      url: "https://example.com/hackathon",
+      signup_deadline: "2026-01-01T15:59:59.999Z",
+      status: "published",
+      created_by: "pm@g.nccu.edu.tw",
+    })
+    .select()
+    .single();
+  if (competitionError) throw competitionError;
+
+  const { error: entryError } = await db.from("competition_entries").insert({
+    group_id: seed.groupA,
+    competition_id: competition.id,
+    created_by: "a1@g.nccu.edu.tw",
+    confirmed_at: new Date("2026-01-01T00:00:00Z").toISOString(),
+    result: "awarded",
+  });
+  if (entryError) throw entryError;
+  const { data: entry } = await db
+    .from("competition_entries")
+    .select("id")
+    .eq("group_id", seed.groupA)
+    .eq("competition_id", competition.id)
+    .single();
+
+  const { error: lineError } = await db.from("lines").insert({ group_id: seed.groupA, kind: "competition", entry_id: entry!.id });
+  if (lineError) throw lineError;
+}
+
 test.describe(`b2-t4 視覺自我檢查截圖 ${ROUND}`, () => {
   test.skip(!CAPTURE, "手動截圖用；預設跳過。執行方式見檔案開頭註解（CAPTURE_SCREENSHOTS=1）。");
 
@@ -104,6 +143,17 @@ test.describe(`b2-t4 視覺自我檢查截圖 ${ROUND}`, () => {
       await page.goto("/dashboard");
       await expect(page.getByText("全國大學生黑客松").first()).toBeVisible();
       await page.screenshot({ path: `.screenshots/${ROUND}-b2-t4-dashboard-competition-line-${size.name}.png`, fullPage: true });
+    });
+
+    // fix round 1：得獎的線只顯示成果徽章，不顯示 LightBadge。
+    test(`/my-group（得獎的線只顯示成果徽章，不顯示燈號）@ ${size.name}`, async ({ page }) => {
+      await setupAwardedEntry();
+      await page.setViewportSize({ width: size.width, height: size.height });
+      await loginAndPassWelcome(page, "a1@g.nccu.edu.tw", /\/my-group$/);
+      await page.goto("/my-group");
+      await expect(page.getByText("全國大學生黑客松").first()).toBeVisible();
+      await expect(page.getByText("得獎")).toBeVisible();
+      await page.screenshot({ path: `.screenshots/${ROUND}-b2-t4-my-group-ended-line-${size.name}.png`, fullPage: true });
     });
   }
 });
