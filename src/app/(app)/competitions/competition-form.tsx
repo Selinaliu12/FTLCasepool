@@ -40,16 +40,18 @@ export function CompetitionForm({
   competitionId,
   initial,
   status,
+  initialError,
 }: {
   competitionId?: string;
   initial: CompetitionFormValues;
   status?: "draft" | "published";
+  initialError?: string;
 }) {
   const router = useRouter();
   const [values, setValues] = useState<CompetitionFormValues>(initial);
   const [errors, setErrors] = useState<CompetitionFieldErrors>({});
   const [pending, setPending] = useState<"draft" | "publish" | "unpublish" | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(initialError ?? null);
 
   function set<K extends keyof CompetitionFormValues>(key: K, v: string) {
     setValues((prev) => ({ ...prev, [key]: v }));
@@ -103,8 +105,21 @@ export function CompetitionForm({
     try {
       const result = await saveOrCreate();
       if (!result.ok) return;
-      await publishCompetition(result.id);
-      router.push("/competitions");
+      try {
+        await publishCompetition(result.id);
+        router.push("/competitions");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "發布失敗";
+        // Minor 2（fix round 1）：如果剛剛是從 /new 存成草稿（competitionId 原本是 undefined），
+        // 存草稿那一步已經成功、只是接下來的發布失敗——不能留在 /new，不然使用者以為整個
+        // 都沒存到，再按一次「發布」會用同一份表單內容再建一筆重複的草稿。改成導去這筆
+        // 剛剛建出來的草稿的編輯頁，錯誤訊息用查詢字串一起帶過去，讓編輯頁顯示出來。
+        if (!competitionId) {
+          router.push(`/competitions/${result.id}/edit?publishError=${encodeURIComponent(message)}`);
+          return;
+        }
+        setFormError(message);
+      }
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "發布失敗");
     } finally {
@@ -269,8 +284,11 @@ export function CompetitionForm({
       )}
 
       <div className="flex gap-2">
+        {/* Minor 3（fix round 1）：已發布的卡片按這顆按鈕只是存欄位變更，不會把狀態改回草稿——
+            按鈕文字改成「儲存」，避免看起來像「存草稿」但其實沒有取消發布。要取消發布，
+            另外按旁邊明確的「取消發布」（呼叫 unpublishCompetition）。 */}
         <Button type="button" variant="outline" disabled={busy} onClick={onSaveDraft}>
-          {pending === "draft" ? "儲存中…" : "存草稿"}
+          {pending === "draft" ? "儲存中…" : status === "published" ? "儲存" : "存草稿"}
         </Button>
         {status === "published" ? (
           <Button type="button" variant="outline" disabled={busy} onClick={onUnpublish}>

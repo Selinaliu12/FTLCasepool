@@ -30,6 +30,7 @@ export default async function CompetitionsPage() {
       )}
 
       <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold text-foreground">報名中</h2>
         {lobby.open.length === 0 ? (
           <p className="text-sm text-muted-foreground">目前沒有開放報名的競賽。</p>
         ) : (
