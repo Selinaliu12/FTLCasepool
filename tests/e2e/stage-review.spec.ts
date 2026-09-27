@@ -111,7 +111,7 @@ test.describe.serial("專案幹部審核與待你審核", () => {
     await expect(page.getByText(/第1組 · 全國黑客松 · 報名第 1 版/)).toBeVisible();
 
     await page.getByText(/第1組 · 全國黑客松 · 報名第 1 版/).click();
-    await expect(page).toHaveURL(new RegExp(`/groups/${groupId}$`));
+    await expect(page).toHaveURL(new RegExp(`/groups/${groupId}#competition-[0-9a-f-]+$`));
 
     await expect(page.getByRole("button", { name: "通過" })).toBeVisible();
     await page.getByRole("button", { name: "通過" }).click();

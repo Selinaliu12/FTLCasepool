@@ -151,6 +151,8 @@ describe("loadReviewQueue", () => {
       competitionName: "黑客松",
       stage: "signup",
       version: 1,
+      // Final review minor 9：直接跳到組頁上這條比賽線的錨點。
+      href: `/groups/${seed.groupA}#competition-${lineId}`,
     });
   });
 

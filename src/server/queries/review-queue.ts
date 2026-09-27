@@ -132,7 +132,8 @@ export async function loadReviewQueue(now: Date = new Date()): Promise<ReviewQue
       uploadedAt,
       // Final review minor 8：從鎖定時間（上傳＋2 小時，送到 PM 手上的那一刻）起算。
       waitingDays: Math.max(0, daysUntil(now, lockedAt(uploadedAt))),
-      href: `/groups/${info.groupId}`,
+      // Final review minor 9：跳到組頁上這條比賽線（CompetitionLineDetail 的 id="competition-<lineId>"）。
+      href: `/groups/${info.groupId}#competition-${sub.line_id}`,
     });
   }
 
