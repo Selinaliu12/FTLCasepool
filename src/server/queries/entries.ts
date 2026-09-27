@@ -1,6 +1,6 @@
 import "server-only";
 import { getAccess } from "@/server/session";
-import { createServerSupabase } from "@/server/supabase";
+import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
 import { isUuid } from "@/domain/id";
 import { entryStatus, type EntryStatus } from "@/domain/entries";
 
@@ -48,6 +48,10 @@ export type EntryDetail = {
   withdrawnAt: Date | null;
   groupStudents: { id: string; name: string }[];
   selectedMemberIds: string[];
+  // controller ruling（fix round 1）：學生確認報名之後如果換組，entry_members 裡那筆紀錄留著
+  // （不刪）；顯示的時候要標成「已換組」，不能直接消失——不然看起來像這個人從沒參加過。
+  // movedOut = 這個 member 現在的 group_id 已經不是這筆報名的組。
+  selectedMembers: { id: string; name: string; movedOut: boolean }[];
 };
 
 // 報名頁（/my-group/competitions/[entryId]）：找不到（不是這組的、id 亂填、根本不存在）一律
@@ -60,12 +64,14 @@ export async function loadEntryDetail(entryId: string): Promise<EntryDetail | nu
     return null;
   }
 
+  const groupId = access.member.groupId;
+
   const supabase = await createServerSupabase();
   const { data: entry, error } = await supabase
     .from("competition_entries")
     .select("id, confirmed_at, withdrawn_at, group_id, competitions(name, url)")
     .eq("id", entryId)
-    .eq("group_id", access.member.groupId)
+    .eq("group_id", groupId)
     .maybeSingle();
   if (error) throw error;
   if (!entry) return null;
@@ -76,7 +82,7 @@ export async function loadEntryDetail(entryId: string): Promise<EntryDetail | nu
   const { data: students, error: studentsError } = await supabase
     .from("members")
     .select("id, name")
-    .eq("group_id", access.member.groupId)
+    .eq("group_id", groupId)
     .eq("role", "student")
     .order("name");
   if (studentsError) throw studentsError;
@@ -86,6 +92,29 @@ export async function loadEntryDetail(entryId: string): Promise<EntryDetail | nu
     .select("member_id")
     .eq("entry_id", entryId);
   if (selectedError) throw selectedError;
+  const selectedMemberIds = (selected ?? []).map((s) => s.member_id as string);
+
+  // 已經選過的成員可能換組了：這組的學生（read_members 的 RLS）看不到別組成員現在的 member
+  // 列（group_id 已經不是 my_group()），所以這裡用 service client 單獨查這幾個 id 的
+  // 名字／目前的 group_id——只回傳名字跟「有沒有換組」，不會多洩漏其他資訊。
+  let selectedMembers: { id: string; name: string; movedOut: boolean }[] = [];
+  if (selectedMemberIds.length > 0) {
+    const service = createServiceSupabase();
+    const { data: memberRows, error: memberError } = await service
+      .from("members")
+      .select("id, name, group_id")
+      .in("id", selectedMemberIds);
+    if (memberError) throw memberError;
+    const byId = new Map((memberRows ?? []).map((m) => [m.id as string, m]));
+    selectedMembers = selectedMemberIds.map((id) => {
+      const row = byId.get(id);
+      return {
+        id,
+        name: (row?.name as string | undefined) ?? "",
+        movedOut: (row?.group_id as string | null | undefined) !== groupId,
+      };
+    });
+  }
 
   return {
     entryId: entry.id as string,
@@ -98,6 +127,7 @@ export async function loadEntryDetail(entryId: string): Promise<EntryDetail | nu
       withdrawnAt: entry.withdrawn_at ? new Date(entry.withdrawn_at as string) : null,
     }),
     groupStudents: (students ?? []).map((s) => ({ id: s.id as string, name: s.name as string })),
-    selectedMemberIds: (selected ?? []).map((s) => s.member_id as string),
+    selectedMemberIds,
+    selectedMembers,
   };
 }
