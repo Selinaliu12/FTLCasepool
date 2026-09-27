@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { moveMember } from "@/server/actions/admin";
 
-export type SimpleMember = { id: string; name: string; groupName: string | null };
+export type SimpleMember = { id: string; name: string; studentId: string | null; groupName: string | null };
 export type SimpleGroup = { id: string; name: string };
 
 export function MoveMemberForm({ students, groups }: { students: SimpleMember[]; groups: SimpleGroup[] }) {
@@ -48,8 +48,7 @@ export function MoveMemberForm({ students, groups }: { students: SimpleMember[];
         <SelectContent>
           {students.map((s) => (
             <SelectItem key={s.id} value={s.id}>
-              {s.name}
-              {s.groupName ? `（目前：${s.groupName}）` : ""}
+              {s.name}（{s.studentId ?? "—"}）· {s.groupName ?? "未分組"}
             </SelectItem>
           ))}
         </SelectContent>

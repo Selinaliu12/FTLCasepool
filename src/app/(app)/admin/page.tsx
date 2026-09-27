@@ -42,7 +42,11 @@ export default async function AdminPage() {
   const [semesterRes, groupsRes, membersRes, periodsRes, pmAssignmentsRes] = await Promise.all([
     db.from("semesters").select("id, name, red_after_hours").eq("id", semesterId).single(),
     db.from("groups").select("id, name, project_name").eq("semester_id", semesterId).order("name"),
-    db.from("members").select("id, name, email, role, group_id").eq("semester_id", semesterId).order("name"),
+    db
+      .from("members")
+      .select("id, name, email, role, student_id, group_id")
+      .eq("semester_id", semesterId)
+      .order("name"),
     db.from("periods").select("id, seq, deadline, suggestion").eq("semester_id", semesterId).order("seq"),
     db.from("pm_assignments").select("pm_member_id, group_id"),
   ]);
@@ -141,7 +145,7 @@ export default async function AdminPage() {
         <Card>
           <CardHeader>
             <CardTitle>名單匯入</CardTitle>
-            <CardDescription>貼上或上傳 CSV：email、姓名、角色、組別、專案名稱。</CardDescription>
+            <CardDescription>貼上或上傳 CSV：email、姓名、角色、學號、系級、組別、專案名稱（專案名稱選填）。</CardDescription>
           </CardHeader>
           <CardContent>
             <RosterImport semesterId={semesterId} alreadyImported={alreadyImported} />
@@ -234,6 +238,7 @@ export default async function AdminPage() {
               students={studentList.map((s) => ({
                 id: s.id as string,
                 name: s.name as string,
+                studentId: (s.student_id as string | null) ?? null,
                 groupName: s.group_id ? groupNameById.get(s.group_id as string) ?? null : null,
               }))}
               groups={groupList.map((g) => ({ id: g.id as string, name: g.name as string }))}
