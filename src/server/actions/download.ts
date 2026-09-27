@@ -95,26 +95,31 @@ export async function getStagePdfDownloadUrl(
   if (error) throw error;
   if (!submission) return { ok: false, error: NOT_FOUND };
 
+  // Final review IMPORTANT 1c：後面每一步都用 maybeSingle()——任何一列讀不到（RLS 擋掉、資料
+  // 不一致，例如比賽被改成草稿後學生讀不到 competitions）一律回統一的找不到，不丟 PGRST116。
   const { data: line, error: lineError } = await db
     .from("lines")
     .select("group_id, entry_id")
     .eq("id", submission.line_id as string)
-    .single();
+    .maybeSingle();
   if (lineError) throw lineError;
+  if (!line || !line.entry_id) return { ok: false, error: NOT_FOUND };
 
   const [{ data: group, error: groupError }, { data: entry, error: entryError }] = await Promise.all([
-    db.from("groups").select("name, semester_id").eq("id", line.group_id as string).single(),
-    db.from("competition_entries").select("competition_id").eq("id", line.entry_id as string).single(),
+    db.from("groups").select("name, semester_id").eq("id", line.group_id as string).maybeSingle(),
+    db.from("competition_entries").select("competition_id").eq("id", line.entry_id as string).maybeSingle(),
   ]);
   if (groupError) throw groupError;
   if (entryError) throw entryError;
+  if (!group || !entry) return { ok: false, error: NOT_FOUND };
 
   const [{ data: semester, error: semesterError }, { data: competition, error: competitionError }] = await Promise.all([
-    db.from("semesters").select("name").eq("id", group.semester_id as string).single(),
-    db.from("competitions").select("name").eq("id", entry.competition_id as string).single(),
+    db.from("semesters").select("name").eq("id", group.semester_id as string).maybeSingle(),
+    db.from("competitions").select("name").eq("id", entry.competition_id as string).maybeSingle(),
   ]);
   if (semesterError) throw semesterError;
   if (competitionError) throw competitionError;
+  if (!semester || !competition) return { ok: false, error: NOT_FOUND };
 
   const downloadName = stageDownloadName({
     semesterName: semester.name as string,

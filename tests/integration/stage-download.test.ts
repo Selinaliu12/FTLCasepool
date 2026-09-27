@@ -134,6 +134,19 @@ describe("getStagePdfDownloadUrl", () => {
     expect(result.ok).toBe(true);
   });
 
+  // Final review IMPORTANT 1c：比賽那一列讀不到（例如被改成草稿，學生的 RLS 擋掉）時，
+  // 以前 .single() 直接丟 PGRST116 例外（前端只看到「下載失敗」）；現在跟其他看不到的情況一樣
+  // 回統一的找不到。
+  it("比賽讀不到（草稿被 RLS 擋掉）時回統一的找不到，不丟例外", async () => {
+    const db = createServiceSupabase();
+    const { error } = await db.from("competitions").update({ status: "draft" }).neq("id", "00000000-0000-0000-0000-000000000000");
+    if (error) throw error;
+
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+    await expect(getStagePdfDownloadUrl(submissionId)).resolves.toEqual({ ok: false, error: NOT_FOUND });
+  });
+
   it("亂填 id 與不存在的 UUID 都回統一的找不到這份進度", async () => {
     asPm(mockGetAccess, seed.semesterId);
     mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
