@@ -1,13 +1,18 @@
 import { systemLight, reporterLight, displayLight, LIGHT_SEVERITY, periodLabel, type Light, type Deliverable } from "./lights";
 import { onTimeRate } from "./on-time";
 import { daysUntil, formatTaipei } from "./time";
+import type { CompetitionStatus } from "./competition-line";
 
+// fix round 1（controller ruling）：一條線可以「結束」（已退出／得獎／未入選）——結束的線
+// light 是 null，不是綠燈，UI 改顯示成果徽章（status）而不是 LightBadge。project 線永遠不會
+// 結束，status 固定 null、light 永遠有值。
 export type GroupCardLine = {
   lineId: string;
   kind: "project" | "competition";
   label: string;
-  light: Light;
-  source: string;
+  status: CompetitionStatus | null;
+  light: Light | null;
+  source: string | null;
   onTime: number | null;
 };
 
@@ -23,6 +28,7 @@ export type GroupCard = {
 export function worstLight(card: GroupCard): Light {
   let worst: Light = "green";
   for (const line of card.lines) {
+    if (line.light === null) continue; // 已結束的線沒有燈，不影響排序或整組的顯示燈。
     if (LIGHT_SEVERITY[line.light] > LIGHT_SEVERITY[worst]) worst = line.light;
   }
   return worst;
@@ -69,7 +75,7 @@ export function buildGroupCard(input: {
     groupId: group.id,
     groupName: group.name,
     projectName: group.projectName,
-    lines: [{ lineId, kind: "project", label: "專案", light: display.light, source: display.source, onTime }],
+    lines: [{ lineId, kind: "project", label: "專案", status: null, light: display.light, source: display.source, onTime }],
     stage,
     nextDeadline,
   };

@@ -9,7 +9,7 @@ function card(overrides: Partial<GroupCard> = {}): GroupCard {
     groupId: "g1",
     groupName: "第一組",
     projectName: "專案 A",
-    lines: [{ lineId: "l1", kind: "project", label: "專案", light: "green", source: "組員回報", onTime: 1 }],
+    lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "組員回報", onTime: 1 }],
     stage: "第 2 期",
     nextDeadline: null,
     ...overrides,
@@ -20,8 +20,8 @@ describe("worstLight", () => {
   it("回傳卡片中最差的燈號", () => {
     const c = card({
       lines: [
-        { lineId: "l1", kind: "project", label: "專案", light: "green", source: "s", onTime: 1 },
-        { lineId: "l2", kind: "project", label: "專案", light: "red", source: "s", onTime: 0 },
+        { lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "s", onTime: 1 },
+        { lineId: "l2", kind: "project", label: "專案", status: null, light: "red", source: "s", onTime: 0 },
       ],
     });
     expect(worstLight(c)).toBe("red");
@@ -30,20 +30,39 @@ describe("worstLight", () => {
   it("比賽線的燈號也算進最嚴重的燈（不是只看第一條專案線）", () => {
     const c = card({
       lines: [
-        { lineId: "l1", kind: "project", label: "專案", light: "green", source: "s", onTime: 1 },
-        { lineId: "l2", kind: "competition", label: "黑客松 報名", light: "red", source: "系統：黑客松 報名逾期 4 天", onTime: 0 },
+        { lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "s", onTime: 1 },
+        { lineId: "l2", kind: "competition", label: "黑客松 報名", status: null, light: "red", source: "系統：黑客松 報名逾期 4 天", onTime: 0 },
       ],
     });
     expect(worstLight(c)).toBe("red");
+  });
+
+  // fix round 1（controller ruling）：已結束的線 light 是 null，worstLight 要跳過它，不能
+  // 因為它排在陣列前面就被誤判成「這組沒有燈」。
+  it("已結束的線（light 為 null）不影響最嚴重的燈", () => {
+    const c = card({
+      lines: [
+        { lineId: "l1", kind: "competition", label: "黑客松", status: "得獎", light: null, source: null, onTime: 1 },
+        { lineId: "l2", kind: "project", label: "專案", status: null, light: "yellow", source: "s", onTime: 0.5 },
+      ],
+    });
+    expect(worstLight(c)).toBe("yellow");
+  });
+
+  it("全部線都是 null（例如整組只剩已結束的比賽線）→ 綠燈", () => {
+    const c = card({
+      lines: [{ lineId: "l1", kind: "competition", label: "黑客松", status: "未入選", light: null, source: null, onTime: null }],
+    });
+    expect(worstLight(c)).toBe("green");
   });
 });
 
 describe("sortGroupCards", () => {
   it("紅燈組排最前，其次黃，再來綠；同色依組名", () => {
-    const red = card({ groupId: "r", groupName: "紅組", lines: [{ lineId: "l1", kind: "project", label: "專案", light: "red", source: "s", onTime: 0 }] });
-    const yellow = card({ groupId: "y", groupName: "黃組", lines: [{ lineId: "l1", kind: "project", label: "專案", light: "yellow", source: "s", onTime: 0.5 }] });
-    const greenB = card({ groupId: "gb", groupName: "B組", lines: [{ lineId: "l1", kind: "project", label: "專案", light: "green", source: "s", onTime: 1 }] });
-    const greenA = card({ groupId: "ga", groupName: "A組", lines: [{ lineId: "l1", kind: "project", label: "專案", light: "green", source: "s", onTime: 1 }] });
+    const red = card({ groupId: "r", groupName: "紅組", lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "red", source: "s", onTime: 0 }] });
+    const yellow = card({ groupId: "y", groupName: "黃組", lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "yellow", source: "s", onTime: 0.5 }] });
+    const greenB = card({ groupId: "gb", groupName: "B組", lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "s", onTime: 1 }] });
+    const greenA = card({ groupId: "ga", groupName: "A組", lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "s", onTime: 1 }] });
     const input = [greenB, yellow, greenA, red];
     const sorted = sortGroupCards(input);
     expect(sorted.map((c) => c.groupId)).toEqual(["r", "y", "ga", "gb"]);
@@ -58,7 +77,7 @@ describe("sortGroupCards", () => {
   });
 
   it("不改變原本傳入的陣列", () => {
-    const red = card({ groupId: "r", groupName: "紅組", lines: [{ lineId: "l1", kind: "project", label: "專案", light: "red", source: "s", onTime: 0 }] });
+    const red = card({ groupId: "r", groupName: "紅組", lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "red", source: "s", onTime: 0 }] });
     const greenA = card({ groupId: "ga", groupName: "甲組" });
     const input = [greenA, red];
     const copy = [...input];
@@ -137,7 +156,7 @@ describe("buildGroupCard", () => {
     const expectedOnTime = onTimeRate(deliverables, now);
 
     expect(result.lines).toEqual([
-      { lineId: "l1", kind: "project", label: "專案", light: expectedDisplay.light, source: expectedDisplay.source, onTime: expectedOnTime },
+      { lineId: "l1", kind: "project", label: "專案", status: null, light: expectedDisplay.light, source: expectedDisplay.source, onTime: expectedOnTime },
     ]);
   });
 });

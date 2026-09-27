@@ -3,12 +3,8 @@ import { getAccess } from "@/server/session";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
 import { sortGroupCards, buildGroupCard, type GroupCard, type GroupCardLine } from "@/domain/dashboard";
 import type { Light } from "@/domain/lights";
-import {
-  competitionStages,
-  competitionLineLight,
-  competitionOnTime,
-  type StageSubmissionInput,
-} from "@/domain/competition-line";
+import type { EntryInput, StageSubmissionInput } from "@/domain/competition-line";
+import { summarizeCompetitionLine } from "@/server/queries/competition-lines";
 
 export type Dashboard = { cards: GroupCard[]; myPmGroupIds: string[] };
 
@@ -150,12 +146,16 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
       redAfterHours,
     });
 
+    // fix round 1（controller ruling）：已退出的比賽線從看板整個濾掉，不出現在組卡上——不是
+    // 「顯示但沒有燈」，是「這條線跟這組現在的看板無關」。未入選／得獎的線留著，用成果徽章
+    // （得獎／未入選）取代燈號。
     const groupCompetitionLines = competitionLines
       .filter((cl) => cl.group_id === group.id)
       .map((cl) => {
         const entry = entriesById.get(cl.entry_id as string);
         const competition = entry ? competitionsById.get(entry.competition_id as string) : undefined;
         if (!entry || !competition) return null;
+        if (entry.withdrawn_at) return null;
 
         const stageSubmissions: StageSubmissionInput[] = (stageStatusByLine.get(cl.id as string) ?? []).map((s) => ({
           stage: s.stage as StageSubmissionInput["stage"],
@@ -164,31 +164,35 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
           reviewStatus: s.review_status as StageSubmissionInput["reviewStatus"],
         }));
 
-        const stages = competitionStages(
-          {
+        const entryInput: EntryInput = {
+          confirmedAt: entry.confirmed_at ? new Date(entry.confirmed_at as string) : null,
+          withdrawnAt: entry.withdrawn_at ? new Date(entry.withdrawn_at as string) : null,
+          result: entry.result as EntryInput["result"],
+        };
+
+        const summary = summarizeCompetitionLine({
+          lineId: cl.id as string,
+          entryId: cl.entry_id as string,
+          competition: {
+            name: competition.name as string,
             signupDeadline: new Date(competition.signup_deadline as string),
             submissionDeadline: competition.submission_deadline ? new Date(competition.submission_deadline as string) : null,
             finalDate: competition.final_date ? new Date(competition.final_date as string) : null,
           },
-          {
-            confirmedAt: entry.confirmed_at ? new Date(entry.confirmed_at as string) : null,
-            withdrawnAt: entry.withdrawn_at ? new Date(entry.withdrawn_at as string) : null,
-            result: entry.result as "advanced" | "awarded" | "not_selected" | null,
-          },
-          stageSubmissions,
-          now
-        );
-
-        const lineLight = competitionLineLight(competition.name as string, stages, now, { redAfterHours });
-        const onTime = competitionOnTime(stages, now);
+          entry: entryInput,
+          submissions: stageSubmissions,
+          now,
+          redAfterHours,
+        });
 
         return {
-          lineId: cl.id as string,
+          lineId: summary.lineId,
           kind: "competition" as const,
-          label: competition.name as string,
-          light: lineLight.light,
-          source: lineLight.light === "green" ? "系統：沒有欠交" : (lineLight.reason as string),
-          onTime,
+          label: summary.competitionName,
+          status: summary.status,
+          light: summary.light,
+          source: summary.source,
+          onTime: summary.onTime,
         };
       })
       .filter((l) => l !== null) as GroupCardLine[];

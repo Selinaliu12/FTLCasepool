@@ -1,5 +1,4 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAccess } from "@/server/session";
 import { createServerSupabase } from "@/server/supabase";
 import type { Light, Deliverable } from "@/domain/lights";
@@ -7,15 +6,7 @@ import { systemLight, reporterLight, displayLight, periodLabel } from "@/domain/
 import { onTimeRate } from "@/domain/on-time";
 import { lockedAt } from "@/domain/lock";
 import { mapCheckinHistory, type CheckinHistoryEntry } from "@/domain/checkin-history";
-import {
-  competitionStages,
-  competitionLineLight,
-  competitionOnTime,
-  competitionStatus,
-  type Stage,
-  type CompetitionStatus,
-  type StageSubmissionInput,
-} from "@/domain/competition-line";
+import { loadCompetitionLinesForGroup, type CompetitionLineSummary } from "@/server/queries/competition-lines";
 
 export type PeriodRow = {
   periodId: string;
@@ -25,15 +16,8 @@ export type PeriodRow = {
   report: null | { submittedAt: Date; submittedBy: string; light: Light; lockedAt: Date };
 };
 
-export type MyGroupCompetitionLine = {
-  entryId: string;
-  lineId: string;
-  competitionName: string;
-  status: CompetitionStatus;
-  stages: Stage[];
-  display: { light: Light; source: string };
-  onTime: number | null;
-};
+// fix round 1 #3/#4：型別跟共用查詢模組（competition-lines.ts）保持同一份，不要各自宣告。
+export type MyGroupCompetitionLine = CompetitionLineSummary;
 
 export type MyGroup = {
   groupName: string;
@@ -177,91 +161,4 @@ export async function loadMyGroup(): Promise<MyGroup> {
     checkins: checkinHistory,
     competitionLines,
   };
-}
-
-// 這組所有已確認的報名（含已退出的——competitionStages／competitionLineLight 對已退出一律
-// required=false，會自然算出綠燈、沒有理由，不用另外特殊處理）。用同一個 user-scoped
-// client：read_lines／stage_status 的 RLS（can_read_status：is_staff() 或自己組）已經確保
-// 這裡只讀得到自己組的線。
-export async function loadCompetitionLinesForGroup(
-  supabase: SupabaseClient,
-  groupId: string,
-  redAfterHours: number,
-  now: Date
-): Promise<MyGroupCompetitionLine[]> {
-  const { data: lines, error: linesError } = await supabase
-    .from("lines")
-    .select("id, entry_id")
-    .eq("group_id", groupId)
-    .eq("kind", "competition");
-  if (linesError) throw linesError;
-  if (!lines || lines.length === 0) return [];
-
-  const entryIds = lines.map((l) => l.entry_id as string);
-  const lineIds = lines.map((l) => l.id as string);
-
-  const [entriesRes, stageStatusRes] = await Promise.all([
-    supabase
-      .from("competition_entries")
-      .select("id, confirmed_at, withdrawn_at, result, competitions(name, signup_deadline, submission_deadline, final_date)")
-      .in("id", entryIds),
-    supabase.from("stage_status").select("line_id, stage, version, pdf_uploaded_at, review_status").in("line_id", lineIds),
-  ]);
-  if (entriesRes.error) throw entriesRes.error;
-  if (stageStatusRes.error) throw stageStatusRes.error;
-
-  const entriesById = new Map((entriesRes.data ?? []).map((e) => [e.id as string, e]));
-  const stageStatusByLine = new Map<string, { stage: string; version: number; pdf_uploaded_at: string; review_status: string }[]>();
-  for (const row of stageStatusRes.data ?? []) {
-    const arr = stageStatusByLine.get(row.line_id as string) ?? [];
-    arr.push(row);
-    stageStatusByLine.set(row.line_id as string, arr);
-  }
-
-  return lines.map((line) => {
-    const entry = entriesById.get(line.entry_id as string)!;
-    const competitionRaw = entry.competitions as unknown as
-      | { name: string; signup_deadline: string; submission_deadline: string | null; final_date: string | null }
-      | { name: string; signup_deadline: string; submission_deadline: string | null; final_date: string | null }[]
-      | null;
-    const competition = Array.isArray(competitionRaw) ? competitionRaw[0] : competitionRaw;
-
-    const entryInput = {
-      confirmedAt: entry.confirmed_at ? new Date(entry.confirmed_at as string) : null,
-      withdrawnAt: entry.withdrawn_at ? new Date(entry.withdrawn_at as string) : null,
-      result: entry.result as "advanced" | "awarded" | "not_selected" | null,
-    };
-
-    const stageSubmissions: StageSubmissionInput[] = (stageStatusByLine.get(line.id as string) ?? []).map((s) => ({
-      stage: s.stage as StageSubmissionInput["stage"],
-      version: s.version,
-      pdfUploadedAt: new Date(s.pdf_uploaded_at),
-      reviewStatus: s.review_status as StageSubmissionInput["reviewStatus"],
-    }));
-
-    const stages = competitionStages(
-      {
-        signupDeadline: competition ? new Date(competition.signup_deadline) : null,
-        submissionDeadline: competition?.submission_deadline ? new Date(competition.submission_deadline) : null,
-        finalDate: competition?.final_date ? new Date(competition.final_date) : null,
-      },
-      entryInput,
-      stageSubmissions,
-      now
-    );
-
-    const competitionName = competition?.name ?? "";
-    const lineLight = competitionLineLight(competitionName, stages, now, { redAfterHours });
-    const display = lineLight.light === "green" ? { light: "green" as const, source: "系統：沒有欠交" } : { light: lineLight.light, source: lineLight.reason as string };
-
-    return {
-      entryId: line.entry_id as string,
-      lineId: line.id as string,
-      competitionName,
-      status: competitionStatus(stages, entryInput),
-      stages,
-      display,
-      onTime: competitionOnTime(stages, now),
-    };
-  });
 }
