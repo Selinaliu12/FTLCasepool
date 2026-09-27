@@ -240,10 +240,18 @@ describe("submitStage", () => {
   });
 
   // fix round 1：安全鏈每一個分支都要有測試覆蓋，不能只靠「合法路徑」的測試間接帶到。
-  it("字首不對（不是這組的 key）：回上傳失敗", async () => {
+  // fix round 2：這四個測試原本沒有設 mockInspectUploaded——mockReset() 之後它預設回傳
+  // undefined，如果字首檢查（stages.ts 的 prefix check）或票務檢查被誤刪，流程還是會走到
+  // inspectUploaded → !inspected → deleteObject(pdfKey) → UPLOAD_FAILED，跟現在的結果一模一樣，
+  // 測試測不出差別。這種情況下被刪的 pdfKey 很可能是「別人的物件」（字首不對／票是別人的），
+  // 正是這兩道檢查要防止的傷害。這裡明確讓 inspectUploaded 回傳「合法 PDF」，並斷言
+  // deleteObject 完全沒被呼叫——如果檢查被拿掉，流程會走到 RPC 那一步（字首/票務不是
+  // RPC 檢查的東西），至少不會再是「刪掉別人的物件」這種結果被誤判成通過。
+  it("字首不對（不是這組的 key）：回上傳失敗，不會去動這個物件", async () => {
     const seed = await seedSemester({ acknowledged: true });
     const competition = await createCompetition(seed.semesterId);
     const { entryId } = await confirmedEntry(seed.groupA, competition.id);
+    mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
 
     const key = pdfKey(seed.groupB, "signup-v1"); // 別組的字首
     await issueTicket(key, "a1@g.nccu.edu.tw");
@@ -251,12 +259,14 @@ describe("submitStage", () => {
     const result = await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key));
 
     expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+    expect(mockDeleteObject).not.toHaveBeenCalled();
   });
 
-  it("票是別人申請的：回上傳失敗", async () => {
+  it("票是別人申請的：回上傳失敗，不會去動這個物件", async () => {
     const seed = await seedSemester({ acknowledged: true });
     const competition = await createCompetition(seed.semesterId);
     const { entryId } = await confirmedEntry(seed.groupA, competition.id);
+    mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
 
     const key = pdfKey(seed.groupA, "signup-v1");
     await issueTicket(key, "a2@g.nccu.edu.tw"); // 同組但另一個人申請的票
@@ -264,12 +274,14 @@ describe("submitStage", () => {
     const result = await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key));
 
     expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+    expect(mockDeleteObject).not.toHaveBeenCalled();
   });
 
-  it("票已經被用過：回上傳失敗", async () => {
+  it("票已經被用過：回上傳失敗，不會去動這個物件", async () => {
     const seed = await seedSemester({ acknowledged: true });
     const competition = await createCompetition(seed.semesterId);
     const { entryId } = await confirmedEntry(seed.groupA, competition.id);
+    mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
 
     const key = pdfKey(seed.groupA, "signup-v1");
     await issueTicket(key, "a1@g.nccu.edu.tw");
@@ -281,18 +293,21 @@ describe("submitStage", () => {
     const result = await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key));
 
     expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+    expect(mockDeleteObject).not.toHaveBeenCalled();
   });
 
-  it("沒有核發過票的 key：回上傳失敗", async () => {
+  it("沒有核發過票的 key：回上傳失敗，不會去動這個物件", async () => {
     const seed = await seedSemester({ acknowledged: true });
     const competition = await createCompetition(seed.semesterId);
     const { entryId } = await confirmedEntry(seed.groupA, competition.id);
+    mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
 
     const key = pdfKey(seed.groupA, "signup-v1"); // 沒呼叫 issueTicket
     const { submitStage } = await import("@/server/actions/stages");
     const result = await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key));
 
     expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+    expect(mockDeleteObject).not.toHaveBeenCalled();
   });
 
   it("階段代碼不合法：回統一的找不到這筆繳交", async () => {
@@ -333,6 +348,39 @@ describe("submitStage", () => {
     expect(result).toEqual({ ok: false, error: ENDED_ERROR });
   });
 
+  // fix round 2：submitStage() 本身在呼叫 RPC 之前已經先用 loadLineForEntry() 擋過一次已結束
+  // 的線，所以透過 submitStage() 永遠測不到 submit_stage() RPC 自己的 ended 再檢查（見
+  // 20260927000016_stage_uploads_fix1.sql）——那道防線只在「TS 檢查完、RPC 真的執行之前，線
+  // 剛好被結束」這個時間窗才會被用到。這裡直接用 service client 呼叫 RPC，繞過 TS 層，單獨
+  // 驗證 RPC 這道防線真的存在、真的擋下來。
+  it("RPC 層：直接呼叫 submit_stage() 在已結束的線上，擋下來（不是靠應用層先擋）", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { lineId } = await confirmedEntry(seed.groupA, competition.id, {
+      withdrawn_at: new Date().toISOString(),
+    });
+
+    const key = pdfKey(seed.groupA, "rpc-level-ended");
+    await issueTicket(key, "a1@g.nccu.edu.tw");
+
+    const db = createServiceSupabase();
+    const { error } = await db.rpc("submit_stage", {
+      p_line_id: lineId,
+      p_stage: "signup",
+      p_key: key,
+      p_size: 100,
+      p_by: "a1@g.nccu.edu.tw",
+      p_ticket: "a1@g.nccu.edu.tw",
+    });
+
+    expect(error).not.toBeNull();
+    expect(error!.message).toBe("ended");
+
+    // 票沒被用掉——ended 檢查在票務 claim 之前，RPC 整個回滾。
+    const { data: ticket } = await db.from("upload_tickets").select("used_at").eq("key", key).single();
+    expect(ticket!.used_at).toBeNull();
+  });
+
   it("已有 approved 版本時再送出：回這個階段已經交了", async () => {
     const seed = await seedSemester({ acknowledged: true });
     const competition = await createCompetition(seed.semesterId);
@@ -359,6 +407,36 @@ describe("submitStage", () => {
 
     expect(result).toEqual({ ok: false, error: STAGE_ACTIVE_ERROR });
   });
+
+  // fix round 2：不要用固定的 sleep 賭 submitStage() 的 insert「應該」已經卡住——直接從另一條
+  // 監控連線的 pg_stat_activity 輪詢，等到真的看到一個 active 連線的查詢正在等鎖
+  // （wait_event_type = 'Lock'），才確定 submitStage() 真的卡在我們要它卡住的地方，再 commit
+  // clientA。submitStage() 是透過 PostgREST／supabase-js 呼叫 submit_stage() 這個 RPC，
+  // pg_stat_activity 看到的查詢文字是最外層送進來的那句（呼叫 RPC 本身，例如
+  // "select * from submit_stage(...)"），不是 plpgsql 函式內部真正卡住的那句
+  // insert——所以比對條件用 submit_stage，不是 insert into stage_submissions（用 debug
+  // script 實際跑過一次確認過這個查詢文字長什麼樣子）。輪詢間隔很短（10ms），有明確的逾時
+  // （5 秒）會讓測試本身失敗，不會無窮等待。
+  async function waitUntilBlockedOnInsert(): Promise<void> {
+    const host = new URL(env.supabaseUrl).hostname;
+    const monitor = new PgClient({ host, port: 54322, user: "postgres", password: "postgres", database: "postgres" });
+    await monitor.connect();
+    try {
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        const { rows } = await monitor.query(
+          `select count(*)::int as n from pg_stat_activity
+           where state = 'active' and wait_event_type = 'Lock'
+             and query ilike '%submit_stage%'`
+        );
+        if (rows[0].n > 0) return;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error("等不到 submitStage() 卡在鎖上——測試環境跟預期的交錯順序不一樣");
+    } finally {
+      await monitor.end();
+    }
+  }
 
   // fix round 1（controller ruling 2）：走真正的 23505 路徑（部分唯一索引），不是
   // submit_stage() 自己的應用層 stage_active 檢查——用一條 raw pg 連線先插入一筆未 commit 的
@@ -388,7 +466,10 @@ describe("submitStage", () => {
       const { submitStage } = await import("@/server/actions/stages");
       const resultPromise = asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key));
 
-      await new Promise((r) => setTimeout(r, 200));
+      // 用真正觀察到的「submitStage 的 insert 正卡在鎖上」取代固定的 200ms sleep——不會有
+      // 「機器比較慢時 200ms 不夠、submitStage 根本還沒跑到 insert 就先 commit 了」這種偶發
+      // 失敗（那樣會讓這個測試退化成只測到應用層的 stage_active 檢查，不是真的部分唯一索引）。
+      await waitUntilBlockedOnInsert();
       await clientA.query("commit");
 
       const result = await resultPromise;
@@ -486,7 +567,7 @@ describe("replaceStagePdf / withdrawStage：2 小時內可換／撤回，之後�
     const db = createServiceSupabase();
     const { error } = await db.from("stage_submissions").update({ pdf_size: 999 }).eq("id", submissionId);
     expect(error).not.toBeNull();
-    expect(error!.message).toContain("LOCKED");
+    expect(error!.message).toBe("LOCKED");
   });
 
   it("真實邊界：資料庫 trigger 允許已鎖定的列只改 review 欄位（Task 6 審核用）", async () => {
@@ -511,7 +592,7 @@ describe("replaceStagePdf / withdrawStage：2 小時內可換／撤回，之後�
     const db = createServiceSupabase();
     const { error } = await db.from("stage_submissions").delete().eq("id", submissionId);
     expect(error).not.toBeNull();
-    expect(error!.message).toContain("LOCKED");
+    expect(error!.message).toBe("LOCKED");
   });
 
   it("別組的學生：換 PDF／撤回都回統一的找不到這筆繳交", async () => {
@@ -527,7 +608,9 @@ describe("replaceStagePdf / withdrawStage：2 小時內可換／撤回，之後�
   });
 
   // fix round 1：換 PDF 的安全鏈也要每個分支都覆蓋，不能只靠 submitStage 那邊的測試帶過。
-  it("換 PDF：字首不對，回上傳失敗", async () => {
+  // fix round 2：同一個理由——安全鏈檢查失敗時，不該去刪任何物件（原本的舊物件，或這次
+  // pdfKey 指到的新物件），不管新舊都不是「已經證明屬於呼叫者、確定沒用上」的孤兒。
+  it("換 PDF：字首不對，回上傳失敗，不會去動任何物件", async () => {
     const { seed, submissionId } = await seedSubmission();
     const newKey = pdfKey(seed.groupB, "wrong-prefix");
     await issueTicket(newKey, "a1@g.nccu.edu.tw");
@@ -536,9 +619,10 @@ describe("replaceStagePdf / withdrawStage：2 小時內可換／撤回，之後�
     const result = await asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, newKey));
 
     expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+    expect(mockDeleteObject).not.toHaveBeenCalled();
   });
 
-  it("換 PDF：票是別人申請的，回上傳失敗", async () => {
+  it("換 PDF：票是別人申請的，回上傳失敗，不會去動任何物件", async () => {
     const { seed, submissionId } = await seedSubmission();
     const newKey = pdfKey(seed.groupA, "someone-elses-ticket");
     await issueTicket(newKey, "a2@g.nccu.edu.tw");
@@ -547,9 +631,10 @@ describe("replaceStagePdf / withdrawStage：2 小時內可換／撤回，之後�
     const result = await asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, newKey));
 
     expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+    expect(mockDeleteObject).not.toHaveBeenCalled();
   });
 
-  it("換 PDF：票已經被用過，回上傳失敗", async () => {
+  it("換 PDF：票已經被用過，回上傳失敗，不會去動任何物件", async () => {
     const { seed, submissionId } = await seedSubmission();
     const newKey = pdfKey(seed.groupA, "used-ticket");
     await issueTicket(newKey, "a1@g.nccu.edu.tw");
@@ -561,9 +646,10 @@ describe("replaceStagePdf / withdrawStage：2 小時內可換／撤回，之後�
     const result = await asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, newKey));
 
     expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+    expect(mockDeleteObject).not.toHaveBeenCalled();
   });
 
-  it("換 PDF：沒有核發過票的 key，回上傳失敗", async () => {
+  it("換 PDF：沒有核發過票的 key，回上傳失敗，不會去動任何物件", async () => {
     const { seed, submissionId } = await seedSubmission();
     const newKey = pdfKey(seed.groupA, "no-ticket");
 
@@ -571,6 +657,7 @@ describe("replaceStagePdf / withdrawStage：2 小時內可換／撤回，之後�
     const result = await asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, newKey));
 
     expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+    expect(mockDeleteObject).not.toHaveBeenCalled();
   });
 
   it("換 PDF：還沒按我已了解，回請先閱讀並同意使用說明", async () => {
@@ -601,6 +688,35 @@ describe("replaceStagePdf / withdrawStage：2 小時內可換／撤回，之後�
     const result = await asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, newKey));
 
     expect(result).toEqual({ ok: false, error: ENDED_ERROR });
+  });
+
+  // fix round 2：同樣的理由——replaceStagePdf() 已經先用 loadOwnedSubmission() 擋過一次已結束
+  // 的線，直接呼叫 replace_stage_pdf() RPC 才能單獨驗證 RPC 自己的 ended 再檢查。
+  it("RPC 層：直接呼叫 replace_stage_pdf() 在已結束的線上，擋下來（不是靠應用層先擋）", async () => {
+    const { seed, entryId, submissionId, originalKey } = await seedSubmission();
+    const db = createServiceSupabase();
+    const { error: entryError } = await db.from("competition_entries").update({ result: "awarded" }).eq("id", entryId);
+    if (entryError) throw entryError;
+
+    const newKey = pdfKey(seed.groupA, "rpc-level-ended-replace");
+    await issueTicket(newKey, "a1@g.nccu.edu.tw");
+
+    const { error } = await db.rpc("replace_stage_pdf", {
+      p_submission_id: submissionId,
+      p_old_key: originalKey,
+      p_new_key: newKey,
+      p_size: 100,
+      p_by: "a1@g.nccu.edu.tw",
+      p_ticket: "a1@g.nccu.edu.tw",
+    });
+
+    expect(error).not.toBeNull();
+    expect(error!.message).toBe("ended");
+
+    const { data: ticket } = await db.from("upload_tickets").select("used_at").eq("key", newKey).single();
+    expect(ticket!.used_at).toBeNull();
+    const { data: row } = await db.from("stage_submissions").select("pdf_key").eq("id", submissionId).single();
+    expect(row!.pdf_key).toBe(originalKey);
   });
 
   // fix round 1（controller ruling 2，stale write）：跟 progress-lock.test.ts 的 stale-write
@@ -733,7 +849,7 @@ describe("replaceStagePdf / withdrawStage：2 小時內可換／撤回，之後�
       .update({ review_status: "approved", pdf_key: "somewhere/else.pdf" })
       .eq("id", submissionId);
     expect(error).not.toBeNull();
-    expect(error!.message).toContain("LOCKED");
+    expect(error!.message).toBe("LOCKED");
 
     const { data: row } = await db.from("stage_submissions").select("review_status, pdf_key").eq("id", submissionId).single();
     expect(row!.review_status).toBe("pending");
