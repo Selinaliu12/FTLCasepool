@@ -73,7 +73,7 @@ export function GroupCard({
                     {l.status ? <Badge variant="secondary">{l.status}</Badge> : null}
                     {l.light !== null && l.source !== null ? <LightBadge light={l.light} source={l.source} /> : null}
                     <span className="text-xs text-muted-foreground">
-                      {l.onTime === null ? "—" : `準時 ${Math.round(l.onTime * 100)}%`}
+                      {l.onTime === null ? "準時 —" : `準時 ${Math.round(l.onTime * 100)}%`}
                     </span>
                   </div>
                 </div>

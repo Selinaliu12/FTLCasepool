@@ -120,6 +120,7 @@ describe("GroupCard", () => {
     );
     expect(screen.getByText("準備中")).toBeTruthy();
     expect(screen.getByText("報名 10/12（一）23:59 · 剩 1 天")).toBeTruthy();
+    expect(screen.getByText("準時 —")).toBeTruthy();
     expect(screen.getByText("黑客松 報名")).toBeTruthy();
     expect(screen.getByText("10/12（一）23:59 · 剩 1 天")).toBeTruthy();
   });

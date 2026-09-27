@@ -40,7 +40,7 @@ export function CompetitionLineDetail({
           <Badge variant="secondary">{line.status}</Badge>
           {line.light !== null && line.source !== null ? <LightBadge light={line.light} source={line.source} /> : null}
           <span className="text-xs text-muted-foreground">
-            {line.onTime === null ? "—" : `準時 ${Math.round(line.onTime * 100)}%`}
+            {line.onTime === null ? "準時 —" : `準時 ${Math.round(line.onTime * 100)}%`}
           </span>
         </div>
       </div>

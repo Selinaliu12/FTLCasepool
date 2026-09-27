@@ -61,6 +61,8 @@ describe("CompetitionLineDetail", () => {
     render(<CompetitionLineDetail line={line()} canReview={false} now={now} />);
     expect(screen.getByText("準備中")).toBeTruthy();
     expect(screen.getByText("下一個截止：報名 10/01（四）23:59 · 剩 3 天")).toBeTruthy();
+    // 截圖第一輪自我檢查：準時率還沒有值時，單獨一個「—」看不出是什麼，改成「準時 —」。
+    expect(screen.getByText("準時 —")).toBeTruthy();
   });
 
   it("外層有 competition-<lineId> 錨點", () => {
