@@ -31,7 +31,8 @@ export function GroupCard({
         <CardTitle className="flex items-start justify-between gap-2 text-base font-medium">
           <div className="flex flex-col gap-0.5">
             <span className="font-heading text-lg font-bold text-foreground">{card.groupName}</span>
-            <span className="text-sm font-normal text-muted-foreground">{card.projectName}</span>
+            {/* Adjustments controller ruling：專案名稱選填，只有填了才顯示。 */}
+            {card.projectName ? <span className="text-sm font-normal text-muted-foreground">{card.projectName}</span> : null}
           </div>
           {isMine ? <Badge variant="secondary">你負責</Badge> : null}
         </CardTitle>
@@ -39,6 +40,22 @@ export function GroupCard({
       <CardContent className="flex flex-col gap-3">
         {projectLine && projectLine.light !== null && projectLine.source !== null ? (
           <LightBadge light={projectLine.light} source={projectLine.source} />
+        ) : null}
+        <div>
+          <p className="text-xs text-muted-foreground">組別備註</p>
+          <p className="text-sm text-foreground">{card.note ?? "尚未訂題"}</p>
+        </div>
+        {card.members.length > 0 ? (
+          <div>
+            <p className="text-xs text-muted-foreground">組員</p>
+            <ul className="text-sm text-foreground">
+              {card.members.map((m, i) => (
+                <li key={`${m.name}-${i}`}>
+                  {m.name} · {m.deptYear ?? "—"}
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
         <div>
           <p className="text-xs text-muted-foreground">目前階段</p>

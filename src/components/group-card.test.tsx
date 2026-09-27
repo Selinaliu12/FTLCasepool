@@ -8,6 +8,8 @@ function card(overrides: Partial<GroupCardData> = {}): GroupCardData {
     groupId: "g1",
     groupName: "第2組",
     projectName: "專案B",
+    note: null,
+    members: [],
     lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "red", source: "系統：第 1 期逾期 4 天", onTime: 0.5 }],
     stage: "第 2 期",
     nextDeadline: { at: new Date("2026-10-16T15:59:59.999Z"), daysLeft: 5, lineLabel: "專案" },
@@ -136,6 +138,34 @@ describe("GroupCard", () => {
     cleanup();
     render(<GroupCard card={card()} isMine={false} />);
     expect(screen.queryByText("你負責")).toBeNull();
+  });
+
+  // Task 4（規格 §14 第 5 點）：卡片顯示組員清單（姓名 · 系級，系級 null 顯示「—」）與
+  // 組別備註（沒填顯示「尚未訂題」）。
+  it("顯示組員清單（姓名 · 系級），系級 null 顯示「—」", () => {
+    render(
+      <GroupCard
+        card={card({ members: [{ name: "甲一", deptYear: "資科三" }, { name: "甲二", deptYear: null }] })}
+        isMine={false}
+      />
+    );
+    expect(screen.getByText("甲一 · 資科三")).toBeTruthy();
+    expect(screen.getByText("甲二 · —")).toBeTruthy();
+  });
+
+  it("有備註時顯示備註內容", () => {
+    render(<GroupCard card={card({ note: "智慧記帳系統" })} isMine={false} />);
+    expect(screen.getByText("智慧記帳系統")).toBeTruthy();
+  });
+
+  it("沒有備註時顯示『尚未訂題』", () => {
+    render(<GroupCard card={card({ note: null })} isMine={false} />);
+    expect(screen.getByText("尚未訂題")).toBeTruthy();
+  });
+
+  it("專案名稱沒填時不顯示（projectName 為 null）", () => {
+    render(<GroupCard card={card({ projectName: null })} isMine={false} />);
+    expect(screen.queryByText("專案B")).toBeNull();
   });
 
   it("canViewContent 為 true 時顯示『看內容』連到 /groups/[id]，否則不顯示", () => {
