@@ -15,6 +15,13 @@ function serviceSupabase() {
 // 一次性截圖腳本（batch 2 Task 1：每期建議繳交內容），controller 要求兩輪 1280x800 +
 // 375x812 螢幕截圖自我檢查。跟 manual-screenshots.spec.ts 同一套規矩：自己
 // resetDb／seedSemester，結束後照樣還原種子資料，不弄髒其他測試依賴的資料。
+//
+// 跟 manual-screenshots.spec.ts 一樣預設跳過：這支會 resetDb／seedSemester，如果在一般的
+// `npx playwright test` 裡自動跑，會把其他測試依賴的種子資料洗掉、拖慢整個套件。執行方式
+// （不會在一般的 `npx playwright test` 裡自動跑，需要明確帶環境變數）：
+//   CAPTURE_SCREENSHOTS=1 npx playwright test tests/e2e/b2-t1-screenshots.spec.ts
+const CAPTURE = process.env.CAPTURE_SCREENSHOTS === "1";
+
 const SIZES = [
   { name: "1280", width: 1280, height: 800 },
   { name: "375", width: 375, height: 812 },
@@ -33,6 +40,8 @@ async function loginAndPassWelcome(page: Page, email: string, waitForUrl: RegExp
 }
 
 test.describe.serial("b2-t1 視覺自我檢查截圖", () => {
+  test.skip(!CAPTURE, "手動截圖用；預設跳過。執行方式見檔案開頭註解（CAPTURE_SCREENSHOTS=1）。");
+
   let periodId1: string;
 
   test.beforeAll(async () => {
