@@ -89,7 +89,7 @@ describe("CompetitionForm", () => {
   });
 
   it("按「取消發布」呼叫 unpublishCompetition，不是 updateCompetition", async () => {
-    unpublishCompetition.mockResolvedValue(undefined);
+    unpublishCompetition.mockResolvedValue({ ok: true });
     render(<CompetitionForm competitionId="existing-id" initial={filledForm()} status="published" />);
 
     fireEvent.click(screen.getByRole("button", { name: "取消發布" }));

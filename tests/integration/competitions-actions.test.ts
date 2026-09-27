@@ -231,7 +231,7 @@ describe("publishCompetition / unpublishCompetition", () => {
 
   it("取消發布後回到 draft", async () => {
     await publishCompetition(competitionId);
-    await unpublishCompetition(competitionId);
+    expect(await unpublishCompetition(competitionId)).toEqual({ ok: true });
     const db = createServiceSupabase();
     const { data } = await db.from("competitions").select("status").eq("id", competitionId).single();
     expect(data!.status).toBe("draft");
@@ -241,4 +241,75 @@ describe("publishCompetition / unpublishCompetition", () => {
     asStudent(seed.semesterId, seed.groupA);
     await expect(publishCompetition(competitionId)).rejects.toThrow("只有幹部可以編輯競賽");
   });
+
+  // Final review IMPORTANT 1（controller ruling a）：已經有組別掛了（未退出）的比賽不能取消發布
+  // ——草稿會被 read_competitions 的 RLS 擋掉，學生那邊的報名頁／比賽線／下載全部讀不到比賽。
+  it("已經有組別報名（未退出）時拒絕取消發布，狀態維持 published", async () => {
+    await publishCompetition(competitionId);
+    const db = createServiceSupabase();
+    const { error: entryError } = await db
+      .from("competition_entries")
+      .insert({ group_id: seed.groupA, competition_id: competitionId, created_by: "a1@g.nccu.edu.tw" });
+    if (entryError) throw entryError;
+
+    const result = await unpublishCompetition(competitionId);
+    expect(result).toEqual({ ok: false, error: "已經有組別報名這場比賽，不能取消發布" });
+
+    const { data } = await db.from("competitions").select("status").eq("id", competitionId).single();
+    expect(data!.status).toBe("published");
+  });
+
+  it("報名都已退出時可以取消發布", async () => {
+    await publishCompetition(competitionId);
+    const db = createServiceSupabase();
+    const { error: entryError } = await db.from("competition_entries").insert({
+      group_id: seed.groupA,
+      competition_id: competitionId,
+      created_by: "a1@g.nccu.edu.tw",
+      withdrawn_at: new Date().toISOString(),
+    });
+    if (entryError) throw entryError;
+
+    const result = await unpublishCompetition(competitionId);
+    expect(result).toEqual({ ok: true });
+    const { data } = await db.from("competitions").select("status").eq("id", competitionId).single();
+    expect(data!.status).toBe("draft");
+  });
+
+  // 另一個方向的時間窗：attachCompetition 讀到 published 之後、insert 之前，比賽剛好被取消發布
+  // ——資料庫的 trigger 在 insert 時用 FOR SHARE 鎖住比賽那一列再看一次 status，草稿一律拒絕。
+  it("資料庫層：草稿比賽不能被新掛上（未退出）報名", async () => {
+    const db = createServiceSupabase();
+    const { error } = await db
+      .from("competition_entries")
+      .insert({ group_id: seed.groupA, competition_id: competitionId, created_by: "a1@g.nccu.edu.tw" });
+    expect(error?.message).toBe("competition_not_published");
+  });
+
+  it("有報名時跟 attach 併發取消發布，最後不會出現「草稿＋未退出報名」", async () => {
+    await publishCompetition(competitionId);
+    const db = createServiceSupabase();
+    const [insertRes, unpublishRes] = await Promise.all([
+      db.from("competition_entries").insert({ group_id: seed.groupA, competition_id: competitionId, created_by: "a1@g.nccu.edu.tw" }),
+      unpublishCompetition(competitionId),
+    ]);
+    const { data: comp } = await db.from("competitions").select("status").eq("id", competitionId).single();
+    const { data: active } = await db
+      .from("competition_entries")
+      .select("id")
+      .eq("competition_id", competitionId)
+      .is("withdrawn_at", null);
+    if (comp!.status === "draft") {
+      expect(unpublishOk(unpublishRes)).toBe(true);
+      expect(insertRes.error).not.toBeNull();
+      expect(active).toEqual([]);
+    } else {
+      expect(insertRes.error).toBeNull();
+      expect(active).toHaveLength(1);
+    }
+  });
 });
+
+function unpublishOk(r: { ok: boolean }): boolean {
+  return r.ok;
+}

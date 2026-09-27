@@ -112,6 +112,9 @@ export async function attachCompetition(
     // 索引違規（23505），一樣回傳「已經掛在你們組了」，不是未處理的例外（見
     // tests/integration/entries-actions.test.ts 的併發測試）。
     if ((insertError as { code?: string }).code === "23505") return { ok: false, error: ALREADY_ATTACHED };
+    // 上面讀到 published 之後、insert 之前比賽剛好被取消發布：competition_entries 的 insert
+    // trigger（20260927000019_batch2_final_fixes.sql）擋下，跟草稿一樣當「找不到這場比賽」。
+    if (insertError.message === "competition_not_published") return { ok: false, error: COMPETITION_NOT_FOUND };
     throw insertError;
   }
 

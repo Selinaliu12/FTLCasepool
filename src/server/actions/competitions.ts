@@ -166,7 +166,7 @@ export async function updateCompetition(
   return { ok: true };
 }
 
-async function setStatus(id: string, status: "draft" | "published"): Promise<void> {
+async function setStatus(id: string, status: "published"): Promise<void> {
   const access = await requireStaff();
   const db = createServiceSupabase();
 
@@ -184,6 +184,29 @@ export async function publishCompetition(id: string): Promise<void> {
   await setStatus(id, "published");
 }
 
-export async function unpublishCompetition(id: string): Promise<void> {
-  await setStatus(id, "draft");
+const HAS_ENTRIES = "已經有組別報名這場比賽，不能取消發布";
+
+// 已經有組別掛了（未退出）的比賽不能取消發布（final review IMPORTANT 1a）：草稿會被
+// read_competitions 的 RLS 擋掉，學生的報名頁、比賽線、階段下載都會讀不到比賽。檢查與寫入
+// 都在 unpublish_competition()（FOR UPDATE 鎖比賽那一列）裡原子地做；另一個方向（取消發布
+// 之後才 insert 報名）由 competition_entries 的 insert trigger 擋，見
+// 20260927000019_batch2_final_fixes.sql。回傳錯誤而不是 throw：production 的 server action
+// 例外訊息會被遮掉，幹部看不到原因。
+export async function unpublishCompetition(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const access = await requireStaff();
+  const db = createServiceSupabase();
+
+  const existing = await findOwnCompetition(db, id, access.semesterId);
+  if (!existing) throw new Error("找不到這場比賽");
+
+  const { error } = await db.rpc("unpublish_competition", { p_competition_id: id, p_semester_id: access.semesterId });
+  if (error) {
+    if (error.message === "has_entries") return { ok: false, error: HAS_ENTRIES };
+    if (error.message === "competition_not_found") throw new Error("找不到這場比賽");
+    throw error;
+  }
+
+  revalidatePath("/competitions");
+  revalidatePath(`/competitions/${id}/edit`);
+  return { ok: true };
 }

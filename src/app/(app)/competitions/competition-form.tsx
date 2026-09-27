@@ -132,7 +132,11 @@ export function CompetitionForm({
     setPending("unpublish");
     setFormError(null);
     try {
-      await unpublishCompetition(competitionId);
+      const result = await unpublishCompetition(competitionId);
+      if (!result.ok) {
+        setFormError(result.error);
+        return;
+      }
       router.refresh();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "取消發布失敗");
