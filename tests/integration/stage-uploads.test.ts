@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Client as PgClient } from "pg";
-import { resetDb, seedSemester, asUser, backdateStageSubmissionUploadedAt } from "./helpers";
+import { resetDb, seedSemester, asUser, backdateStageSubmissionUploadedAt, withRawPg } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 import { env } from "@/server/env";
 
@@ -159,7 +159,12 @@ describe("submitStage", () => {
     const { submitStage } = await import("@/server/actions/stages");
     await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key1));
 
+    // fix round 1：review 欄位只能在鎖定之後改（NOT_LOCKED trigger，見
+    // 20260927000016_stage_uploads_fix1.sql）——PM 審核一定是在學生的 2 小時修改窗關閉之後
+    // 才會發生，這裡先把上傳時間往前搬，模擬「已經鎖定」。
     const db = createServiceSupabase();
+    const rows0 = await submissionsFor(lineId);
+    await backdateStageSubmissionUploadedAt(rows0[0].id as string, new Date(Date.now() - 3 * 60 * 60 * 1000));
     const { error: returnError } = await db
       .from("stage_submissions")
       .update({ review_status: "returned", reviewed_by: "pm@g.nccu.edu.tw", reviewed_at: new Date().toISOString(), comment: "格式不對" })
@@ -232,6 +237,166 @@ describe("submitStage", () => {
 
     expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
     expect(mockDeleteObject).toHaveBeenCalledWith(key);
+  });
+
+  // fix round 1：安全鏈每一個分支都要有測試覆蓋，不能只靠「合法路徑」的測試間接帶到。
+  it("字首不對（不是這組的 key）：回上傳失敗", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { entryId } = await confirmedEntry(seed.groupA, competition.id);
+
+    const key = pdfKey(seed.groupB, "signup-v1"); // 別組的字首
+    await issueTicket(key, "a1@g.nccu.edu.tw");
+    const { submitStage } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key));
+
+    expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+  });
+
+  it("票是別人申請的：回上傳失敗", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { entryId } = await confirmedEntry(seed.groupA, competition.id);
+
+    const key = pdfKey(seed.groupA, "signup-v1");
+    await issueTicket(key, "a2@g.nccu.edu.tw"); // 同組但另一個人申請的票
+    const { submitStage } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key));
+
+    expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+  });
+
+  it("票已經被用過：回上傳失敗", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { entryId } = await confirmedEntry(seed.groupA, competition.id);
+
+    const key = pdfKey(seed.groupA, "signup-v1");
+    await issueTicket(key, "a1@g.nccu.edu.tw");
+    const db = createServiceSupabase();
+    const { error } = await db.from("upload_tickets").update({ used_at: new Date().toISOString() }).eq("key", key);
+    if (error) throw error;
+
+    const { submitStage } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key));
+
+    expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+  });
+
+  it("沒有核發過票的 key：回上傳失敗", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { entryId } = await confirmedEntry(seed.groupA, competition.id);
+
+    const key = pdfKey(seed.groupA, "signup-v1"); // 沒呼叫 issueTicket
+    const { submitStage } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key));
+
+    expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+  });
+
+  it("階段代碼不合法：回統一的找不到這筆繳交", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { entryId } = await confirmedEntry(seed.groupA, competition.id);
+
+    const key = pdfKey(seed.groupA, "x");
+    const { submitStage } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "not-a-stage", key));
+
+    expect(result).toEqual({ ok: false, error: NOT_FOUND });
+  });
+
+  it("還沒按我已了解：回請先閱讀並同意使用說明", async () => {
+    const seed = await seedSemester({ acknowledged: false });
+    const competition = await createCompetition(seed.semesterId);
+    const { entryId } = await confirmedEntry(seed.groupA, competition.id);
+
+    const key = pdfKey(seed.groupA, "signup-v1");
+    await issueTicket(key, "a1@g.nccu.edu.tw");
+    const { submitStage } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key));
+
+    expect(result).toEqual({ ok: false, error: "請先閱讀並同意使用說明" });
+  });
+
+  it("已結束（result=not_selected）：回「這場比賽已經結束，不能再上傳」", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { entryId } = await confirmedEntry(seed.groupA, competition.id, { result: "not_selected" });
+
+    const key = pdfKey(seed.groupA, "signup-v1");
+    await issueTicket(key, "a1@g.nccu.edu.tw");
+    const { submitStage } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key));
+
+    expect(result).toEqual({ ok: false, error: ENDED_ERROR });
+  });
+
+  it("已有 approved 版本時再送出：回這個階段已經交了", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { entryId, lineId } = await confirmedEntry(seed.groupA, competition.id);
+    mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
+
+    const key1 = pdfKey(seed.groupA, "signup-v1");
+    await issueTicket(key1, "a1@g.nccu.edu.tw");
+    const { submitStage } = await import("@/server/actions/stages");
+    await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key1));
+
+    const db = createServiceSupabase();
+    const rows0 = await submissionsFor(lineId);
+    await backdateStageSubmissionUploadedAt(rows0[0].id as string, new Date(Date.now() - 3 * 60 * 60 * 1000));
+    const { error } = await db
+      .from("stage_submissions")
+      .update({ review_status: "approved", reviewed_by: "pm@g.nccu.edu.tw", reviewed_at: new Date().toISOString() })
+      .eq("line_id", lineId);
+    if (error) throw error;
+
+    const key2 = pdfKey(seed.groupA, "signup-v2");
+    await issueTicket(key2, "a1@g.nccu.edu.tw");
+    const result = await asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key2));
+
+    expect(result).toEqual({ ok: false, error: STAGE_ACTIVE_ERROR });
+  });
+
+  // fix round 1（controller ruling 2）：走真正的 23505 路徑（部分唯一索引），不是
+  // submit_stage() 自己的應用層 stage_active 檢查——用一條 raw pg 連線先插入一筆未 commit 的
+  // pending 列卡住同一個索引項，讓 submitStage() 自己的 insert 卡住、之後真的撞到
+  // unique_violation，驗證這時候 pdfKey（已經證明是呼叫者自己申請、還沒用掉的票）真的被刪掉。
+  it("撞到部分唯一索引（23505）：物件被刪除，回這個階段已經交了", async () => {
+    const seed = await seedSemester({ acknowledged: true });
+    const competition = await createCompetition(seed.semesterId);
+    const { entryId, lineId } = await confirmedEntry(seed.groupA, competition.id);
+    mockInspectUploaded.mockResolvedValue({ size: 2048, isPdf: true });
+
+    const key = pdfKey(seed.groupA, "race-app");
+    await issueTicket(key, "a1@g.nccu.edu.tw");
+
+    const host = new URL(env.supabaseUrl).hostname;
+    const clientA = new PgClient({ host, port: 54322, user: "postgres", password: "postgres", database: "postgres" });
+    await clientA.connect();
+
+    try {
+      await clientA.query("begin");
+      await clientA.query(
+        `insert into stage_submissions (line_id, stage, version, pdf_key, pdf_size, pdf_uploaded_at, pdf_uploaded_by, submitted_by)
+         values ($1, 'signup', 1, $2, 100, now(), 'a1@g.nccu.edu.tw', 'a1@g.nccu.edu.tw')`,
+        [lineId, pdfKey(seed.groupA, "race-a-held")]
+      );
+
+      const { submitStage } = await import("@/server/actions/stages");
+      const resultPromise = asUser("a1@g.nccu.edu.tw", () => submitStage(entryId, "signup", key));
+
+      await new Promise((r) => setTimeout(r, 200));
+      await clientA.query("commit");
+
+      const result = await resultPromise;
+      expect(result).toEqual({ ok: false, error: STAGE_ACTIVE_ERROR });
+      expect(mockDeleteObject).toHaveBeenCalledWith(key);
+    } finally {
+      await clientA.end();
+    }
   });
 });
 
@@ -359,6 +524,219 @@ describe("replaceStagePdf / withdrawStage：2 小時內可換／撤回，之後�
 
     const r2 = await asUser("b1@g.nccu.edu.tw", () => withdrawStage(submissionId));
     expect(r2).toEqual({ ok: false, error: NOT_FOUND });
+  });
+
+  // fix round 1：換 PDF 的安全鏈也要每個分支都覆蓋，不能只靠 submitStage 那邊的測試帶過。
+  it("換 PDF：字首不對，回上傳失敗", async () => {
+    const { seed, submissionId } = await seedSubmission();
+    const newKey = pdfKey(seed.groupB, "wrong-prefix");
+    await issueTicket(newKey, "a1@g.nccu.edu.tw");
+
+    const { replaceStagePdf } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, newKey));
+
+    expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+  });
+
+  it("換 PDF：票是別人申請的，回上傳失敗", async () => {
+    const { seed, submissionId } = await seedSubmission();
+    const newKey = pdfKey(seed.groupA, "someone-elses-ticket");
+    await issueTicket(newKey, "a2@g.nccu.edu.tw");
+
+    const { replaceStagePdf } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, newKey));
+
+    expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+  });
+
+  it("換 PDF：票已經被用過，回上傳失敗", async () => {
+    const { seed, submissionId } = await seedSubmission();
+    const newKey = pdfKey(seed.groupA, "used-ticket");
+    await issueTicket(newKey, "a1@g.nccu.edu.tw");
+    const db = createServiceSupabase();
+    const { error } = await db.from("upload_tickets").update({ used_at: new Date().toISOString() }).eq("key", newKey);
+    if (error) throw error;
+
+    const { replaceStagePdf } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, newKey));
+
+    expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+  });
+
+  it("換 PDF：沒有核發過票的 key，回上傳失敗", async () => {
+    const { seed, submissionId } = await seedSubmission();
+    const newKey = pdfKey(seed.groupA, "no-ticket");
+
+    const { replaceStagePdf } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, newKey));
+
+    expect(result).toEqual({ ok: false, error: UPLOAD_FAILED });
+  });
+
+  it("換 PDF：還沒按我已了解，回請先閱讀並同意使用說明", async () => {
+    // seedSubmission() 內部已經用 acknowledged:true 的種子交過一版；這裡直接把 access 換成
+    // 一個沒按過的假身分，不重新造資料——acknowledgementRequired 只看 email／semesterId。
+    const { seed, submissionId } = await seedSubmission();
+    const db = createServiceSupabase();
+    const { error } = await db.from("acknowledgements").delete().eq("semester_id", seed.semesterId).eq("email", "a1@g.nccu.edu.tw");
+    if (error) throw error;
+
+    const newKey = pdfKey(seed.groupA, "unacked");
+    await issueTicket(newKey, "a1@g.nccu.edu.tw");
+    const { replaceStagePdf } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, newKey));
+
+    expect(result).toEqual({ ok: false, error: "請先閱讀並同意使用說明" });
+  });
+
+  it("換 PDF：線已結束（result=awarded），回「這場比賽已經結束，不能再上傳」", async () => {
+    const { seed, entryId, submissionId } = await seedSubmission();
+    const db = createServiceSupabase();
+    const { error } = await db.from("competition_entries").update({ result: "awarded" }).eq("id", entryId);
+    if (error) throw error;
+
+    const newKey = pdfKey(seed.groupA, "ended-replace");
+    await issueTicket(newKey, "a1@g.nccu.edu.tw");
+    const { replaceStagePdf } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, newKey));
+
+    expect(result).toEqual({ ok: false, error: ENDED_ERROR });
+  });
+
+  // fix round 1（controller ruling 2，stale write）：跟 progress-lock.test.ts 的 stale-write
+  // 測試同一套手法——用一個可以手動控制的 gate 卡住 a1 的 inspectUploaded，讓 a2 先完整換檔
+  // 成功，再放行 a1，保證 a1 手上的 p_old_key 真的跟資料庫「這一刻」的值不一樣。
+  it("兩個組員幾乎同時換檔同一筆繳交 → 較晚打 RPC 的那個因為 pdf_key 被搶先改過而被拒（stale write）", async () => {
+    const { seed, submissionId, originalKey } = await seedSubmission();
+
+    const keyA = pdfKey(seed.groupA, "stale-race-a");
+    const keyB = pdfKey(seed.groupA, "stale-race-b");
+    await issueTicket(keyA, "a1@g.nccu.edu.tw");
+    await issueTicket(keyB, "a2@g.nccu.edu.tw");
+
+    let releaseA: ((v: { size: number; isPdf: boolean }) => void) | undefined;
+    const aGate = new Promise<{ size: number; isPdf: boolean }>((resolve) => {
+      releaseA = resolve;
+    });
+    mockInspectUploaded.mockImplementation((key: string) =>
+      key === keyA ? aGate : Promise.resolve({ size: 2048, isPdf: true })
+    );
+
+    const { replaceStagePdf } = await import("@/server/actions/stages");
+    const pA = asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, keyA));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const rB = await asUser("a2@g.nccu.edu.tw", () => replaceStagePdf(submissionId, keyB));
+    expect(rB).toEqual({ ok: true });
+
+    releaseA!({ size: 2048, isPdf: true });
+    const rA = await pA;
+
+    expect(rA).toEqual({ ok: false, error: "這個階段的繳交剛剛被組員改過，請重新整理" });
+
+    const db = createServiceSupabase();
+    const { data: finalRow } = await db.from("stage_submissions").select("pdf_key").eq("id", submissionId).single();
+    expect(finalRow!.pdf_key).toBe(keyB);
+
+    expect(mockDeleteObject).toHaveBeenCalledWith(originalKey);
+    expect(mockDeleteObject).not.toHaveBeenCalledWith(keyB);
+    expect(mockDeleteObject).toHaveBeenCalledWith(keyA);
+  });
+
+  // controller ruling 5（fix round 1）：撤回跟提交／換檔不同——即使線已經結束，pending、還沒
+  // 鎖定的版本還是可以撤回，不然會卡著一筆永遠不會被審的東西。
+  it("撤回：線已結束但這一版還是 pending、還沒鎖定 → 仍然允許撤回", async () => {
+    const { entryId, lineId, submissionId, originalKey } = await seedSubmission();
+    const db = createServiceSupabase();
+    const { error } = await db.from("competition_entries").update({ withdrawn_at: new Date().toISOString() }).eq("id", entryId);
+    if (error) throw error;
+
+    const { withdrawStage } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => withdrawStage(submissionId));
+
+    expect(result).toEqual({ ok: true });
+    const rows = await submissionsFor(lineId);
+    expect(rows).toHaveLength(0);
+    expect(mockDeleteObject).toHaveBeenCalledWith(originalKey);
+  });
+
+  // fix round 1（controller ruling 4）：replace_stage_pdf／withdraw_stage 只能動目前
+  // review_status = 'pending' 的那一列；已經通過的版本不能再換檔或撤回。
+  //
+  // 在真實流程裡，review 欄位只能在鎖定之後改（NOT_LOCKED trigger），所以「approved」的列
+  // 100% 也是「locked」的——如果透過 backdate 造出這種資料，replaceStagePdf／withdrawStage
+  // 會被應用層自己的 isLocked() 先擋下來（回 LOCKED_ERROR），測不到 RPC 這裡的
+  // 「非 pending 一律 submission_not_found」這件事。這裡直接用 raw pg 連線＋
+  // session_replication_role = replica 繞過 trigger，造一筆「approved 但還沒鎖定」的資料
+  // （現實中不會出現，純粹為了單獨驗證這道 DB 防線），確認 RPC 真的是看 review_status，
+  // 不是靠鎖定狀態間接擋下來的。
+  async function forceReviewStatusBypassingLock(submissionId: string, status: string) {
+    await withRawPg(async (client) => {
+      await client.query("set session_replication_role = replica");
+      await client.query(
+        "update stage_submissions set review_status = $1, reviewed_by = 'pm@g.nccu.edu.tw', reviewed_at = now() where id = $2",
+        [status, submissionId]
+      );
+    });
+  }
+
+  it("換 PDF：這一版已經通過審核（approved），回統一的找不到這筆繳交", async () => {
+    const { seed, submissionId } = await seedSubmission();
+    await forceReviewStatusBypassingLock(submissionId, "approved");
+
+    const newKey = pdfKey(seed.groupA, "after-approved");
+    await issueTicket(newKey, "a1@g.nccu.edu.tw");
+    const { replaceStagePdf } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => replaceStagePdf(submissionId, newKey));
+
+    expect(result).toEqual({ ok: false, error: NOT_FOUND });
+  });
+
+  it("撤回：這一版已經通過審核（approved），回統一的找不到這筆繳交", async () => {
+    const { submissionId, lineId } = await seedSubmission();
+    await forceReviewStatusBypassingLock(submissionId, "approved");
+
+    const { withdrawStage } = await import("@/server/actions/stages");
+    const result = await asUser("a1@g.nccu.edu.tw", () => withdrawStage(submissionId));
+
+    expect(result).toEqual({ ok: false, error: NOT_FOUND });
+    const rows = await submissionsFor(lineId);
+    expect(rows).toHaveLength(1);
+  });
+
+  // fix round 1（NOT_LOCKED，另一個方向）：review 欄位只能在鎖定之後改，還沒鎖定就想改
+  // （PM 手滑、或未來某個 bug 想提早審核）要被資料庫擋下來。
+  it("真實邊界：資料庫 trigger 擋還沒鎖定就想改 review 欄位（NOT_LOCKED）", async () => {
+    const { submissionId } = await seedSubmission();
+
+    const db = createServiceSupabase();
+    const { error } = await db
+      .from("stage_submissions")
+      .update({ review_status: "approved", reviewed_by: "pm@g.nccu.edu.tw", reviewed_at: new Date().toISOString() })
+      .eq("id", submissionId);
+    expect(error).not.toBeNull();
+    expect(error!.message).toContain("NOT_LOCKED");
+
+    const { data: row } = await db.from("stage_submissions").select("review_status").eq("id", submissionId).single();
+    expect(row!.review_status).toBe("pending");
+  });
+
+  // controller ruling（fix round 1 #10）：一次 UPDATE 同時改到 review 欄位＋pdf_key，已鎖定的
+  // 列上要整個被擋（LOCKED），不能因為也改了 review 欄位就走進 review-only 那個允許分支。
+  it("真實邊界：已鎖定的列，單一 UPDATE 同時改 review 欄位＋pdf_key → LOCKED", async () => {
+    const { submissionId } = await seedSubmission();
+    await backdateStageSubmissionUploadedAt(submissionId, new Date(Date.now() - 3 * 60 * 60 * 1000));
+
+    const db = createServiceSupabase();
+    const { error } = await db
+      .from("stage_submissions")
+      .update({ review_status: "approved", pdf_key: "somewhere/else.pdf" })
+      .eq("id", submissionId);
+    expect(error).not.toBeNull();
+    expect(error!.message).toContain("LOCKED");
+
+    const { data: row } = await db.from("stage_submissions").select("review_status, pdf_key").eq("id", submissionId).single();
+    expect(row!.review_status).toBe("pending");
   });
 });
 

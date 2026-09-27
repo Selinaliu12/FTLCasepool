@@ -178,9 +178,22 @@ export async function submitStage(
       await deleteObject(pdfKey).catch(() => {});
       return { ok: false, error: STAGE_ACTIVE_ERROR };
     }
-    if (rpcError.code === "23505" || rpcError.message.includes("invalid_ticket")) {
-      // 撞到部分唯一索引（併發送出同一階段）或票被搶先用掉：這次請求沒有真的用上這把 key，
-      // 不該去刪它——它可能是別的併發請求真正用掉的那份。
+    if (rpcError.message.includes("ended")) {
+      // 應用層（loadLineForEntry）已經先擋過一次已結束的線；這裡是 RPC 內部再檢查一次撞到的
+      // 時間窗（檢查完、真的送出之前，隊友剛好取消報名／填了結果）。這時候票務檢查已經證明
+      // pdfKey 是呼叫者自己的，要刪掉這個孤兒物件。
+      await deleteObject(pdfKey).catch(() => {});
+      return { ok: false, error: ENDED_ERROR };
+    }
+    if (rpcError.code === "23505") {
+      // 撞到部分唯一索引（併發送出同一階段）：走到這裡，票務檢查已經證明 pdfKey 是呼叫者
+      // 自己申請、還沒用掉的——這次請求沒有真的把它用掉（insert 整個回滾），是孤兒物件，要刪。
+      await deleteObject(pdfKey).catch(() => {});
+      return { ok: false, error: STAGE_ACTIVE_ERROR };
+    }
+    if (rpcError.message.includes("invalid_ticket")) {
+      // 票被搶先用掉：這次請求沒有真的用上這把 key，不該去刪它——它可能是別的併發請求真正
+      // 用掉的那份。
       return { ok: false, error: STAGE_ACTIVE_ERROR };
     }
     throw rpcError;
@@ -256,6 +269,12 @@ export async function replaceStagePdf(
       await deleteObject(pdfKey).catch(() => {});
       return { ok: false, error: NOT_FOUND };
     }
+    if (rpcError.message.includes("ended")) {
+      // 跟 submitStage 同一個理由：這是 RPC 內部再檢查一次撞到的時間窗，應用層
+      // （loadOwnedSubmission）已經先擋過一次。
+      await deleteObject(pdfKey).catch(() => {});
+      return { ok: false, error: ENDED_ERROR };
+    }
     if (rpcError.code === "23505" || rpcError.message.includes("invalid_ticket")) {
       return { ok: false, error: UPLOAD_FAILED };
     }
@@ -281,7 +300,9 @@ export async function withdrawStage(submissionId: string): Promise<{ ok: true } 
   const notAcknowledged = await acknowledgementRequired(caller.access.semesterId, caller.access.email);
   if (notAcknowledged) return notAcknowledged;
 
-  if (submission.ended) return { ok: false, error: ENDED_ERROR };
+  // controller ruling（fix round 1）：撤回跟提交／換檔不同——即使線已經結束，只要這一版還是
+  // pending、還沒鎖定，還是允許撤回（不然會卡著一筆永遠不會被審的東西）。已結束只擋
+  // submitStage／replaceStagePdf，不擋 withdrawStage。
   if (isLocked(submission.pdfUploadedAt, new Date())) return { ok: false, error: LOCKED_ERROR };
 
   const { data: deletedKey, error: rpcError } = await db.rpc("withdraw_stage", { p_submission_id: submissionId });
