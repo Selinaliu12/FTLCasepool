@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { getAccess } from "@/server/session";
 import { loadEntryDetail } from "@/server/queries/entries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ENTRY_STATUS_LABEL } from "@/domain/entries";
+import { entryDisplayStatus } from "@/domain/entries";
 import { isLineEnded } from "@/domain/competition-line";
 import { EntryActions } from "./entry-actions";
 import { StageUploads } from "./stage-uploads";
@@ -34,7 +34,7 @@ export default async function EntryPage({ params }: { params: Promise<{ entryId:
         <CardHeader>
           <CardTitle className="flex items-center justify-between text-base font-medium">
             <span>報名狀態</span>
-            <span className="text-sm font-normal text-muted-foreground">{ENTRY_STATUS_LABEL[entry.status]}</span>
+            <span className="text-sm font-normal text-muted-foreground">{entryDisplayStatus(entry)}</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
