@@ -56,10 +56,27 @@ test.describe.serial("填比賽結果（batch 2 task 7）", () => {
     if (entryError) throw entryError;
     entryId = entry.id as string;
 
-    const { error: lineError } = await db
+    const { data: line, error: lineError } = await db
       .from("lines")
-      .insert({ group_id: seed.groupA, kind: "competition", entry_id: entry.id });
+      .insert({ group_id: seed.groupA, kind: "competition", entry_id: entry.id })
+      .select()
+      .single();
     if (lineError) throw lineError;
+
+    // Final review minor 3：比賽結果要等報名階段通過（已報名）之後才能填，先放一筆已通過的
+    // 報名階段。
+    const { error: signupError } = await db.from("stage_submissions").insert({
+      line_id: line.id,
+      stage: "signup",
+      version: 1,
+      pdf_key: `115-1/${seed.groupA}/e2e-signup-approved.pdf`,
+      pdf_size: 1024,
+      pdf_uploaded_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      pdf_uploaded_by: "a1@g.nccu.edu.tw",
+      submitted_by: "a1@g.nccu.edu.tw",
+      review_status: "approved",
+    });
+    if (signupError) throw signupError;
   });
 
   test.afterAll(async () => {

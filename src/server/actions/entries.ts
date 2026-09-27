@@ -15,6 +15,7 @@ const NEED_MEMBER = "請至少勾選一位參賽成員";
 const WRONG_GROUP_MEMBER = "只能勾選自己組的專案生";
 const ALREADY_CONFIRMED = "這筆報名已經確認過了";
 const STUDENT_ONLY = "只有專案生可以操作比賽報名";
+const SIGNUP_NOT_APPROVED = "報名通過後才能填比賽結果";
 
 const RESULT_VALUES = ["advanced", "awarded", "not_selected"] as const;
 type EntryResult = (typeof RESULT_VALUES)[number] | null;
@@ -291,6 +292,46 @@ export async function setResult(
   }
 
   const db = createServiceSupabase();
+
+  // Final review minor 3（controller ruling；計畫 Task 7「組員可在已報名後填結果」）：填入
+  // 晉級／得獎／未入選之前，報名階段必須已經通過。清回 null（尚未公布）一律允許——舊資料如果
+  // 已經有結果，組員還是能更正回去。先確認這筆報名屬於這組、已確認、沒退出（不然回
+  // NOT_FOUND，不透露別組報名階段的狀態），再看報名階段有沒有通過。「通過」是單向的
+  // （review_stage() 只從 pending 改、withdraw_stage 只刪 pending、鎖定後不能改），所以這個
+  // 先讀後寫不會有「讀到通過、寫入前又變回沒通過」的時間窗；下面的條件式 update 仍然守住
+  // 「已確認、沒退出」。
+  if (result !== null) {
+    const { data: own, error: ownError } = await db
+      .from("competition_entries")
+      .select("id")
+      .eq("id", entryId)
+      .eq("group_id", access.member.groupId)
+      .not("confirmed_at", "is", null)
+      .is("withdrawn_at", null)
+      .maybeSingle();
+    if (ownError) throw ownError;
+    if (!own) return { ok: false, error: NOT_FOUND };
+
+    const { data: line, error: lineError } = await db
+      .from("lines")
+      .select("id")
+      .eq("entry_id", entryId)
+      .eq("kind", "competition")
+      .maybeSingle();
+    if (lineError) throw lineError;
+    if (!line) return { ok: false, error: SIGNUP_NOT_APPROVED };
+
+    const { data: approved, error: approvedError } = await db
+      .from("stage_submissions")
+      .select("id")
+      .eq("line_id", line.id as string)
+      .eq("stage", "signup")
+      .eq("review_status", "approved")
+      .limit(1);
+    if (approvedError) throw approvedError;
+    if ((approved ?? []).length === 0) return { ok: false, error: SIGNUP_NOT_APPROVED };
+  }
+
   const { data: updated, error } = await db
     .from("competition_entries")
     .update({ result })

@@ -40,7 +40,18 @@ function fromResultValue(value: string): EntryResult {
 // 儲存，會先跳出確認對話框說明「這場比賽會結束，之後的階段不用再交」——真正的寫入（setResult）
 // 一律等使用者在對話框裡按下確定才送出，取消／再想想不會呼叫 setResult，也不會留下待儲存的
 // 選取狀態（選單本身維持使用者剛才選的那個值，方便重按儲存）。
-export function ResultSelect({ entryId, result }: { entryId: string; result: EntryResult }) {
+// Final review minor 3（controller ruling）：signupApproved＝報名階段已經通過（已報名）。還沒
+// 通過而且結果也還沒填時不顯示選單，只顯示提示（setResult() 也會擋，回「報名通過後才能填比賽
+// 結果」）；結果已經有值（舊資料）時仍然顯示選單，讓組員可以清回尚未公布。
+export function ResultSelect({
+  entryId,
+  result,
+  signupApproved,
+}: {
+  entryId: string;
+  result: EntryResult;
+  signupApproved: boolean;
+}) {
   const router = useRouter();
   const [selected, setSelected] = useState<string>(toResultValue(result));
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -63,6 +74,10 @@ export function ResultSelect({ entryId, result }: { entryId: string; result: Ent
     } finally {
       setPending(false);
     }
+  }
+
+  if (!signupApproved && result === null) {
+    return <p className="text-sm text-muted-foreground">報名階段通過後，才能在這裡填比賽結果。</p>;
   }
 
   function onSaveClick() {

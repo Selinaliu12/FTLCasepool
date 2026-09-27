@@ -42,16 +42,20 @@ export default async function EntryPage({ params }: { params: Promise<{ entryId:
         </CardContent>
       </Card>
 
-      {/* 填比賽結果：只要報名已確認、還沒退出就能填／更正（包含比賽已經結束之後還想更正，
-          例如得獎改回晉級——controller ruling 2 明確允許重新開放線），跟 setResult() 的權限
-          條件一致（confirmed_at is not null and withdrawn_at is null）。 */}
+      {/* 填比賽結果：報名已確認、還沒退出時顯示這張卡（包含比賽已經結束之後還想更正，例如
+          得獎改回晉級——controller ruling 2 明確允許重新開放線）；報名階段通過之前，卡片裡只有
+          提示、沒有選單（final review minor 3，跟 setResult() 的檢查一致）。 */}
       {entry.status === "in_progress" && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base font-medium">比賽結果</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResultSelect entryId={entry.entryId} result={entry.result} />
+            <ResultSelect
+              entryId={entry.entryId}
+              result={entry.result}
+              signupApproved={entry.stages.some((s) => s.key === "signup" && s.completedAt !== null)}
+            />
           </CardContent>
         </Card>
       )}

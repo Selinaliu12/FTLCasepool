@@ -86,7 +86,13 @@ async function fetchEntry(entryId: string) {
 
 // 建一筆已確認報名、拿到 entryId／lineId，走真正的 attachCompetition／confirmEntry（不是直接
 // insert），確保 setResult 的測試蓋到的是實際使用者會走的路徑。
-async function confirmedEntry(seed: Awaited<ReturnType<typeof seedSemester>>): Promise<{ entryId: string; lineId: string }> {
+//
+// Final review minor 3（controller ruling）：比賽結果要等報名階段通過（已報名）之後才能填，
+// 所以預設也幫這條線放一筆已通過的報名階段；approveSignup: false 用來測「還沒通過」的情況。
+async function confirmedEntry(
+  seed: Awaited<ReturnType<typeof seedSemester>>,
+  opts: { approveSignup?: boolean } = {}
+): Promise<{ entryId: string; lineId: string }> {
   const competitionId = await createCompetition(seed.semesterId);
   asStudent(mockGetAccess, seed.semesterId, seed.groupA);
   const attached = await attachCompetition(competitionId);
@@ -94,7 +100,24 @@ async function confirmedEntry(seed: Awaited<ReturnType<typeof seedSemester>>): P
   const ids = await studentIds(seed.semesterId, seed.groupA);
   const confirmed = await confirmEntry(attached.entryId, [ids[0]]);
   if (!confirmed.ok) throw new Error("setup failed");
+  if (opts.approveSignup !== false) await insertApprovedSignup(confirmed.lineId, seed.groupA);
   return { entryId: attached.entryId, lineId: confirmed.lineId };
+}
+
+async function insertApprovedSignup(lineId: string, groupId: string) {
+  const db = createServiceSupabase();
+  const { error } = await db.from("stage_submissions").insert({
+    line_id: lineId,
+    stage: "signup",
+    version: 1,
+    pdf_key: `115-1/${groupId}/signup-approved-${Math.random().toString(36).slice(2)}.pdf`,
+    pdf_size: 1024,
+    pdf_uploaded_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    pdf_uploaded_by: "a1@g.nccu.edu.tw",
+    submitted_by: "a1@g.nccu.edu.tw",
+    review_status: "approved",
+  });
+  if (error) throw error;
 }
 
 describe("setResult", () => {
@@ -202,6 +225,40 @@ describe("setResult", () => {
     expect((await fetchEntry(entryId)).result).toBeNull();
   });
 
+  // Final review minor 3（controller ruling）：報名階段還沒通過（還不是已報名）不能填結果；
+  // 已經填了的結果（舊資料）仍然可以清回尚未公布。
+  it("報名階段還沒通過時不能填結果，資料庫不變", async () => {
+    await resetDb();
+    seed = await seedSemester({ acknowledged: true });
+    const fresh = await confirmedEntry(seed, { approveSignup: false });
+
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    expect(await setResult(fresh.entryId, "advanced")).toEqual({ ok: false, error: "報名通過後才能填比賽結果" });
+    expect((await fetchEntry(fresh.entryId)).result).toBeNull();
+  });
+
+  it("報名階段還沒通過、但結果已經有值時，仍然可以清回尚未公布", async () => {
+    await resetDb();
+    seed = await seedSemester({ acknowledged: true });
+    const fresh = await confirmedEntry(seed, { approveSignup: false });
+    const db = createServiceSupabase();
+    const { error } = await db.from("competition_entries").update({ result: "advanced" }).eq("id", fresh.entryId);
+    if (error) throw error;
+
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    expect(await setResult(fresh.entryId, null)).toEqual({ ok: true });
+    expect((await fetchEntry(fresh.entryId)).result).toBeNull();
+  });
+
+  it("別組的報名、報名階段也沒通過：一樣回找不到這筆報名（不透露報名階段狀態）", async () => {
+    await resetDb();
+    seed = await seedSemester({ acknowledged: true });
+    const fresh = await confirmedEntry(seed, { approveSignup: false });
+
+    asStudent(mockGetAccess, seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
+    expect(await setResult(fresh.entryId, "advanced")).toEqual({ ok: false, error: NOT_FOUND });
+  });
+
   it("亂填的 entryId 回傳找不到這筆報名", async () => {
     asStudent(mockGetAccess, seed.semesterId, seed.groupA);
     const result = await setResult("not-a-uuid", "advanced");
@@ -305,9 +362,9 @@ describe("setResult 效果：燈號、必要階段、上傳與審核", () => {
       .from("stage_submissions")
       .insert({
         line_id: lineId,
-        stage: "signup",
+        stage: "submission",
         version: 1,
-        pdf_key: `115-1/${seed.groupA}/signup-v1.pdf`,
+        pdf_key: `115-1/${seed.groupA}/submission-v1.pdf`,
         pdf_size: 1024,
         pdf_uploaded_at: uploadedAt.toISOString(),
         pdf_uploaded_by: "a1@g.nccu.edu.tw",
@@ -342,9 +399,9 @@ describe("setResult 效果：燈號、必要階段、上傳與審核", () => {
     const uploadedAt = new Date(Date.now() - 3 * 60 * 60 * 1000);
     const { error } = await db.from("stage_submissions").insert({
       line_id: lineId,
-      stage: "signup",
+      stage: "submission",
       version: 1,
-      pdf_key: `115-1/${seed.groupA}/signup-v1.pdf`,
+      pdf_key: `115-1/${seed.groupA}/submission-v1.pdf`,
       pdf_size: 1024,
       pdf_uploaded_at: uploadedAt.toISOString(),
       pdf_uploaded_by: "a1@g.nccu.edu.tw",
