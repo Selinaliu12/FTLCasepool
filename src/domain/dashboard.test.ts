@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { worstLight, sortGroupCards, buildGroupCard, formatNextDeadline, type GroupCard } from "./dashboard";
+import {
+  worstLight,
+  sortGroupCards,
+  buildGroupCard,
+  formatNextDeadline,
+  foldCompetitionDeadlines,
+  type GroupCard,
+} from "./dashboard";
 import { systemLight, reporterLight, displayLight, type Deliverable } from "./lights";
 import { onTimeRate } from "./on-time";
 import { daysUntil } from "./time";
@@ -107,6 +114,7 @@ describe("buildGroupCard", () => {
     expect(result.nextDeadline).toEqual({
       at: periods[1].deadline,
       daysLeft: daysUntil(periods[1].deadline, now),
+      lineLabel: "專案",
     });
     expect(result.stage).toBe("第 2 期");
   });
@@ -193,5 +201,71 @@ describe("upcomingPeriod", () => {
   it("全部都截止了 → null", async () => {
     const { upcomingPeriod } = await import("./dashboard");
     expect(upcomingPeriod(periods, new Date("2026-11-01T00:00:00Z"))).toBeNull();
+  });
+});
+
+// Final review IMPORTANT 2：卡片層級的「下一個截止」把比賽線的下一個必要階段也算進去，取所有
+// 還沒結束的線裡最早、而且還沒過的那一個，並標出是哪一條線。
+describe("foldCompetitionDeadlines", () => {
+  const now = new Date("2026-10-10T00:00:00Z");
+  const projectDeadline = new Date("2026-10-16T15:59:59.999Z");
+
+  function base(overrides: Partial<GroupCard> = {}): GroupCard {
+    return {
+      groupId: "g",
+      groupName: "第1組",
+      projectName: "P",
+      lines: [{ lineId: "p", kind: "project", label: "專案", status: null, light: "green", source: "s", onTime: null }],
+      stage: "第 2 期",
+      nextDeadline: { at: projectDeadline, daysLeft: 6, lineLabel: "專案" },
+      ...overrides,
+    };
+  }
+
+  function comp(lineId: string, label: string, at: Date | null, stageLabel = "報名") {
+    return {
+      lineId,
+      kind: "competition" as const,
+      label,
+      status: "準備中" as const,
+      light: "green" as const,
+      source: "系統：沒有欠交",
+      onTime: null,
+      nextStage: at ? { label: stageLabel, at, text: "x" } : null,
+    };
+  }
+
+  it("比賽階段比專案期別早 → 換成比賽，標出比賽名稱＋階段", () => {
+    const card = base();
+    card.lines.push(comp("c1", "黑客松", new Date("2026-10-12T15:59:59.999Z")));
+    expect(foldCompetitionDeadlines(card, now).nextDeadline).toEqual({
+      at: new Date("2026-10-12T15:59:59.999Z"),
+      daysLeft: 2,
+      lineLabel: "黑客松 報名",
+    });
+  });
+
+  it("專案期別比較早 → 維持專案", () => {
+    const card = base();
+    card.lines.push(comp("c1", "黑客松", new Date("2026-10-30T15:59:59.999Z")));
+    expect(foldCompetitionDeadlines(card, now).nextDeadline).toEqual({ at: projectDeadline, daysLeft: 6, lineLabel: "專案" });
+  });
+
+  it("多條比賽線取最早；已經過了的比賽階段不算「下一個」", () => {
+    const card = base({ nextDeadline: null });
+    card.lines.push(comp("c1", "黑客松", new Date("2026-10-05T15:59:59.999Z")));
+    card.lines.push(comp("c2", "創業賽", new Date("2026-10-20T15:59:59.999Z"), "繳件"));
+    card.lines.push(comp("c3", "設計獎", new Date("2026-10-25T15:59:59.999Z")));
+    expect(foldCompetitionDeadlines(card, now).nextDeadline).toEqual({
+      at: new Date("2026-10-20T15:59:59.999Z"),
+      daysLeft: 10,
+      lineLabel: "創業賽 繳件",
+    });
+  });
+
+  it("專案期別都結束、比賽也沒有下一個階段 → null", () => {
+    const card = base({ nextDeadline: null });
+    card.lines.push(comp("c1", "黑客松", null));
+    expect(foldCompetitionDeadlines(card, now).nextDeadline).toBeNull();
   });
 });

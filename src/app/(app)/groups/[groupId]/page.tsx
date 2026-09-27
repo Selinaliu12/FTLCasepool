@@ -4,10 +4,9 @@ import { createServiceSupabase } from "@/server/supabase";
 import { loadGroupDetail } from "@/server/queries/group-detail";
 import { LightBadge } from "@/components/light-badge";
 import { PdfDownloadButton } from "@/components/pdf-download-button";
-import { StageReview } from "@/components/stage-review";
+import { CompetitionLineDetail } from "@/components/competition-line-detail";
 import { CheckinHistory } from "@/components/checkin-history";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { formatTaipei } from "@/domain/time";
 import { overdueLabel } from "@/domain/lights";
 import { lateBy } from "@/domain/progress";
@@ -111,33 +110,7 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
           <h2 className="font-heading text-lg font-bold text-foreground">比賽</h2>
           <div className="flex flex-col gap-2">
             {data.competitionLines.map((line) => (
-              <div
-                key={line.lineId}
-                className="flex flex-col gap-3 rounded-[var(--r-sm,12px)] border border-[var(--line,#DEE9F8)] p-3 text-sm"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-foreground">{line.competitionName}</span>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary">{line.status}</Badge>
-                    {line.light !== null && line.source !== null ? (
-                      <LightBadge light={line.light} source={line.source} />
-                    ) : null}
-                    <span className="text-xs text-muted-foreground">
-                      {line.onTime === null ? "—" : `準時 ${Math.round(line.onTime * 100)}%`}
-                    </span>
-                  </div>
-                </div>
-                {line.stages.map((stage) => {
-                  const stageSubmissions = line.submissions.filter((s) => s.stage === stage.key);
-                  if (stageSubmissions.length === 0) return null;
-                  return (
-                    <div key={stage.key} className="flex flex-col gap-1 border-t border-[var(--line,#DEE9F8)] pt-2">
-                      <span className="font-medium text-foreground">{stage.label}</span>
-                      <StageReview submissions={stageSubmissions} canReview={canReview} ended={line.light === null} />
-                    </div>
-                  );
-                })}
-              </div>
+              <CompetitionLineDetail key={line.lineId} line={line} canReview={canReview} now={now} />
             ))}
           </div>
         </div>

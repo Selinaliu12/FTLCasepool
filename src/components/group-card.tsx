@@ -47,6 +47,9 @@ export function GroupCard({
         <div>
           <p className="text-xs text-muted-foreground">下一個截止</p>
           <p className="font-mono text-sm text-foreground">{formatNextDeadline(card.nextDeadline)}</p>
+          {card.nextDeadline ? (
+            <p className="text-xs text-muted-foreground">{card.nextDeadline.lineLabel}</p>
+          ) : null}
         </div>
         <div>
           <p className="text-xs text-muted-foreground">準時率</p>
@@ -60,20 +63,23 @@ export function GroupCard({
           <div className="flex flex-col gap-2 border-t border-[var(--line,#DEE9F8)] pt-3">
             <p className="text-xs text-muted-foreground">比賽</p>
             {competitionLines.map((l) => (
-              <div key={l.lineId} className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm text-foreground">{l.label}</span>
-                <div className="flex items-center gap-2">
-                  {/* fix round 1：已結束的線（得獎／未入選——已退出在 dashboard 查詢層就整條
-                      濾掉了）沒有系統燈，改顯示成果徽章。 */}
-                  {l.light !== null && l.source !== null ? (
-                    <LightBadge light={l.light} source={l.source} />
-                  ) : l.status ? (
-                    <Badge variant="secondary">{l.status}</Badge>
-                  ) : null}
-                  <span className="text-xs text-muted-foreground">
-                    {l.onTime === null ? "—" : `準時 ${Math.round(l.onTime * 100)}%`}
-                  </span>
+              <div key={l.lineId} className="flex flex-col gap-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm text-foreground">{l.label}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Final review IMPORTANT 2：每條比賽線都顯示目前狀態（準備中／已報名／…／得獎／
+                        未入選）；已結束的線（得獎／未入選——已退出在 dashboard 查詢層就整條濾掉了）
+                        沒有系統燈，只剩狀態徽章。 */}
+                    {l.status ? <Badge variant="secondary">{l.status}</Badge> : null}
+                    {l.light !== null && l.source !== null ? <LightBadge light={l.light} source={l.source} /> : null}
+                    <span className="text-xs text-muted-foreground">
+                      {l.onTime === null ? "—" : `準時 ${Math.round(l.onTime * 100)}%`}
+                    </span>
+                  </div>
                 </div>
+                {l.nextStage ? (
+                  <p className="font-mono text-xs text-muted-foreground">{`${l.nextStage.label} ${l.nextStage.text}`}</p>
+                ) : null}
               </div>
             ))}
           </div>

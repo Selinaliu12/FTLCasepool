@@ -226,6 +226,59 @@ describe("loadDashboard", () => {
     expect(deepScanForContentKeys(result)).toEqual([]);
   });
 
+  // Final review IMPORTANT 2（規格 4.6）：比賽線帶出下一個必要階段的截止日；比專案下一期早時，
+  // 卡片層級的「下一個截止」換成這個比賽階段，並標出是哪一條線。
+  it("比賽線帶出下一個階段截止日，並折進卡片的「下一個截止」", async () => {
+    const db = createServiceSupabase();
+    const now = new Date("2026-09-25T00:00:00Z"); // 專案第 1 期 10/1 截止
+    const { data: competition, error: competitionError } = await db
+      .from("competitions")
+      .insert({
+        semester_id: seed.semesterId,
+        name: "黑客松",
+        url: "https://example.com",
+        signup_deadline: "2026-09-27T15:59:59.999Z",
+        submission_deadline: "2026-10-20T15:59:59.999Z",
+        status: "published",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (competitionError) throw competitionError;
+    const { data: entry, error: entryError } = await db
+      .from("competition_entries")
+      .insert({
+        group_id: seed.groupB,
+        competition_id: competition.id,
+        created_by: "b1@g.nccu.edu.tw",
+        confirmed_at: new Date("2026-09-01T00:00:00Z").toISOString(),
+      })
+      .select()
+      .single();
+    if (entryError) throw entryError;
+    const { error: lineError } = await db
+      .from("lines")
+      .insert({ group_id: seed.groupB, kind: "competition", entry_id: entry.id });
+    if (lineError) throw lineError;
+
+    asOfficer(seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("off@g.nccu.edu.tw"));
+
+    const result = await loadDashboard(now);
+    const groupB = result.cards.find((c) => c.groupName === "第2組")!;
+    const competitionLine = groupB.lines.find((l) => l.kind === "competition")!;
+    expect(competitionLine.status).toBe("準備中");
+    expect(competitionLine.nextStage).toEqual({
+      label: "報名",
+      at: new Date("2026-09-27T15:59:59.999Z"),
+      text: "9/27（日）23:59 · 剩 2 天",
+    });
+    expect(groupB.nextDeadline).toEqual({ at: new Date("2026-09-27T15:59:59.999Z"), daysLeft: 2, lineLabel: "黑客松 報名" });
+
+    const groupA = result.cards.find((c) => c.groupName === "第1組")!;
+    expect(groupA.nextDeadline?.lineLabel).toBe("專案");
+  });
+
   // fix round 1（controller ruling）：已退出的比賽線整條從看板濾掉，不是「顯示但沒有燈」。
   it("已退出的比賽線不會出現在組卡上", async () => {
     const db = createServiceSupabase();

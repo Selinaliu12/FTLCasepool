@@ -1,9 +1,9 @@
 import "server-only";
 import { getAccess } from "@/server/session";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
-import { sortGroupCards, buildGroupCard, type GroupCard, type GroupCardLine } from "@/domain/dashboard";
+import { sortGroupCards, buildGroupCard, foldCompetitionDeadlines, type GroupCard, type GroupCardLine } from "@/domain/dashboard";
 import type { Light } from "@/domain/lights";
-import type { EntryInput, StageSubmissionInput } from "@/domain/competition-line";
+import { nextRequiredStage, formatStageDeadline, type EntryInput, type StageSubmissionInput } from "@/domain/competition-line";
 import { summarizeCompetitionLine } from "@/server/queries/competition-lines";
 
 export type Dashboard = { cards: GroupCard[]; myPmGroupIds: string[] };
@@ -185,6 +185,8 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
           redAfterHours,
         });
 
+        // Final review IMPORTANT 2（規格 4.6）：每條比賽線附上下一個必要、還沒完成的階段截止日。
+        const next = nextRequiredStage(summary.stages);
         return {
           lineId: summary.lineId,
           kind: "competition" as const,
@@ -193,12 +195,13 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
           light: summary.light,
           source: summary.source,
           onTime: summary.onTime,
+          nextStage: next ? { label: next.label, at: next.deadline, text: formatStageDeadline(next.deadline, now) } : null,
         };
       })
       .filter((l) => l !== null) as GroupCardLine[];
 
     groupCard.lines.push(...groupCompetitionLines);
-    cards.push(groupCard);
+    cards.push(foldCompetitionDeadlines(groupCard, now));
   }
 
   const myPmGroupIds =

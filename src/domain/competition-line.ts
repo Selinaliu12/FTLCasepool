@@ -1,6 +1,7 @@
 import { isLocked } from "./lock";
-import { systemLight, type Deliverable, type SystemLight, type Light } from "./lights";
+import { systemLight, overdueLabel, type Deliverable, type SystemLight, type Light } from "./lights";
 import { onTimeRate } from "./on-time";
+import { daysUntil, formatTaipei } from "./time";
 
 export type StageKey = "signup" | "submission" | "final";
 export type StageLabel = "報名" | "繳件" | "決賽";
@@ -183,4 +184,23 @@ export function competitionStatus(stages: Stage[], entry: EntryInput): Competiti
   if (submission?.completedAt) return "已繳件";
   if (signup?.completedAt) return "已報名";
   return "準備中";
+}
+
+// Final review IMPORTANT 2（規格 4.6「目前階段、下一個截止日」）：這條線接下來要交的階段＝
+// 依報名→繳件→決賽的順序，第一個「必要（有截止日、已確認、沒結束）而且還沒完成（沒有通過的
+// 版本）」的階段。待審、被退回都算還沒完成。沒有這種階段（已結束、未確認、全部通過）回傳 null。
+export function nextRequiredStage(stages: Stage[]): (Stage & { deadline: Date }) | null {
+  const next = stages.find((s) => s.required && s.deadline !== null && s.completedAt === null);
+  return next ? (next as Stage & { deadline: Date }) : null;
+}
+
+// 階段截止日的顯示文字：沿用批次 1 的「剩 N 天／今天截止」，已經過了顯示「已逾期 N 小時／天」
+// （逾期時數用 overdueLabel，跟燈號理由同一套算法）。
+export function formatStageDeadline(deadline: Date, now: Date): string {
+  const when = formatTaipei(deadline);
+  if (now.getTime() > deadline.getTime()) {
+    return `${when} · 已${overdueLabel((now.getTime() - deadline.getTime()) / 3_600_000)}`;
+  }
+  const days = daysUntil(deadline, now);
+  return `${when} · ${days === 0 ? "今天截止" : `剩 ${days} 天`}`;
 }

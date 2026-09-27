@@ -6,6 +6,8 @@ import {
   competitionOnTime,
   competitionStatus,
   isLineEnded,
+  nextRequiredStage,
+  formatStageDeadline,
   type EntryInput,
   type CompetitionDeadlines,
   type StageSubmissionInput,
@@ -338,5 +340,67 @@ describe("competitionStatus", () => {
     ];
     const stages = competitionStages(comp, confirmedEntry, submissions, new Date("2026-09-21T00:00:00Z"));
     expect(competitionStatus(stages, confirmedEntry)).toBe("準備中");
+  });
+});
+
+// Final review IMPORTANT 2（規格 4.6）：看板／組頁的比賽列要顯示「下一個必要、還沒完成的階段」
+// 的截止日。
+describe("nextRequiredStage", () => {
+  const now = new Date("2026-09-20T00:00:00Z");
+
+  it("還沒交任何階段 → 報名", () => {
+    const stages = competitionStages(comp, confirmedEntry, [], now);
+    expect(nextRequiredStage(stages)).toMatchObject({ key: "signup", deadline: comp.signupDeadline });
+  });
+
+  it("報名已通過 → 繳件；待審（還沒完成）不算完成", () => {
+    const approved: StageSubmissionInput[] = [
+      { stage: "signup", version: 1, pdfUploadedAt: new Date("2026-09-10T00:00:00Z"), reviewStatus: "approved" },
+      { stage: "submission", version: 1, pdfUploadedAt: new Date("2026-09-15T00:00:00Z"), reviewStatus: "pending" },
+    ];
+    const stages = competitionStages(comp, confirmedEntry, approved, now);
+    expect(nextRequiredStage(stages)?.key).toBe("submission");
+  });
+
+  it("截止日沒填的階段不算必要，跳過", () => {
+    const stages = competitionStages(
+      { ...comp, submissionDeadline: null },
+      confirmedEntry,
+      [{ stage: "signup", version: 1, pdfUploadedAt: new Date("2026-09-10T00:00:00Z"), reviewStatus: "approved" }],
+      now
+    );
+    expect(nextRequiredStage(stages)?.key).toBe("final");
+  });
+
+  it("已結束的線（得獎）、未確認的報名 → null", () => {
+    expect(nextRequiredStage(competitionStages(comp, { ...confirmedEntry, result: "awarded" }, [], now))).toBeNull();
+    expect(nextRequiredStage(competitionStages(comp, { ...confirmedEntry, confirmedAt: null }, [], now))).toBeNull();
+  });
+
+  it("三個階段都通過 → null", () => {
+    const all: StageSubmissionInput[] = (["signup", "submission", "final"] as const).map((stage) => ({
+      stage,
+      version: 1,
+      pdfUploadedAt: new Date("2026-09-10T00:00:00Z"),
+      reviewStatus: "approved",
+    }));
+    expect(nextRequiredStage(competitionStages(comp, confirmedEntry, all, now))).toBeNull();
+  });
+});
+
+describe("formatStageDeadline", () => {
+  const deadline = new Date("2026-10-01T15:59:59.999Z"); // 台北 10/01（四）23:59
+
+  it("還有幾天 → 剩 N 天", () => {
+    expect(formatStageDeadline(deadline, new Date("2026-09-28T04:00:00Z"))).toBe("10/01（四）23:59 · 剩 3 天");
+  });
+
+  it("當天、還沒過 → 今天截止", () => {
+    expect(formatStageDeadline(deadline, new Date("2026-10-01T04:00:00Z"))).toBe("10/01（四）23:59 · 今天截止");
+  });
+
+  it("已經過了 → 已逾期 N 小時／天", () => {
+    expect(formatStageDeadline(deadline, new Date("2026-10-01T20:00:00Z"))).toBe("10/01（四）23:59 · 已逾期 4 小時");
+    expect(formatStageDeadline(deadline, new Date("2026-10-04T16:00:00Z"))).toBe("10/01（四）23:59 · 已逾期 3 天");
   });
 });

@@ -10,7 +10,7 @@ function card(overrides: Partial<GroupCardData> = {}): GroupCardData {
     projectName: "專案B",
     lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "red", source: "系統：第 1 期逾期 4 天", onTime: 0.5 }],
     stage: "第 2 期",
-    nextDeadline: { at: new Date("2026-10-16T15:59:59.999Z"), daysLeft: 5 },
+    nextDeadline: { at: new Date("2026-10-16T15:59:59.999Z"), daysLeft: 5, lineLabel: "專案" },
     ...overrides,
   };
 }
@@ -92,6 +92,36 @@ describe("GroupCard", () => {
     expect(screen.queryByText("紅燈")).toBeNull();
     expect(screen.queryByText("黃燈")).toBeNull();
     expect(screen.queryByText("綠燈")).toBeNull();
+  });
+
+  // Final review IMPORTANT 2（規格 4.6）：每條比賽線顯示目前狀態＋下一個必要階段的截止日；
+  // 卡片的「下一個截止」標出是哪一條線。
+  it("比賽列顯示狀態與下一個階段截止日；下一個截止標出所屬的線", () => {
+    render(
+      <GroupCard
+        card={card({
+          nextDeadline: { at: new Date("2026-10-12T15:59:59.999Z"), daysLeft: 1, lineLabel: "黑客松 報名" },
+          lines: [
+            { lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "組員回報", onTime: 1 },
+            {
+              lineId: "l2",
+              kind: "competition",
+              label: "黑客松",
+              status: "準備中",
+              light: "green",
+              source: "系統：沒有欠交",
+              onTime: null,
+              nextStage: { label: "報名", at: new Date("2026-10-12T15:59:59.999Z"), text: "10/12（一）23:59 · 剩 1 天" },
+            },
+          ],
+        })}
+        isMine={false}
+      />
+    );
+    expect(screen.getByText("準備中")).toBeTruthy();
+    expect(screen.getByText("報名 10/12（一）23:59 · 剩 1 天")).toBeTruthy();
+    expect(screen.getByText("黑客松 報名")).toBeTruthy();
+    expect(screen.getByText("10/12（一）23:59 · 剩 1 天")).toBeTruthy();
   });
 
   it("沒有比賽線時不顯示比賽區塊", () => {
