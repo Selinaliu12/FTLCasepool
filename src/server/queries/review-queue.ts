@@ -1,7 +1,7 @@
 import "server-only";
 import { getAccess } from "@/server/session";
 import { createServerSupabase } from "@/server/supabase";
-import { isLocked } from "@/domain/lock";
+import { isLocked, lockedAt } from "@/domain/lock";
 import { daysUntil } from "@/domain/time";
 import { STAGE_LABEL, isLineEnded, type StageKey, type EntryResult } from "@/domain/competition-line";
 
@@ -130,7 +130,8 @@ export async function loadReviewQueue(now: Date = new Date()): Promise<ReviewQue
       stageLabel: STAGE_LABEL[sub.stage as StageKey],
       version: sub.version,
       uploadedAt,
-      waitingDays: Math.max(0, daysUntil(now, uploadedAt)),
+      // Final review minor 8：從鎖定時間（上傳＋2 小時，送到 PM 手上的那一刻）起算。
+      waitingDays: Math.max(0, daysUntil(now, lockedAt(uploadedAt))),
       href: `/groups/${info.groupId}`,
     });
   }
