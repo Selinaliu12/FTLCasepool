@@ -69,6 +69,24 @@ describe("loadMyGroup：比賽線", () => {
     seed = await seedSemester();
   });
 
+  // Final review IMPORTANT 1b：比賽那一列讀不到（例如舊資料被取消發布成草稿，RLS 擋掉）時，
+  // 不能用 new Date(0) 當報名截止日——那會變成紅燈「報名逾期 2xxxx 天」。讀不到的線整條跳過，
+  // 絕對不產生燈號。
+  it("比賽讀不到（草稿被 RLS 擋掉）時跳過這條線，不會捏造截止日產生燈號", async () => {
+    const competition = await createCompetition(seed.semesterId);
+    await confirmedEntry(seed.groupA, competition.id as string);
+    const db = createServiceSupabase();
+    const { error } = await db.from("competitions").update({ status: "draft" }).eq("id", competition.id);
+    if (error) throw error;
+
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+
+    const result = await loadMyGroup();
+    expect(result.competitionLines.filter((l) => l.light !== null)).toEqual([]);
+    expect(result.competitionLines).toEqual([]);
+  });
+
   it("列出已確認報名的比賽線：狀態、三個階段、燈號、準時率", async () => {
     const competition = await createCompetition(seed.semesterId);
     const { entryId, lineId } = await confirmedEntry(seed.groupA, competition.id as string);

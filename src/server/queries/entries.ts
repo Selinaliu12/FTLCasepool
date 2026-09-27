@@ -11,6 +11,10 @@ import {
   type StageSubmissionInput,
 } from "@/domain/competition-line";
 
+// Final review IMPORTANT 1b：比賽那一列讀不到（RLS 擋掉、資料不一致）時顯示這句，不畫燈、
+// 不捏造截止日。
+export const COMPETITION_UNREADABLE = "比賽資料無法讀取";
+
 export type MyGroupEntry = {
   entryId: string;
   competitionName: string;
@@ -37,7 +41,7 @@ export async function loadMyGroupEntries(): Promise<MyGroupEntry[]> {
     const name = Array.isArray(competition) ? competition[0]?.name : competition?.name;
     return {
       entryId: row.id as string,
-      competitionName: name ?? "",
+      competitionName: name ?? COMPETITION_UNREADABLE,
       status: entryStatus({
         confirmedAt: row.confirmed_at ? new Date(row.confirmed_at as string) : null,
         withdrawnAt: row.withdrawn_at ? new Date(row.withdrawn_at as string) : null,
@@ -206,7 +210,7 @@ export async function loadEntryDetail(entryId: string): Promise<EntryDetail | nu
 
   return {
     entryId: entry.id as string,
-    competitionName: competitionRow?.name ?? "",
+    competitionName: competitionRow?.name ?? COMPETITION_UNREADABLE,
     competitionUrl: competitionRow?.url ?? "",
     confirmedAt,
     withdrawnAt,

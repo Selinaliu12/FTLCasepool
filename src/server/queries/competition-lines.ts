@@ -150,10 +150,16 @@ export async function loadCompetitionLinesForGroup(
     submissionsByLine.set(row.line_id, arr);
   }
 
-  return lines.map((line) => {
-    const entry = entriesById.get(line.entry_id as string)!;
+  const summaries: CompetitionLineSummary[] = [];
+  for (const line of lines) {
+    // Final review IMPORTANT 1b：報名或比賽那一列讀不到（RLS 擋掉、資料不一致）時整條跳過，
+    // 絕對不捏造截止日（以前用 new Date(0) 當報名截止日，會變成紅燈「報名逾期 2xxxx 天」）。
+    // /my-group 的報名清單會把這筆報名顯示成「比賽資料無法讀取」，不畫燈。
+    const entry = entriesById.get(line.entry_id as string);
+    if (!entry) continue;
     const competitionRaw = entry.competitions;
     const competition = Array.isArray(competitionRaw) ? competitionRaw[0] : competitionRaw;
+    if (!competition) continue;
 
     const entryInput: EntryInput = {
       confirmedAt: entry.confirmed_at ? new Date(entry.confirmed_at) : null,
@@ -168,14 +174,14 @@ export async function loadCompetitionLinesForGroup(
       reviewStatus: s.review_status as StageSubmissionInput["reviewStatus"],
     }));
 
-    return summarizeCompetitionLine({
+    summaries.push(summarizeCompetitionLine({
       lineId: line.id as string,
       entryId: line.entry_id as string,
       competition: {
-        name: competition?.name ?? "",
-        signupDeadline: competition ? new Date(competition.signup_deadline) : new Date(0),
-        submissionDeadline: competition?.submission_deadline ? new Date(competition.submission_deadline) : null,
-        finalDate: competition?.final_date ? new Date(competition.final_date) : null,
+        name: competition.name,
+        signupDeadline: new Date(competition.signup_deadline),
+        submissionDeadline: competition.submission_deadline ? new Date(competition.submission_deadline) : null,
+        finalDate: competition.final_date ? new Date(competition.final_date) : null,
       },
       entry: entryInput,
       submissions: stageSubmissions,
@@ -192,6 +198,7 @@ export async function loadCompetitionLinesForGroup(
           comment: s.comment,
         }))
         .sort((a, b) => a.version - b.version),
-    });
-  });
+    }));
+  }
+  return summaries;
 }
