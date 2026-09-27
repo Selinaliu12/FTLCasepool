@@ -44,7 +44,7 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
   const db = useService ? createServiceSupabase() : await createServerSupabase();
 
   const [groupsRes, periodsRes, semesterRes] = await Promise.all([
-    db.from("groups").select("id, name, project_name").eq("semester_id", semesterId).order("name"),
+    db.from("groups").select("id, name, project_name, note").eq("semester_id", semesterId).order("name"),
     db.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq"),
     db.from("semesters").select("red_after_hours").eq("id", semesterId).single(),
   ]);
@@ -62,7 +62,7 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
   // service client 那條路（管理員沒有 member 列），少了 RLS 幫忙擋，撈整張表更沒道理。
   // pm_assignments 只有專案幹部自己需要（用來算 myPmGroupIds），其他幹部／管理員一律是
   // 空陣列，查了也用不到，直接跳過這次查詢。
-  const [linesRes, competitionLinesRes, pmRes] = await Promise.all([
+  const [linesRes, competitionLinesRes, pmRes, membersRes] = await Promise.all([
     groupIds.length === 0
       ? Promise.resolve({ data: [] as { id: string; group_id: string }[], error: null })
       : db.from("lines").select("id, group_id").eq("kind", "project").in("group_id", groupIds),
@@ -72,11 +72,17 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
     isPm
       ? db.from("pm_assignments").select("pm_member_id, group_id")
       : Promise.resolve({ data: [] as { pm_member_id: string; group_id: string }[], error: null }),
+    // 看板卡片組員清單（規格 §14 第 5 點）：只要姓名與系級，不要學號（只在管理員頁與
+    // /groups/[id] 顯示）——刻意少選一欄，不是漏選。
+    groupIds.length === 0
+      ? Promise.resolve({ data: [] as { group_id: string; name: string; dept_year: string | null }[], error: null })
+      : db.from("members").select("group_id, name, dept_year").eq("role", "student").in("group_id", groupIds),
   ]);
 
   if (linesRes.error) throw linesRes.error;
   if (competitionLinesRes.error) throw competitionLinesRes.error;
   if (pmRes.error) throw pmRes.error;
+  if (membersRes.error) throw membersRes.error;
 
   const lines = linesRes.data ?? [];
   const lineIds = lines.map((l) => l.id as string);
@@ -139,14 +145,20 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
       .filter((e) => e.period_id !== null)
       .map((e) => ({ periodSeq: seqByPeriodId.get(e.period_id as string) as number, submittedAt: new Date(e.at) }));
 
+    const groupMembers = (membersRes.data ?? [])
+      .filter((m) => m.group_id === group.id)
+      .map((m) => ({ name: m.name as string, deptYear: (m.dept_year as string | null) ?? null }));
+
     const groupCard = buildGroupCard({
-      group: { id: group.id as string, name: group.name as string, projectName: group.project_name as string },
+      group: { id: group.id as string, name: group.name as string, projectName: (group.project_name as string | null) ?? null },
       lineId,
       periods: periods.map((p) => ({ seq: p.seq, deadline: p.deadline })),
       submissions,
       events: lineEvents.map((e) => ({ light: e.light, at: new Date(e.at) })),
       now,
       redAfterHours,
+      note: (group.note as string | null) ?? null,
+      members: groupMembers,
     });
 
     // fix round 1（controller ruling）：已退出的比賽線從看板整個濾掉，不出現在組卡上——不是

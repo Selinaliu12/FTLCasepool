@@ -48,7 +48,10 @@ function asAdminNoMember(semesterId: string) {
   }));
 }
 
-const CONTENT_KEYS = ["did", "blocked", "next_steps", "pdf_key", "note"];
+// Task 4：GroupCard 現在合法帶有 note 欄位（組別備註，規格 §14 第 5、6 點——幹部本來就看得到），
+// 不再是「不該出現在看板的內容欄位」，拿掉它避免跟合法欄位撞名；did／blocked／next_steps／
+// pdf_key（三句話、PDF key）仍然是 loadDashboard() 絕對不該碰的內容欄位。
+const CONTENT_KEYS = ["did", "blocked", "next_steps", "pdf_key"];
 
 function deepScanForContentKeys(value: unknown): string[] {
   const found: string[] = [];
@@ -392,5 +395,40 @@ describe("loadDashboard", () => {
     expect(competitionLine.status).toBe("得獎");
     // 兩組都只剩綠燈的有效線 → 同色依組名排序，不會因為比賽線「看起來」有問題被排到最前面。
     expect(result.cards.map((c) => c.groupName)).toEqual(["第1組", "第2組"]);
+  });
+
+  // Task 4（規格 §14 第 5、6 點）：看板卡片帶出組員清單（姓名、系級，依姓名排序，系級 null
+  // 也如實帶出，顯示成「—」是元件層的事）與組別備註（沒填是 null）。
+  it("組卡帶出組員清單（姓名、系級）與組別備註", async () => {
+    const db = createServiceSupabase();
+    const { error: noteError } = await db
+      .from("groups")
+      .update({ note: "智慧記帳系統", note_updated_by: "甲一", note_updated_at: new Date().toISOString() })
+      .eq("id", seed.groupA);
+    if (noteError) throw noteError;
+    const { error: deptError } = await db
+      .from("members")
+      .update({ dept_year: "資科三" })
+      .eq("semester_id", seed.semesterId)
+      .eq("email", "a1@g.nccu.edu.tw");
+    if (deptError) throw deptError;
+
+    asOfficer(seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("off@g.nccu.edu.tw"));
+
+    const result = await loadDashboard(new Date("2026-10-05T00:00:00Z"));
+    const groupA = result.cards.find((c) => c.groupName === "第1組")!;
+    expect(groupA.note).toBe("智慧記帳系統");
+    expect(groupA.members).toEqual([
+      { name: "甲一", deptYear: "資科三" },
+      { name: "甲二", deptYear: null },
+    ]);
+
+    const groupB = result.cards.find((c) => c.groupName === "第2組")!;
+    expect(groupB.note).toBeNull();
+    expect(groupB.members).toEqual([{ name: "乙一", deptYear: null }]);
+
+    // Review Focus 5：學號不出現在看板卡片（只在管理員頁與 /groups/[id]），且沒有內容欄位外洩。
+    expect(deepScanForContentKeys(result)).toEqual([]);
   });
 });
