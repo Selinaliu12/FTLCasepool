@@ -8,6 +8,8 @@ import { isUuid } from "@/domain/id";
 import type { StageKey } from "@/domain/competition-line";
 
 const NOT_FOUND = "找不到這份進度" as const;
+// Final review minor 10：比賽階段的下載跟 stages.ts 的階段動作用同一句「找不到這筆繳交」。
+const STAGE_NOT_FOUND = "找不到這筆繳交" as const;
 
 // 下載 PDF 是唯讀動作：不寫入資料，所以刻意不要求「我已了解」（acknowledgementRequired 的
 // 註解說得很清楚，那是給「會寫入資料的 server action」共用的第二道防線）。這裡真正的防線是
@@ -74,15 +76,15 @@ export async function getPdfDownloadUrl(
 
 // 比賽階段繳交的 PDF 下載——跟 getPdfDownloadUrl 同一套規則：唯讀、不要求「我已了解」，
 // 靠 getAccess() 是不是 "ok" ＋ stage_submissions 的 RLS（can_read_content：is_pm() 或自己組）
-// 決定看不看得到；其他幹部、別組學生讀不到那一列，一律回統一的「找不到這份進度」。管理員
+// 決定看不看得到；其他幹部、別組學生讀不到那一列，一律回統一的「找不到這筆繳交」。管理員
 // （沒有 member 列，或有 member 列但不是學生）走服務身分繞過 RLS。
 export async function getStagePdfDownloadUrl(
   submissionId: string
-): Promise<{ ok: true; url: string } | { ok: false; error: typeof NOT_FOUND }> {
-  if (!isUuid(submissionId)) return { ok: false, error: NOT_FOUND };
+): Promise<{ ok: true; url: string } | { ok: false; error: typeof STAGE_NOT_FOUND }> {
+  if (!isUuid(submissionId)) return { ok: false, error: STAGE_NOT_FOUND };
 
   const access = await getAccess();
-  if (access.kind !== "ok") return { ok: false, error: NOT_FOUND };
+  if (access.kind !== "ok") return { ok: false, error: STAGE_NOT_FOUND };
 
   const useService = access.isAdmin && access.member?.role !== "student";
   const db = useService ? createServiceSupabase() : await createServerSupabase();
@@ -93,7 +95,7 @@ export async function getStagePdfDownloadUrl(
     .eq("id", submissionId)
     .maybeSingle();
   if (error) throw error;
-  if (!submission) return { ok: false, error: NOT_FOUND };
+  if (!submission) return { ok: false, error: STAGE_NOT_FOUND };
 
   // Final review IMPORTANT 1c：後面每一步都用 maybeSingle()——任何一列讀不到（RLS 擋掉、資料
   // 不一致，例如比賽被改成草稿後學生讀不到 competitions）一律回統一的找不到，不丟 PGRST116。
@@ -103,7 +105,7 @@ export async function getStagePdfDownloadUrl(
     .eq("id", submission.line_id as string)
     .maybeSingle();
   if (lineError) throw lineError;
-  if (!line || !line.entry_id) return { ok: false, error: NOT_FOUND };
+  if (!line || !line.entry_id) return { ok: false, error: STAGE_NOT_FOUND };
 
   const [{ data: group, error: groupError }, { data: entry, error: entryError }] = await Promise.all([
     db.from("groups").select("name, semester_id").eq("id", line.group_id as string).maybeSingle(),
@@ -111,7 +113,7 @@ export async function getStagePdfDownloadUrl(
   ]);
   if (groupError) throw groupError;
   if (entryError) throw entryError;
-  if (!group || !entry) return { ok: false, error: NOT_FOUND };
+  if (!group || !entry) return { ok: false, error: STAGE_NOT_FOUND };
 
   const [{ data: semester, error: semesterError }, { data: competition, error: competitionError }] = await Promise.all([
     db.from("semesters").select("name").eq("id", group.semester_id as string).maybeSingle(),
@@ -119,7 +121,7 @@ export async function getStagePdfDownloadUrl(
   ]);
   if (semesterError) throw semesterError;
   if (competitionError) throw competitionError;
-  if (!semester || !competition) return { ok: false, error: NOT_FOUND };
+  if (!semester || !competition) return { ok: false, error: STAGE_NOT_FOUND };
 
   const downloadName = stageDownloadName({
     semesterName: semester.name as string,

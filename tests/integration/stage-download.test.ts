@@ -16,7 +16,8 @@ vi.mock("@/server/supabase", async () => {
 });
 import { getStagePdfDownloadUrl } from "@/server/actions/download";
 
-const NOT_FOUND = "找不到這份進度";
+// Final review minor 10：跟 stages.ts 的階段動作一致，用「找不到這筆繳交」。
+const NOT_FOUND = "找不到這筆繳交";
 
 async function createCompetition(semesterId: string) {
   const db = createServiceSupabase();
@@ -147,7 +148,7 @@ describe("getStagePdfDownloadUrl", () => {
     await expect(getStagePdfDownloadUrl(submissionId)).resolves.toEqual({ ok: false, error: NOT_FOUND });
   });
 
-  it("亂填 id 與不存在的 UUID 都回統一的找不到這份進度", async () => {
+  it("亂填 id 與不存在的 UUID 都回統一的找不到這筆繳交", async () => {
     asPm(mockGetAccess, seed.semesterId);
     mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
     expect(await getStagePdfDownloadUrl("abc")).toEqual({ ok: false, error: NOT_FOUND });
