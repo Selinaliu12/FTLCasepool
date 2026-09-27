@@ -8,7 +8,7 @@ function card(overrides: Partial<GroupCardData> = {}): GroupCardData {
     groupId: "g1",
     groupName: "第2組",
     projectName: "專案B",
-    lines: [{ lineId: "l1", kind: "project", label: "專案", light: "red", source: "系統：第 1 期逾期 4 天", onTime: 0.5 }],
+    lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "red", source: "系統：第 1 期逾期 4 天", onTime: 0.5 }],
     stage: "第 2 期",
     nextDeadline: { at: new Date("2026-10-16T15:59:59.999Z"), daysLeft: 5 },
     ...overrides,
@@ -31,7 +31,7 @@ describe("GroupCard", () => {
   it("準時率 null 顯示 —", () => {
     render(
       <GroupCard
-        card={card({ lines: [{ lineId: "l1", kind: "project", label: "專案", light: "green", source: "s", onTime: null }] })}
+        card={card({ lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "s", onTime: null }] })}
         isMine={false}
       />
     );
@@ -43,11 +43,12 @@ describe("GroupCard", () => {
       <GroupCard
         card={card({
           lines: [
-            { lineId: "l1", kind: "project", label: "專案", light: "green", source: "組員回報", onTime: 1 },
+            { lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "組員回報", onTime: 1 },
             {
               lineId: "l2",
               kind: "competition",
               label: "黑客松 報名",
+              status: null,
               light: "red",
               source: "系統：黑客松 報名逾期 4 天",
               onTime: 0,
@@ -60,6 +61,37 @@ describe("GroupCard", () => {
     expect(screen.getByText("黑客松 報名")).toBeTruthy();
     expect(screen.getByText("系統：黑客松 報名逾期 4 天")).toBeTruthy();
     expect(screen.getByText("準時 0%")).toBeTruthy();
+  });
+
+  // fix round 1（controller ruling）：已結束的比賽線（light 為 null）不畫 LightBadge，
+  // 改顯示成果徽章（用 status 文字）。
+  it("已結束的比賽線（light 為 null）不顯示 LightBadge，改顯示成果徽章", () => {
+    render(
+      <GroupCard
+        card={card({
+          // 這裡故意不放專案線，只放一條已結束的比賽線，避免專案線自己的綠燈把
+          // 「沒有任何燈號文字」這個斷言蓋過去。
+          lines: [
+            {
+              lineId: "l2",
+              kind: "competition",
+              label: "黑客松",
+              status: "得獎",
+              light: null,
+              source: null,
+              onTime: 1,
+            },
+          ],
+        })}
+        isMine={false}
+      />
+    );
+    expect(screen.getByText("黑客松")).toBeTruthy();
+    expect(screen.getByText("得獎")).toBeTruthy();
+    // 沒有任何燈號文字（紅燈／黃燈／綠燈）出現在這條比賽線上。
+    expect(screen.queryByText("紅燈")).toBeNull();
+    expect(screen.queryByText("黃燈")).toBeNull();
+    expect(screen.queryByText("綠燈")).toBeNull();
   });
 
   it("沒有比賽線時不顯示比賽區塊", () => {

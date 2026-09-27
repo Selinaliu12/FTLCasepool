@@ -37,7 +37,9 @@ export function GroupCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {projectLine ? <LightBadge light={projectLine.light} source={projectLine.source} /> : null}
+        {projectLine && projectLine.light !== null && projectLine.source !== null ? (
+          <LightBadge light={projectLine.light} source={projectLine.source} />
+        ) : null}
         <div>
           <p className="text-xs text-muted-foreground">目前階段</p>
           <p className="text-sm text-foreground">{card.stage}</p>
@@ -61,7 +63,13 @@ export function GroupCard({
               <div key={l.lineId} className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-sm text-foreground">{l.label}</span>
                 <div className="flex items-center gap-2">
-                  <LightBadge light={l.light} source={l.source} />
+                  {/* fix round 1：已結束的線（得獎／未入選——已退出在 dashboard 查詢層就整條
+                      濾掉了）沒有系統燈，改顯示成果徽章。 */}
+                  {l.light !== null && l.source !== null ? (
+                    <LightBadge light={l.light} source={l.source} />
+                  ) : l.status ? (
+                    <Badge variant="secondary">{l.status}</Badge>
+                  ) : null}
                   <span className="text-xs text-muted-foreground">
                     {l.onTime === null ? "—" : `準時 ${Math.round(l.onTime * 100)}%`}
                   </span>

@@ -99,7 +99,9 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
                 <span className="text-foreground">{line.competitionName}</span>
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary">{line.status}</Badge>
-                  <LightBadge light={line.display.light} source={line.display.source} />
+                  {line.light !== null && line.source !== null ? (
+                    <LightBadge light={line.light} source={line.source} />
+                  ) : null}
                   <span className="text-xs text-muted-foreground">
                     {line.onTime === null ? "—" : `準時 ${Math.round(line.onTime * 100)}%`}
                   </span>

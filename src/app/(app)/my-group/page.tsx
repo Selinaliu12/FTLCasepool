@@ -158,7 +158,11 @@ export default async function MyGroupPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-3">
-                    <LightBadge light={line.display.light} source={line.display.source} />
+                    {/* fix round 1：已結束的線（已退出／得獎／未入選）沒有系統燈，上面的狀態
+                        徽章已經說明成果，這裡不再畫 LightBadge。 */}
+                    {line.light !== null && line.source !== null ? (
+                      <LightBadge light={line.light} source={line.source} />
+                    ) : null}
                     <div className="flex flex-col gap-2">
                       {line.stages.map((stage) => (
                         <div
