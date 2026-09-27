@@ -183,7 +183,21 @@ export default async function AdminPage() {
             <CardTitle>專案幹部負責組別</CardTitle>
             <CardDescription>勾選每位專案幹部負責看哪些組。</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-col gap-3">
+            {(() => {
+              const assignedGroupIds = new Set((pmAssignments ?? []).map((a) => a.group_id as string));
+              const unassigned = groupList.filter((g) => !assignedGroupIds.has(g.id as string));
+              if (unassigned.length === 0) return null;
+              return (
+                <ul className="flex flex-col gap-1">
+                  {unassigned.map((g) => (
+                    <li key={g.id as string} role="alert" className="text-sm text-destructive">
+                      {g.name as string}還沒有負責的專案幹部，比賽階段沒人能審核
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
             <PmAssign
               pms={pmList.map((p) => ({ id: p.id as string, name: p.name as string }))}
               groups={groupList.map((g) => ({ id: g.id as string, name: g.name as string }))}

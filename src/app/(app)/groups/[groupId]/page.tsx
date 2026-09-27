@@ -1,7 +1,10 @@
 import { notFound } from "next/navigation";
+import { getAccess } from "@/server/session";
+import { createServiceSupabase } from "@/server/supabase";
 import { loadGroupDetail } from "@/server/queries/group-detail";
 import { LightBadge } from "@/components/light-badge";
 import { PdfDownloadButton } from "@/components/pdf-download-button";
+import { StageReview } from "@/components/stage-review";
 import { CheckinHistory } from "@/components/checkin-history";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +19,22 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
   // 權限看」——loadGroupDetail 已經把角色與 RLS 檢查都做完，這裡只剩下把 null 轉成 404。
   const data = await loadGroupDetail(groupId);
   if (!data) notFound();
+
+  // canReview：這個看的人是不是負責這組的 PM——跟 reviewStage() 的權限檢查同一份資料來源
+  // （pm_assignments），只是這裡只用來決定要不要畫出通過／退回按鈕，不是真正的授權（按下去
+  // 之後 reviewStage() 自己會再檢查一次）。不是 PM 的身分（含管理員、自己組的學生）一律不顯示。
+  const access = await getAccess();
+  let canReview = false;
+  if (access.kind === "ok" && access.member?.role === "pm") {
+    const db = createServiceSupabase();
+    const { data: assignment } = await db
+      .from("pm_assignments")
+      .select("group_id")
+      .eq("pm_member_id", access.member.id)
+      .eq("group_id", groupId)
+      .maybeSingle();
+    canReview = !!assignment;
+  }
 
   const now = new Date();
 
@@ -94,18 +113,30 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
             {data.competitionLines.map((line) => (
               <div
                 key={line.lineId}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--r-sm,12px)] border border-[var(--line,#DEE9F8)] p-3 text-sm"
+                className="flex flex-col gap-3 rounded-[var(--r-sm,12px)] border border-[var(--line,#DEE9F8)] p-3 text-sm"
               >
-                <span className="text-foreground">{line.competitionName}</span>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">{line.status}</Badge>
-                  {line.light !== null && line.source !== null ? (
-                    <LightBadge light={line.light} source={line.source} />
-                  ) : null}
-                  <span className="text-xs text-muted-foreground">
-                    {line.onTime === null ? "—" : `準時 ${Math.round(line.onTime * 100)}%`}
-                  </span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-foreground">{line.competitionName}</span>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">{line.status}</Badge>
+                    {line.light !== null && line.source !== null ? (
+                      <LightBadge light={line.light} source={line.source} />
+                    ) : null}
+                    <span className="text-xs text-muted-foreground">
+                      {line.onTime === null ? "—" : `準時 ${Math.round(line.onTime * 100)}%`}
+                    </span>
+                  </div>
                 </div>
+                {line.stages.map((stage) => {
+                  const stageSubmissions = line.submissions.filter((s) => s.stage === stage.key);
+                  if (stageSubmissions.length === 0) return null;
+                  return (
+                    <div key={stage.key} className="flex flex-col gap-1 border-t border-[var(--line,#DEE9F8)] pt-2">
+                      <span className="font-medium text-foreground">{stage.label}</span>
+                      <StageReview submissions={stageSubmissions} canReview={canReview} />
+                    </div>
+                  );
+                })}
               </div>
             ))}
           </div>

@@ -22,6 +22,7 @@ import type { StageSubmission } from "@/server/queries/entries";
 import { putWithProgress } from "../../periods/[periodId]/report-shared";
 import { requestPdfUpload } from "@/server/actions/upload";
 import { submitStage, replaceStagePdf, withdrawStage } from "@/server/actions/stages";
+import { getStagePdfDownloadUrl } from "@/server/actions/download";
 
 const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
   pending: "待審",
@@ -269,9 +270,12 @@ function StageCard({
         {submissions.length > 0 && (
           <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
             {submissions.map((s) => (
-              <li key={s.id}>
-                第 {s.version} 版 · {REVIEW_STATUS_LABEL[s.reviewStatus]} · {formatTaipei(new Date(s.pdfUploadedAt))}
-                {s.comment && s.reviewStatus === "returned" ? `（${s.comment}）` : ""}
+              <li key={s.id} className="flex flex-wrap items-center gap-2">
+                <span>
+                  第 {s.version} 版 · {REVIEW_STATUS_LABEL[s.reviewStatus]} · {formatTaipei(new Date(s.pdfUploadedAt))}
+                  {s.comment && s.reviewStatus === "returned" ? `（${s.comment}）` : ""}
+                </span>
+                <StageDownloadButton submissionId={s.id} />
               </li>
             ))}
           </ul>
@@ -293,5 +297,34 @@ function StageCard({
         </DialogContent>
       </Dialog>
     </Card>
+  );
+}
+
+// 學生看自己每一版繳交的下載按鈕——跟 PM 審核區（stage-review.tsx）的 DownloadButton 邏輯
+// 一樣（getStagePdfDownloadUrl 是同一個 server action，RLS 讓自己組讀得到自己組的內容），
+// 兩邊各自維護一份小元件，不特地抽共用檔案，避免跨審核／學生兩種情境的耦合。
+function StageDownloadButton({ submissionId }: { submissionId: string }) {
+  const [pending, setPending] = useState(false);
+
+  async function onClick() {
+    setPending(true);
+    try {
+      const result = await getStagePdfDownloadUrl(submissionId);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      window.location.assign(result.url);
+    } catch {
+      toast.error("下載失敗，請再試一次");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <Button type="button" variant="outline" size="sm" disabled={pending} onClick={onClick}>
+      {pending ? "準備中…" : "下載 PDF"}
+    </Button>
   );
 }
