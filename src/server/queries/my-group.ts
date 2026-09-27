@@ -6,13 +6,18 @@ import { systemLight, reporterLight, displayLight, periodLabel } from "@/domain/
 import { onTimeRate } from "@/domain/on-time";
 import { lockedAt } from "@/domain/lock";
 import { mapCheckinHistory, type CheckinHistoryEntry } from "@/domain/checkin-history";
+import { loadCompetitionLinesForGroup, type CompetitionLineSummary } from "@/server/queries/competition-lines";
 
 export type PeriodRow = {
   periodId: string;
   seq: number;
   deadline: Date;
+  suggestion: string | null;
   report: null | { submittedAt: Date; submittedBy: string; light: Light; lockedAt: Date };
 };
+
+// fix round 1 #3/#4：型別跟共用查詢模組（competition-lines.ts）保持同一份，不要各自宣告。
+export type MyGroupCompetitionLine = CompetitionLineSummary;
 
 export type MyGroup = {
   groupName: string;
@@ -23,6 +28,7 @@ export type MyGroup = {
   onTime: number | null;
   latestReport: { light: Light; name: string; at: Date } | null;
   checkins: CheckinHistoryEntry[];
+  competitionLines: MyGroupCompetitionLine[];
 };
 
 // 用 USER-scoped client（createServerSupabase）而不是 service client，讓這裡的每一個
@@ -41,7 +47,7 @@ export async function loadMyGroup(): Promise<MyGroup> {
   const [groupRes, lineRes, periodsRes, semesterRes, membersRes] = await Promise.all([
     supabase.from("groups").select("name, project_name").eq("id", groupId).single(),
     supabase.from("lines").select("id").eq("group_id", groupId).eq("kind", "project").single(),
-    supabase.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq"),
+    supabase.from("periods").select("id, seq, deadline, suggestion").eq("semester_id", semesterId).order("seq"),
     supabase.from("semesters").select("red_after_hours").eq("id", semesterId).single(),
     supabase.from("members").select("email, name").eq("semester_id", semesterId),
   ]);
@@ -88,6 +94,7 @@ export async function loadMyGroup(): Promise<MyGroup> {
       periodId: p.id as string,
       seq: p.seq as number,
       deadline: new Date(p.deadline as string),
+      suggestion: (p.suggestion as string | null) ?? null,
       report: report
         ? {
             submittedAt: new Date(report.pdf_uploaded_at as string),
@@ -141,6 +148,8 @@ export async function loadMyGroup(): Promise<MyGroup> {
     nameByEmail
   );
 
+  const competitionLines = await loadCompetitionLinesForGroup(supabase, groupId, semesterRes.data.red_after_hours as number, now);
+
   return {
     groupName: groupRes.data.name as string,
     projectName: groupRes.data.project_name as string,
@@ -150,5 +159,6 @@ export async function loadMyGroup(): Promise<MyGroup> {
     onTime,
     latestReport,
     checkins: checkinHistory,
+    competitionLines,
   };
 }

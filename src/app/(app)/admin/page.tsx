@@ -43,7 +43,7 @@ export default async function AdminPage() {
     db.from("semesters").select("id, name, red_after_hours").eq("id", semesterId).single(),
     db.from("groups").select("id, name, project_name").eq("semester_id", semesterId).order("name"),
     db.from("members").select("id, name, email, role, group_id").eq("semester_id", semesterId).order("name"),
-    db.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq"),
+    db.from("periods").select("id, seq, deadline, suggestion").eq("semester_id", semesterId).order("seq"),
     db.from("pm_assignments").select("pm_member_id, group_id"),
   ]);
 
@@ -112,6 +112,7 @@ export default async function AdminPage() {
   const initialPeriodRows: PeriodRow[] = periodList.map((p) => ({
     id: p.id as string,
     ...taipeiInputValues(new Date(p.deadline as string)),
+    suggestion: (p.suggestion as string | null) ?? "",
     readOnly: (p.seq as number) <= lastFrozenSeq,
     hasReports: reportedPeriodIds.has(p.id as string),
   }));
@@ -182,7 +183,21 @@ export default async function AdminPage() {
             <CardTitle>專案幹部負責組別</CardTitle>
             <CardDescription>勾選每位專案幹部負責看哪些組。</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-col gap-3">
+            {(() => {
+              const assignedGroupIds = new Set((pmAssignments ?? []).map((a) => a.group_id as string));
+              const unassigned = groupList.filter((g) => !assignedGroupIds.has(g.id as string));
+              if (unassigned.length === 0) return null;
+              return (
+                <ul className="flex flex-col gap-1">
+                  {unassigned.map((g) => (
+                    <li key={g.id as string} role="alert" className="text-sm text-destructive">
+                      {g.name as string}還沒有負責的專案幹部，比賽階段沒人能審核
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
             <PmAssign
               pms={pmList.map((p) => ({ id: p.id as string, name: p.name as string }))}
               groups={groupList.map((g) => ({ id: g.id as string, name: g.name as string }))}

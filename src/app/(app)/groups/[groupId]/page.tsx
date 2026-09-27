@@ -1,7 +1,10 @@
 import { notFound } from "next/navigation";
+import { getAccess } from "@/server/session";
+import { createServiceSupabase } from "@/server/supabase";
 import { loadGroupDetail } from "@/server/queries/group-detail";
 import { LightBadge } from "@/components/light-badge";
 import { PdfDownloadButton } from "@/components/pdf-download-button";
+import { CompetitionLineDetail } from "@/components/competition-line-detail";
 import { CheckinHistory } from "@/components/checkin-history";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatTaipei } from "@/domain/time";
@@ -15,6 +18,22 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
   // 權限看」——loadGroupDetail 已經把角色與 RLS 檢查都做完，這裡只剩下把 null 轉成 404。
   const data = await loadGroupDetail(groupId);
   if (!data) notFound();
+
+  // canReview：這個看的人是不是負責這組的 PM——跟 reviewStage() 的權限檢查同一份資料來源
+  // （pm_assignments），只是這裡只用來決定要不要畫出通過／退回按鈕，不是真正的授權（按下去
+  // 之後 reviewStage() 自己會再檢查一次）。不是 PM 的身分（含管理員、自己組的學生）一律不顯示。
+  const access = await getAccess();
+  let canReview = false;
+  if (access.kind === "ok" && access.member?.role === "pm") {
+    const db = createServiceSupabase();
+    const { data: assignment } = await db
+      .from("pm_assignments")
+      .select("group_id")
+      .eq("pm_member_id", access.member.id)
+      .eq("group_id", groupId)
+      .maybeSingle();
+    canReview = !!assignment;
+  }
 
   const now = new Date();
 
@@ -85,6 +104,17 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
           );
         })}
       </div>
+
+      {data.competitionLines.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2 className="font-heading text-lg font-bold text-foreground">比賽</h2>
+          <div className="flex flex-col gap-2">
+            {data.competitionLines.map((line) => (
+              <CompetitionLineDetail key={line.lineId} line={line} canReview={canReview} now={now} />
+            ))}
+          </div>
+        </div>
+      )}
 
       <CheckinHistory checkins={data.checkins} />
     </main>

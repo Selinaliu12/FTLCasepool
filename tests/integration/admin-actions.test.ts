@@ -294,6 +294,45 @@ describe("savePeriods", () => {
     ]);
   });
 
+  it("每一列的建議內容會存起來；空白字串存成 null", async () => {
+    asAdminNoSemester();
+    const { createSemester, savePeriods } = await import("@/server/actions/admin");
+    const { semesterId } = await createSemester("115-1");
+    asAdmin(semesterId);
+    const r = await savePeriods(semesterId, [
+      { date: "2026-10-01", time: "23:59", suggestion: "這期建議交截圖" },
+      { date: "2026-11-01", time: "23:59", suggestion: "   " },
+    ]);
+    expect(r).toEqual({ ok: true });
+
+    const svc = createServiceSupabase();
+    const { data } = await svc.from("periods").select("seq, suggestion").eq("semester_id", semesterId).order("seq");
+    expect(data).toEqual([
+      { seq: 1, suggestion: "這期建議交截圖" },
+      { seq: 2, suggestion: null },
+    ]);
+  });
+
+  it("已有人交件的期別，建議內容仍可修改；日期不動", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const { savePeriods } = await import("@/server/actions/admin");
+    const r = await savePeriods(seed.semesterId, [
+      { id: seed.periodIds[0], date: "2026-10-01", time: "08:00", suggestion: "凍結期也能改建議" },
+      { id: seed.periodIds[1], date: "2026-11-01", time: "08:00" },
+    ]);
+    expect(r).toEqual({ ok: true });
+
+    const rows = await periodsOf(seed.semesterId);
+    expect(rows[0].deadline).toBe("2026-10-01T00:00:00.000Z");
+    const svc = createServiceSupabase();
+    const { data } = await svc.from("periods").select("id, suggestion").eq("semester_id", seed.semesterId).order("seq");
+    expect(data).toEqual([
+      { id: seed.periodIds[0], suggestion: "凍結期也能改建議" },
+      { id: seed.periodIds[1], suggestion: null },
+    ]);
+  });
+
   it("修改已有人交件的期別被拒，錯誤訊息指出第幾期", async () => {
     const seed = await seedSemester();
     asAdmin(seed.semesterId);

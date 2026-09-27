@@ -33,7 +33,9 @@ describe("PeriodsForm", () => {
     fireEvent.change(screen.getByLabelText("第 1 期日期"), { target: { value: "2026-10-01" } });
     fireEvent.click(screen.getByRole("button", { name: "儲存期別" }));
 
-    await waitFor(() => expect(savePeriods).toHaveBeenCalledWith("s1", [{ date: "2026-10-01", time: "23:59" }]));
+    await waitFor(() =>
+      expect(savePeriods).toHaveBeenCalledWith("s1", [{ date: "2026-10-01", time: "23:59", suggestion: "" }])
+    );
   });
 
   it("已有人交件的期別只能看、不能改或刪，旁邊標「已有人交件」；其他期別照常可編輯", async () => {
@@ -59,9 +61,9 @@ describe("PeriodsForm", () => {
 
     await waitFor(() =>
       expect(savePeriods).toHaveBeenCalledWith("s1", [
-        { id: "p1", date: "2026-10-01", time: "23:59" },
-        { id: "p2", date: "2026-11-15", time: "23:59" },
-        { date: "2026-12-01", time: "23:59" },
+        { id: "p1", date: "2026-10-01", time: "23:59", suggestion: "" },
+        { id: "p2", date: "2026-11-15", time: "23:59", suggestion: "" },
+        { date: "2026-12-01", time: "23:59", suggestion: "" },
       ])
     );
   });
@@ -73,5 +75,24 @@ describe("PeriodsForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "儲存期別" }));
 
     await waitFor(() => expect(screen.getByText("已經有組別交了進度，不能再改期別")).toBeTruthy());
+  });
+
+  it("每列有「建議內容（選填）」多行文字欄；已凍結的列也能編輯建議內容", async () => {
+    render(
+      <PeriodsForm
+        semesterId="s1"
+        initialRows={[{ id: "p1", date: "2026-10-01", time: "23:59", readOnly: true, hasReports: true }]}
+      />
+    );
+
+    const textarea = screen.getByLabelText("第 1 期建議內容（選填）");
+    fireEvent.change(textarea, { target: { value: "這期建議交截圖" } });
+    fireEvent.click(screen.getByRole("button", { name: "儲存期別" }));
+
+    await waitFor(() =>
+      expect(savePeriods).toHaveBeenCalledWith("s1", [
+        { id: "p1", date: "2026-10-01", time: "23:59", suggestion: "這期建議交截圖" },
+      ])
+    );
   });
 });

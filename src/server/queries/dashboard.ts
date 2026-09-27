@@ -1,8 +1,10 @@
 import "server-only";
 import { getAccess } from "@/server/session";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
-import { sortGroupCards, buildGroupCard, type GroupCard } from "@/domain/dashboard";
+import { sortGroupCards, buildGroupCard, foldCompetitionDeadlines, type GroupCard, type GroupCardLine } from "@/domain/dashboard";
 import type { Light } from "@/domain/lights";
+import { nextRequiredStage, formatStageDeadline, type EntryInput, type StageSubmissionInput } from "@/domain/competition-line";
+import { summarizeCompetitionLine } from "@/server/queries/competition-lines";
 
 export type Dashboard = { cards: GroupCard[]; myPmGroupIds: string[] };
 
@@ -57,26 +59,67 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
   // service client 那條路（管理員沒有 member 列），少了 RLS 幫忙擋，撈整張表更沒道理。
   // pm_assignments 只有專案幹部自己需要（用來算 myPmGroupIds），其他幹部／管理員一律是
   // 空陣列，查了也用不到，直接跳過這次查詢。
-  const [linesRes, pmRes] = await Promise.all([
+  const [linesRes, competitionLinesRes, pmRes] = await Promise.all([
     groupIds.length === 0
       ? Promise.resolve({ data: [] as { id: string; group_id: string }[], error: null })
       : db.from("lines").select("id, group_id").eq("kind", "project").in("group_id", groupIds),
+    groupIds.length === 0
+      ? Promise.resolve({ data: [] as { id: string; group_id: string; entry_id: string }[], error: null })
+      : db.from("lines").select("id, group_id, entry_id").eq("kind", "competition").in("group_id", groupIds),
     isPm
       ? db.from("pm_assignments").select("pm_member_id, group_id")
       : Promise.resolve({ data: [] as { pm_member_id: string; group_id: string }[], error: null }),
   ]);
 
   if (linesRes.error) throw linesRes.error;
+  if (competitionLinesRes.error) throw competitionLinesRes.error;
   if (pmRes.error) throw pmRes.error;
 
   const lines = linesRes.data ?? [];
   const lineIds = lines.map((l) => l.id as string);
+  const competitionLines = competitionLinesRes.data ?? [];
+  const competitionLineIds = competitionLines.map((l) => l.id as string);
+  const entryIds = competitionLines.map((l) => l.entry_id as string);
 
-  const { data: eventsData, error: eventsError } =
+  const [eventsRes, entriesRes] = await Promise.all([
     lineIds.length === 0
-      ? { data: [] as { line_id: string; light: Light; at: string; period_id: string | null }[], error: null }
-      : await db.from("line_light_events").select("line_id, light, at, period_id").in("line_id", lineIds);
-  if (eventsError) throw eventsError;
+      ? Promise.resolve({ data: [] as { line_id: string; light: Light; at: string; period_id: string | null }[], error: null })
+      : db.from("line_light_events").select("line_id, light, at, period_id").in("line_id", lineIds),
+    entryIds.length === 0
+      ? Promise.resolve({
+          data: [] as { id: string; confirmed_at: string | null; withdrawn_at: string | null; result: string | null; competition_id: string }[],
+          error: null,
+        })
+      : db.from("competition_entries").select("id, confirmed_at, withdrawn_at, result, competition_id").in("id", entryIds),
+  ]);
+  if (eventsRes.error) throw eventsRes.error;
+  if (entriesRes.error) throw entriesRes.error;
+
+  const entries = entriesRes.data ?? [];
+  const competitionIds = [...new Set(entries.map((e) => e.competition_id as string))];
+
+  const [competitionsRes, stageStatusRes] = await Promise.all([
+    competitionIds.length === 0
+      ? Promise.resolve({
+          data: [] as { id: string; name: string; signup_deadline: string; submission_deadline: string | null; final_date: string | null }[],
+          error: null,
+        })
+      : db.from("competitions").select("id, name, signup_deadline, submission_deadline, final_date").in("id", competitionIds),
+    competitionLineIds.length === 0
+      ? Promise.resolve({ data: [] as { line_id: string; stage: string; version: number; pdf_uploaded_at: string; review_status: string }[], error: null })
+      : db.from("stage_status").select("line_id, stage, version, pdf_uploaded_at, review_status").in("line_id", competitionLineIds),
+  ]);
+  if (competitionsRes.error) throw competitionsRes.error;
+  if (stageStatusRes.error) throw stageStatusRes.error;
+
+  const competitionsById = new Map((competitionsRes.data ?? []).map((c) => [c.id as string, c]));
+  const entriesById = new Map(entries.map((e) => [e.id as string, e]));
+  const stageStatusByLine = new Map<string, { stage: string; version: number; pdf_uploaded_at: string; review_status: string }[]>();
+  for (const row of stageStatusRes.data ?? []) {
+    const arr = stageStatusByLine.get(row.line_id as string) ?? [];
+    arr.push(row);
+    stageStatusByLine.set(row.line_id as string, arr);
+  }
 
   const periods = (periodsRes.data ?? []).map((p) => ({ id: p.id as string, seq: p.seq as number, deadline: new Date(p.deadline as string) }));
   const seqByPeriodId = new Map(periods.map((p) => [p.id, p.seq]));
@@ -88,22 +131,77 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
     if (!line) continue;
 
     const lineId = line.id as string;
-    const lineEvents = (eventsData ?? []).filter((e) => e.line_id === lineId);
+    const lineEvents = (eventsRes.data ?? []).filter((e) => e.line_id === lineId);
     const submissions = lineEvents
       .filter((e) => e.period_id !== null)
       .map((e) => ({ periodSeq: seqByPeriodId.get(e.period_id as string) as number, submittedAt: new Date(e.at) }));
 
-    cards.push(
-      buildGroupCard({
-        group: { id: group.id as string, name: group.name as string, projectName: group.project_name as string },
-        lineId,
-        periods: periods.map((p) => ({ seq: p.seq, deadline: p.deadline })),
-        submissions,
-        events: lineEvents.map((e) => ({ light: e.light, at: new Date(e.at) })),
-        now,
-        redAfterHours,
+    const groupCard = buildGroupCard({
+      group: { id: group.id as string, name: group.name as string, projectName: group.project_name as string },
+      lineId,
+      periods: periods.map((p) => ({ seq: p.seq, deadline: p.deadline })),
+      submissions,
+      events: lineEvents.map((e) => ({ light: e.light, at: new Date(e.at) })),
+      now,
+      redAfterHours,
+    });
+
+    // fix round 1（controller ruling）：已退出的比賽線從看板整個濾掉，不出現在組卡上——不是
+    // 「顯示但沒有燈」，是「這條線跟這組現在的看板無關」。未入選／得獎的線留著，用成果徽章
+    // （得獎／未入選）取代燈號。
+    const groupCompetitionLines = competitionLines
+      .filter((cl) => cl.group_id === group.id)
+      .map((cl) => {
+        const entry = entriesById.get(cl.entry_id as string);
+        const competition = entry ? competitionsById.get(entry.competition_id as string) : undefined;
+        if (!entry || !competition) return null;
+        if (entry.withdrawn_at) return null;
+
+        const stageSubmissions: StageSubmissionInput[] = (stageStatusByLine.get(cl.id as string) ?? []).map((s) => ({
+          stage: s.stage as StageSubmissionInput["stage"],
+          version: s.version,
+          pdfUploadedAt: new Date(s.pdf_uploaded_at),
+          reviewStatus: s.review_status as StageSubmissionInput["reviewStatus"],
+        }));
+
+        const entryInput: EntryInput = {
+          confirmedAt: entry.confirmed_at ? new Date(entry.confirmed_at as string) : null,
+          withdrawnAt: entry.withdrawn_at ? new Date(entry.withdrawn_at as string) : null,
+          result: entry.result as EntryInput["result"],
+        };
+
+        const summary = summarizeCompetitionLine({
+          lineId: cl.id as string,
+          entryId: cl.entry_id as string,
+          competition: {
+            name: competition.name as string,
+            signupDeadline: new Date(competition.signup_deadline as string),
+            submissionDeadline: competition.submission_deadline ? new Date(competition.submission_deadline as string) : null,
+            finalDate: competition.final_date ? new Date(competition.final_date as string) : null,
+          },
+          entry: entryInput,
+          submissions: stageSubmissions,
+          now,
+          redAfterHours,
+        });
+
+        // Final review IMPORTANT 2（規格 4.6）：每條比賽線附上下一個必要、還沒完成的階段截止日。
+        const next = nextRequiredStage(summary.stages);
+        return {
+          lineId: summary.lineId,
+          kind: "competition" as const,
+          label: summary.competitionName,
+          status: summary.status,
+          light: summary.light,
+          source: summary.source,
+          onTime: summary.onTime,
+          nextStage: next ? { label: next.label, at: next.deadline, text: formatStageDeadline(next.deadline, now) } : null,
+        };
       })
-    );
+      .filter((l) => l !== null) as GroupCardLine[];
+
+    groupCard.lines.push(...groupCompetitionLines);
+    cards.push(foldCompetitionDeadlines(groupCard, now));
   }
 
   const myPmGroupIds =

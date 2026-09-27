@@ -1,8 +1,20 @@
 import { periodLabel } from "./lights";
+import { STAGE_LABEL, type StageKey } from "./competition-line";
 
 // 下載檔名「{學期}-{組名}-第{N}期.pdf」（規格 Task 14）。
 export function pdfDownloadName(i: { semesterName: string; groupName: string; seq: number }): string {
   return `${i.semesterName}-${i.groupName}-${periodLabel(i.seq).replace(/\s/g, "")}.pdf`;
+}
+
+// 比賽階段繳交的下載檔名「{學期}-{組名}-{比賽名}-{階段}-v{N}.pdf」（Batch 2 Task 6）。
+export function stageDownloadName(i: {
+  semesterName: string;
+  groupName: string;
+  competitionName: string;
+  stage: StageKey;
+  version: number;
+}): string {
+  return `${i.semesterName}-${i.groupName}-${i.competitionName}-${STAGE_LABEL[i.stage]}-v${i.version}.pdf`;
 }
 
 // Content-Disposition：中文檔名不是合法的 ASCII header 值，RFC 5987 的 filename* 才是瀏覽器

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { worstLight, sortGroupCards, buildGroupCard, formatNextDeadline, type GroupCard } from "./dashboard";
+import {
+  worstLight,
+  sortGroupCards,
+  buildGroupCard,
+  formatNextDeadline,
+  foldCompetitionDeadlines,
+  type GroupCard,
+} from "./dashboard";
 import { systemLight, reporterLight, displayLight, type Deliverable } from "./lights";
 import { onTimeRate } from "./on-time";
 import { daysUntil } from "./time";
@@ -9,7 +16,7 @@ function card(overrides: Partial<GroupCard> = {}): GroupCard {
     groupId: "g1",
     groupName: "第一組",
     projectName: "專案 A",
-    lines: [{ lineId: "l1", kind: "project", light: "green", source: "組員回報", onTime: 1 }],
+    lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "組員回報", onTime: 1 }],
     stage: "第 2 期",
     nextDeadline: null,
     ...overrides,
@@ -20,20 +27,49 @@ describe("worstLight", () => {
   it("回傳卡片中最差的燈號", () => {
     const c = card({
       lines: [
-        { lineId: "l1", kind: "project", light: "green", source: "s", onTime: 1 },
-        { lineId: "l2", kind: "project", light: "red", source: "s", onTime: 0 },
+        { lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "s", onTime: 1 },
+        { lineId: "l2", kind: "project", label: "專案", status: null, light: "red", source: "s", onTime: 0 },
       ],
     });
     expect(worstLight(c)).toBe("red");
+  });
+
+  it("比賽線的燈號也算進最嚴重的燈（不是只看第一條專案線）", () => {
+    const c = card({
+      lines: [
+        { lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "s", onTime: 1 },
+        { lineId: "l2", kind: "competition", label: "黑客松 報名", status: null, light: "red", source: "系統：黑客松 報名逾期 4 天", onTime: 0 },
+      ],
+    });
+    expect(worstLight(c)).toBe("red");
+  });
+
+  // fix round 1（controller ruling）：已結束的線 light 是 null，worstLight 要跳過它，不能
+  // 因為它排在陣列前面就被誤判成「這組沒有燈」。
+  it("已結束的線（light 為 null）不影響最嚴重的燈", () => {
+    const c = card({
+      lines: [
+        { lineId: "l1", kind: "competition", label: "黑客松", status: "得獎", light: null, source: null, onTime: 1 },
+        { lineId: "l2", kind: "project", label: "專案", status: null, light: "yellow", source: "s", onTime: 0.5 },
+      ],
+    });
+    expect(worstLight(c)).toBe("yellow");
+  });
+
+  it("全部線都是 null（例如整組只剩已結束的比賽線）→ 綠燈", () => {
+    const c = card({
+      lines: [{ lineId: "l1", kind: "competition", label: "黑客松", status: "未入選", light: null, source: null, onTime: null }],
+    });
+    expect(worstLight(c)).toBe("green");
   });
 });
 
 describe("sortGroupCards", () => {
   it("紅燈組排最前，其次黃，再來綠；同色依組名", () => {
-    const red = card({ groupId: "r", groupName: "紅組", lines: [{ lineId: "l1", kind: "project", light: "red", source: "s", onTime: 0 }] });
-    const yellow = card({ groupId: "y", groupName: "黃組", lines: [{ lineId: "l1", kind: "project", light: "yellow", source: "s", onTime: 0.5 }] });
-    const greenB = card({ groupId: "gb", groupName: "B組", lines: [{ lineId: "l1", kind: "project", light: "green", source: "s", onTime: 1 }] });
-    const greenA = card({ groupId: "ga", groupName: "A組", lines: [{ lineId: "l1", kind: "project", light: "green", source: "s", onTime: 1 }] });
+    const red = card({ groupId: "r", groupName: "紅組", lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "red", source: "s", onTime: 0 }] });
+    const yellow = card({ groupId: "y", groupName: "黃組", lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "yellow", source: "s", onTime: 0.5 }] });
+    const greenB = card({ groupId: "gb", groupName: "B組", lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "s", onTime: 1 }] });
+    const greenA = card({ groupId: "ga", groupName: "A組", lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "green", source: "s", onTime: 1 }] });
     const input = [greenB, yellow, greenA, red];
     const sorted = sortGroupCards(input);
     expect(sorted.map((c) => c.groupId)).toEqual(["r", "y", "ga", "gb"]);
@@ -48,7 +84,7 @@ describe("sortGroupCards", () => {
   });
 
   it("不改變原本傳入的陣列", () => {
-    const red = card({ groupId: "r", groupName: "紅組", lines: [{ lineId: "l1", kind: "project", light: "red", source: "s", onTime: 0 }] });
+    const red = card({ groupId: "r", groupName: "紅組", lines: [{ lineId: "l1", kind: "project", label: "專案", status: null, light: "red", source: "s", onTime: 0 }] });
     const greenA = card({ groupId: "ga", groupName: "甲組" });
     const input = [greenA, red];
     const copy = [...input];
@@ -78,6 +114,7 @@ describe("buildGroupCard", () => {
     expect(result.nextDeadline).toEqual({
       at: periods[1].deadline,
       daysLeft: daysUntil(periods[1].deadline, now),
+      lineLabel: "專案",
     });
     expect(result.stage).toBe("第 2 期");
   });
@@ -127,7 +164,7 @@ describe("buildGroupCard", () => {
     const expectedOnTime = onTimeRate(deliverables, now);
 
     expect(result.lines).toEqual([
-      { lineId: "l1", kind: "project", light: expectedDisplay.light, source: expectedDisplay.source, onTime: expectedOnTime },
+      { lineId: "l1", kind: "project", label: "專案", status: null, light: expectedDisplay.light, source: expectedDisplay.source, onTime: expectedOnTime },
     ]);
   });
 });
@@ -164,5 +201,71 @@ describe("upcomingPeriod", () => {
   it("全部都截止了 → null", async () => {
     const { upcomingPeriod } = await import("./dashboard");
     expect(upcomingPeriod(periods, new Date("2026-11-01T00:00:00Z"))).toBeNull();
+  });
+});
+
+// Final review IMPORTANT 2：卡片層級的「下一個截止」把比賽線的下一個必要階段也算進去，取所有
+// 還沒結束的線裡最早、而且還沒過的那一個，並標出是哪一條線。
+describe("foldCompetitionDeadlines", () => {
+  const now = new Date("2026-10-10T00:00:00Z");
+  const projectDeadline = new Date("2026-10-16T15:59:59.999Z");
+
+  function base(overrides: Partial<GroupCard> = {}): GroupCard {
+    return {
+      groupId: "g",
+      groupName: "第1組",
+      projectName: "P",
+      lines: [{ lineId: "p", kind: "project", label: "專案", status: null, light: "green", source: "s", onTime: null }],
+      stage: "第 2 期",
+      nextDeadline: { at: projectDeadline, daysLeft: 6, lineLabel: "專案" },
+      ...overrides,
+    };
+  }
+
+  function comp(lineId: string, label: string, at: Date | null, stageLabel = "報名") {
+    return {
+      lineId,
+      kind: "competition" as const,
+      label,
+      status: "準備中" as const,
+      light: "green" as const,
+      source: "系統：沒有欠交",
+      onTime: null,
+      nextStage: at ? { label: stageLabel, at, text: "x" } : null,
+    };
+  }
+
+  it("比賽階段比專案期別早 → 換成比賽，標出比賽名稱＋階段", () => {
+    const card = base();
+    card.lines.push(comp("c1", "黑客松", new Date("2026-10-12T15:59:59.999Z")));
+    expect(foldCompetitionDeadlines(card, now).nextDeadline).toEqual({
+      at: new Date("2026-10-12T15:59:59.999Z"),
+      daysLeft: 2,
+      lineLabel: "黑客松 報名",
+    });
+  });
+
+  it("專案期別比較早 → 維持專案", () => {
+    const card = base();
+    card.lines.push(comp("c1", "黑客松", new Date("2026-10-30T15:59:59.999Z")));
+    expect(foldCompetitionDeadlines(card, now).nextDeadline).toEqual({ at: projectDeadline, daysLeft: 6, lineLabel: "專案" });
+  });
+
+  it("多條比賽線取最早；已經過了的比賽階段不算「下一個」", () => {
+    const card = base({ nextDeadline: null });
+    card.lines.push(comp("c1", "黑客松", new Date("2026-10-05T15:59:59.999Z")));
+    card.lines.push(comp("c2", "創業賽", new Date("2026-10-20T15:59:59.999Z"), "繳件"));
+    card.lines.push(comp("c3", "設計獎", new Date("2026-10-25T15:59:59.999Z")));
+    expect(foldCompetitionDeadlines(card, now).nextDeadline).toEqual({
+      at: new Date("2026-10-20T15:59:59.999Z"),
+      daysLeft: 10,
+      lineLabel: "創業賽 繳件",
+    });
+  });
+
+  it("專案期別都結束、比賽也沒有下一個階段 → null", () => {
+    const card = base({ nextDeadline: null });
+    card.lines.push(comp("c1", "黑客松", null));
+    expect(foldCompetitionDeadlines(card, now).nextDeadline).toBeNull();
   });
 });

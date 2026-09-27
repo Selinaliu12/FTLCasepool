@@ -49,8 +49,18 @@ export async function resetDb(): Promise<void> {
     await client.query("set session_replication_role = replica");
     await client.query("delete from progress_reports");
   });
-  await db.from("periods").delete().neq("id", ZERO_UUID);
+  // stage_submissions（Task 5）上有 stage_submissions_lock trigger（見
+  // 20260927000015_stage_uploads.sql），同一個理由：已鎖定的列會擋掉一般 delete（甚至
+  // lines 的 cascade delete），同樣用 raw pg 連線暫時關掉 trigger 清空。
+  await withRawPg(async (client) => {
+    await client.query("set session_replication_role = replica");
+    await client.query("delete from stage_submissions");
+  });
+  await db.from("entry_members").delete().not("entry_id", "is", null);
   await db.from("lines").delete().neq("id", ZERO_UUID);
+  await db.from("competition_entries").delete().neq("id", ZERO_UUID);
+  await db.from("competitions").delete().neq("id", ZERO_UUID);
+  await db.from("periods").delete().neq("id", ZERO_UUID);
   await db.from("pm_assignments").delete().not("group_id", "is", null);
   await db.from("acknowledgements").delete().not("email", "is", null);
   await db.from("members").delete().neq("id", ZERO_UUID);
@@ -265,6 +275,15 @@ export async function backdatePdfUploadedAt(reportId: string, at: Date): Promise
   await withRawPg(async (client) => {
     await client.query("set session_replication_role = replica");
     await client.query("update progress_reports set pdf_uploaded_at = $1 where id = $2", [at.toISOString(), reportId]);
+  });
+}
+
+// Task 5（比賽階段上傳）測試專用：同上，但改的是 stage_submissions（stage_submissions_lock
+// trigger，見 20260927000015_stage_uploads.sql），不是 progress_reports。
+export async function backdateStageSubmissionUploadedAt(submissionId: string, at: Date): Promise<void> {
+  await withRawPg(async (client) => {
+    await client.query("set session_replication_role = replica");
+    await client.query("update stage_submissions set pdf_uploaded_at = $1 where id = $2", [at.toISOString(), submissionId]);
   });
 }
 

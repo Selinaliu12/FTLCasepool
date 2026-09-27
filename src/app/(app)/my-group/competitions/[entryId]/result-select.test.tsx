@@ -1,0 +1,128 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { ResultSelect } from "./result-select";
+
+const setResult = vi.fn();
+vi.mock("@/server/actions/entries", () => ({ setResult: (...args: unknown[]) => setResult(...args) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+const toastError = vi.fn();
+vi.mock("sonner", () => ({ toast: { error: (...args: unknown[]) => toastError(...args), success: vi.fn() } }));
+
+describe("ResultSelect：比賽結果選單與確認對話框", () => {
+  beforeEach(() => {
+    setResult.mockReset();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("預設依照目前結果選取，四個選項都顯示", () => {
+    render(<ResultSelect entryId="entry-1" result="advanced" signupApproved />);
+    expect(screen.getByText("尚未公布")).toBeTruthy();
+    expect(screen.getByText("晉級")).toBeTruthy();
+    expect(screen.getByText("得獎")).toBeTruthy();
+    expect(screen.getByText("未入選")).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "晉級" })).toHaveProperty("ariaChecked", "true");
+  });
+
+  it("選晉級後按儲存：直接呼叫 setResult，不彈確認對話框", async () => {
+    setResult.mockResolvedValue({ ok: true });
+    render(<ResultSelect entryId="entry-1" result={null} signupApproved />);
+
+    fireEvent.click(screen.getByText("晉級"));
+    fireEvent.click(screen.getByRole("button", { name: "更新結果" }));
+
+    await waitFor(() => expect(setResult).toHaveBeenCalledWith("entry-1", "advanced"));
+    expect(screen.queryByText(/這場比賽會結束/)).toBeNull();
+  });
+
+  it("選得獎後按儲存：彈出確認對話框，說明比賽會結束；按確定才真的呼叫 setResult", async () => {
+    setResult.mockResolvedValue({ ok: true });
+    render(<ResultSelect entryId="entry-1" result={null} signupApproved />);
+
+    fireEvent.click(screen.getByText("得獎"));
+    fireEvent.click(screen.getByRole("button", { name: "更新結果" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("填了得獎或未入選後，這場比賽會結束，之後的階段不用再交。確定嗎？")
+      ).toBeTruthy()
+    );
+    expect(setResult).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "確定" }));
+    await waitFor(() => expect(setResult).toHaveBeenCalledWith("entry-1", "awarded"));
+  });
+
+  it("選未入選後按儲存：彈出同一個確認對話框", async () => {
+    setResult.mockResolvedValue({ ok: true });
+    render(<ResultSelect entryId="entry-1" result={null} signupApproved />);
+
+    fireEvent.click(screen.getByText("未入選"));
+    fireEvent.click(screen.getByRole("button", { name: "更新結果" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("填了得獎或未入選後，這場比賽會結束，之後的階段不用再交。確定嗎？")
+      ).toBeTruthy()
+    );
+  });
+
+  it("確認對話框按再想想：不呼叫 setResult，對話框關閉", async () => {
+    render(<ResultSelect entryId="entry-1" result={null} signupApproved />);
+
+    fireEvent.click(screen.getByText("未入選"));
+    fireEvent.click(screen.getByRole("button", { name: "更新結果" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "再想想" })).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "再想想" }));
+    expect(setResult).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByText(/這場比賽會結束/)).toBeNull());
+  });
+
+  it("儲存失敗時顯示錯誤訊息", async () => {
+    setResult.mockResolvedValue({ ok: false, error: "找不到這筆報名" });
+    render(<ResultSelect entryId="entry-1" result={null} signupApproved />);
+
+    fireEvent.click(screen.getByText("晉級"));
+    fireEvent.click(screen.getByRole("button", { name: "更新結果" }));
+
+    await waitFor(() => expect(screen.getByText("找不到這筆報名")).toBeTruthy());
+  });
+
+  it("改回尚未公布：直接呼叫 setResult(entryId, null)，不彈確認對話框", async () => {
+    setResult.mockResolvedValue({ ok: true });
+    render(<ResultSelect entryId="entry-1" result="awarded" signupApproved />);
+
+    fireEvent.click(screen.getByText("尚未公布"));
+    fireEvent.click(screen.getByRole("button", { name: "更新結果" }));
+
+    await waitFor(() => expect(setResult).toHaveBeenCalledWith("entry-1", null));
+  });
+
+  // Final review minor 3（controller ruling）：報名階段通過（已報名）之前不能填結果——隱藏選單，
+  // 改顯示提示；結果已經有值時仍然顯示選單，讓組員可以清回尚未公布。
+  it("報名階段還沒通過、結果也還沒填：不顯示選單，改顯示提示", () => {
+    render(<ResultSelect entryId="entry-1" result={null} signupApproved={false} />);
+    expect(screen.getByText("報名階段通過後，才能在這裡填比賽結果。")).toBeTruthy();
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.queryByRole("button", { name: "更新結果" })).toBeNull();
+  });
+
+  it("報名階段還沒通過、但結果已經有值：仍然顯示選單（可以清回尚未公布）", () => {
+    render(<ResultSelect entryId="entry-1" result="advanced" signupApproved={false} />);
+    expect(screen.getByRole("button", { name: "更新結果" })).toBeTruthy();
+  });
+
+  // Final review minor 5：setResult 丟出未預期的例外時跳 toast，按鈕恢復可按。
+  it("setResult 丟例外 → toast，按鈕恢復", async () => {
+    toastError.mockReset();
+    setResult.mockRejectedValue(new Error("boom"));
+    render(<ResultSelect entryId="entry-1" result={null} signupApproved />);
+    fireEvent.click(screen.getByText("晉級"));
+    fireEvent.click(screen.getByRole("button", { name: "更新結果" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith("操作失敗，請重試"));
+    expect((screen.getByRole("button", { name: "更新結果" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});

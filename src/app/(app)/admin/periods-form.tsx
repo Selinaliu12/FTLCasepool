@@ -4,14 +4,23 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { savePeriods } from "@/server/actions/admin";
 import { formatTaipei, parseTaipeiDeadline } from "@/domain/time";
 
 // readOnly：這一期已經凍結（已有人交件，或排在已有人交件的期別之前——改它會讓凍結期別的編號位移），
-// 畫面上只顯示、不能改或刪。hasReports：真的有組別交了這一期，旁邊標「已有人交件」。
+// 日期／時間只顯示、不能改或刪。hasReports：真的有組別交了這一期，旁邊標「已有人交件」。
+// suggestion（建議內容）不影響繳交判定，即使 readOnly 也還是可以編輯。
 // 規則的最終判定在資料庫的 save_periods()，這裡只是讓管理員一眼看出哪些不能動。
-export type PeriodRow = { id?: string; date: string; time: string; readOnly?: boolean; hasReports?: boolean };
+export type PeriodRow = {
+  id?: string;
+  date: string;
+  time: string;
+  suggestion?: string;
+  readOnly?: boolean;
+  hasReports?: boolean;
+};
 
 function displayDeadline(row: PeriodRow): string {
   try {
@@ -53,7 +62,11 @@ export function PeriodsForm({ semesterId, initialRows }: { semesterId: string; i
     try {
       const result = await savePeriods(
         semesterId,
-        rows.map((r) => (r.id ? { id: r.id, date: r.date, time: r.time } : { date: r.date, time: r.time }))
+        rows.map((r) =>
+          r.id
+            ? { id: r.id, date: r.date, time: r.time, suggestion: r.suggestion ?? "" }
+            : { date: r.date, time: r.time, suggestion: r.suggestion ?? "" }
+        )
       );
       if (result.ok) {
         setSaved(true);
@@ -76,43 +89,59 @@ export function PeriodsForm({ semesterId, initialRows }: { semesterId: string; i
         <ul className="flex flex-col gap-2">
           {rows.map((row, i) =>
             row.readOnly ? (
-              <li key={row.id ?? i} className="flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="w-12 shrink-0 text-sm text-muted-foreground">第 {i + 1} 期</span>
-                <span className="font-mono text-sm text-foreground">{displayDeadline(row)}</span>
-                {row.hasReports && <Badge variant="secondary">已有人交件</Badge>}
+              <li key={row.id ?? i} className="flex flex-col gap-2">
+                <div className="flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="w-12 shrink-0 text-sm text-muted-foreground">第 {i + 1} 期</span>
+                  <span className="font-mono text-sm text-foreground">{displayDeadline(row)}</span>
+                  {row.hasReports && <Badge variant="secondary">已有人交件</Badge>}
+                </div>
+                <Textarea
+                  aria-label={`第 ${i + 1} 期建議內容（選填）`}
+                  placeholder="建議內容（選填）"
+                  value={row.suggestion ?? ""}
+                  onChange={(e) => updateRow(i, { suggestion: e.target.value })}
+                />
               </li>
             ) : (
-              <li key={row.id ?? i} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <li key={row.id ?? i} className="flex flex-col gap-2">
                 {/* 手機寬：第一行「第 N 期＋刪除」、第二行兩個輸入框各半；sm 以上攤成同一行。 */}
-                <div className="flex items-center justify-between sm:contents">
-                  <span className="w-12 shrink-0 text-sm text-muted-foreground">第 {i + 1} 期</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="sm:order-last"
-                    onClick={() => removeRow(i)}
-                    aria-label={`刪除第 ${i + 1} 期`}
-                  >
-                    刪除
-                  </Button>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="flex items-center justify-between sm:contents">
+                    <span className="w-12 shrink-0 text-sm text-muted-foreground">第 {i + 1} 期</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="sm:order-last"
+                      onClick={() => removeRow(i)}
+                      aria-label={`刪除第 ${i + 1} 期`}
+                    >
+                      刪除
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-1">
+                    <Input
+                      type="date"
+                      aria-label={`第 ${i + 1} 期日期`}
+                      value={row.date}
+                      onChange={(e) => updateRow(i, { date: e.target.value })}
+                      required
+                    />
+                    <Input
+                      type="time"
+                      aria-label={`第 ${i + 1} 期時間`}
+                      value={row.time}
+                      onChange={(e) => updateRow(i, { time: e.target.value })}
+                      required
+                    />
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-1">
-                  <Input
-                    type="date"
-                    aria-label={`第 ${i + 1} 期日期`}
-                    value={row.date}
-                    onChange={(e) => updateRow(i, { date: e.target.value })}
-                    required
-                  />
-                  <Input
-                    type="time"
-                    aria-label={`第 ${i + 1} 期時間`}
-                    value={row.time}
-                    onChange={(e) => updateRow(i, { time: e.target.value })}
-                    required
-                  />
-                </div>
+                <Textarea
+                  aria-label={`第 ${i + 1} 期建議內容（選填）`}
+                  placeholder="建議內容（選填）"
+                  value={row.suggestion ?? ""}
+                  onChange={(e) => updateRow(i, { suggestion: e.target.value })}
+                />
               </li>
             )
           )}
