@@ -191,7 +191,15 @@ export async function moveMember(memberId: string, toGroupId: string): Promise<v
   }
 
   const { error } = await db.from("members").update({ group_id: toGroupId }).eq("id", memberId);
-  if (error) throw error;
+  if (error) {
+    // 上面的預先查詢和這個 update 之間有極小的競速窗口（例如另一個管理員同時把這個人
+    // 搬進同一組）；真的撞上 members_identity_key 唯一索引時，資料庫會回 23505，
+    // 這裡轉成跟預先查詢一樣看得懂的訊息，而不是把 raw error 丟給呼叫端。
+    if (error.code === "23505") {
+      throw new Error(`這位同學已經在${group.name}了`);
+    }
+    throw error;
+  }
 
   revalidatePath("/admin");
 }

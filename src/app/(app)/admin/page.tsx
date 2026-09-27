@@ -238,7 +238,7 @@ export default async function AdminPage() {
               students={studentList.map((s) => ({
                 id: s.id as string,
                 name: s.name as string,
-                studentId: (s.student_id as string | null) ?? null,
+                studentId: s.student_id as string | null,
                 groupName: s.group_id ? groupNameById.get(s.group_id as string) ?? null : null,
               }))}
               groups={groupList.map((g) => ({ id: g.id as string, name: g.name as string }))}

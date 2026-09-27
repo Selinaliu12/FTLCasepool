@@ -1,16 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import fs from "node:fs";
-import { createClient } from "@supabase/supabase-js";
-import { resetDb, seedSemester } from "../integration/helpers";
-import { env } from "../../src/server/env";
-
-// helpers.ts 的 service() 沒有 export；這裡跟它一樣直接用 supabase-js 建一個服務身分的
-// client，不能 import "@/server/supabase"（它頂層 import "server-only"，playwright 的測試
-// 行程不是 Next.js 環境，載入會直接丟例外——跟這個檔案裡其他 helper 避開 "@/server/r2" 是
-// 同一個理由）。
-function createServiceSupabase() {
-  return createClient(env.supabaseUrl, env.supabaseServiceKey, { auth: { persistSession: false } });
-}
+import { resetDb, seedSemester, service } from "../integration/helpers";
 
 // Adjustments Task 2 視覺自我檢查用的截圖腳本：名單匯入區（新欄位說明／placeholder）與換組選單
 // （「姓名（學號）· 第N組」，null 學號顯示「—」）。跟 Task 14 的 manual-screenshots.spec.ts
@@ -46,7 +36,7 @@ test.describe.serial(`adj-t2 視覺自我檢查截圖 round${ROUND}`, () => {
     const seed = await seedSemester();
     // 多補一列：讓同一個人（a1）同時也是第2組的專案生（多列身份），且有學號／系級，
     // 用來檢查換組選單「一個學生身份一個選項」＋「（學號）」的顯示。
-    const svc = createServiceSupabase();
+    const svc = service();
     await svc
       .from("members")
       .update({ student_id: "110701001", dept_year: "資科三" })
@@ -84,7 +74,24 @@ test.describe.serial(`adj-t2 視覺自我檢查截圖 round${ROUND}`, () => {
       await expect(page.getByRole("option", { name: "甲一（110701001）· 第1組" })).toBeVisible();
       await expect(page.getByRole("option", { name: "甲一（110701001）· 第2組" })).toBeVisible();
       await expect(page.getByRole("option", { name: "甲二（—）· 第1組" })).toBeVisible();
-      await page.screenshot({ path: `.screenshots/round${ROUND}-adj-t2-move-member-select-${size.name}.png`, fullPage: true });
+
+      // F1 fix：彈出視窗曾經只跟觸發按鈕一樣寬，導致「甲一（110701001）· 第1組」和
+      // 「…· 第2組」兩個選項的文字被裁掉、長得一模一樣。用 scrollWidth（文字實際需要的
+      // 寬度，不受 overflow 影響）跟 clientWidth（視窗實際可見的寬度）比較：兩者相等（在誤差
+      // 內）代表沒有東西被裁掉；scrollWidth 明顯大於 clientWidth 代表文字被裁切了。
+      const popup = page.locator('[data-slot="select-content"]');
+      const overflow = await popup.evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
+
+      // 彈出視窗變寬之後，不能把整個頁面撐出水平捲軸（尤其是 375 窄螢幕）。
+      const pageOverflowsHorizontally = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      );
+      expect(pageOverflowsHorizontally).toBe(false);
+
+      // fullPage 截圖有時候拍不到用 Portal 掛在 body 外、position 為 fixed 的彈出視窗；
+      // 改拍視窗截圖確保彈出中的選單真的被拍進去。
+      await page.screenshot({ path: `.screenshots/round${ROUND}-adj-t2-move-member-select-${size.name}.png` });
       await page.keyboard.press("Escape");
     });
   }

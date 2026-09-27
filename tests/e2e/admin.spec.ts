@@ -65,8 +65,7 @@ test.describe.serial("管理員設定", () => {
   // §14：舊資料相容——沒有學號的既有成員，換組選單要顯示「—」而不是壞掉。
   test("舊成員沒有學號，換組選單顯示「—」", async ({ page }) => {
     await resetDb();
-    const seed = await seedSemester();
-    void seed;
+    await seedSemester();
 
     await page.goto("/test-login?email=admin@g.nccu.edu.tw");
     await Promise.race([

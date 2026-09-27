@@ -610,6 +610,66 @@ describe("moveMember", () => {
     await expect(moveMember(a1!.id, otherGroup!.id)).rejects.toThrow("目標組別必須在同一個學期");
   });
 
+  // F2：pre-check 跟真正的 update 之間有一個小競速窗口（例如兩個管理員幾乎同時把同一個人
+  // 搬進同一組）。這裡先真的在 DB 插入一列衝突資料，再讓 moveMember 內部那次 pre-check
+  // 查詢騙自己「沒看到衝突」（模擬 pre-check 查完之後、衝突列才出現的時間點），逼它繼續跑到
+  // 真正的 update；update 因為 DB 已經有衝突列，會撞到真正的 members_identity_key 23505。
+  // 確認 moveMember 把這個 23505 轉成跟 pre-check 分支一樣好懂的訊息，而不是把 raw error
+  // 丟給呼叫端。
+  it("update 階段才撞到 23505（競速）時，也回這位同學已經在第N組了，不是 raw error", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const realSvc = createServiceSupabase();
+    const { data: a1 } = await realSvc
+      .from("members")
+      .select("id")
+      .eq("semester_id", seed.semesterId)
+      .eq("email", "a1@g.nccu.edu.tw")
+      .single();
+
+    // 真的讓目標組已經有衝突列（a1 已經是第2組的專案生）。
+    const { error: insertError } = await realSvc
+      .from("members")
+      .insert({ semester_id: seed.semesterId, email: "a1@g.nccu.edu.tw", name: "甲一", role: "student", group_id: seed.groupB });
+    expect(insertError).toBeNull();
+
+    vi.resetModules();
+    vi.doMock("@/server/supabase", () => ({
+      createServiceSupabase: () => {
+        let precheckAnswered = false;
+        return new Proxy(realSvc, {
+          get(target, prop, receiver) {
+            if (prop !== "from") return Reflect.get(target, prop, receiver);
+            return (table: string) => {
+              const builder = (target.from as (t: string) => ReturnType<typeof realSvc.from>)(table);
+              if (table !== "members" || precheckAnswered) return builder;
+              const originalSelect = (builder as unknown as { select: (...a: unknown[]) => unknown }).select.bind(builder);
+              return Object.assign(builder, {
+                select: (...args: unknown[]) => {
+                  const chain = originalSelect(...args) as { maybeSingle: () => Promise<unknown> };
+                  return Object.assign(chain, {
+                    // pre-check 用 maybeSingle()；騙它這次沒查到任何衝突列，模擬 pre-check
+                    // 執行的當下（在真正插入衝突列之前）確實看不到衝突的競速情境。
+                    maybeSingle: async () => {
+                      precheckAnswered = true;
+                      return { data: null, error: null };
+                    },
+                  });
+                },
+              });
+            };
+          },
+        });
+      },
+    }));
+
+    const { moveMember } = await import("@/server/actions/admin");
+    await expect(moveMember(a1!.id, seed.groupB)).rejects.toThrow("這位同學已經在第2組了");
+
+    vi.doUnmock("@/server/supabase");
+    vi.resetModules();
+  });
+
   // §14：moveMember 只搬動那一列。如果這個人在目標組已經有另一列專案生身份，
   // 搬過去會撞 members_identity_key，要回一句看得懂的錯誤，而不是資料庫的 23505。
   it("同一人在目標組已有專案生身份 → 這位同學已經在第N組了", async () => {
@@ -625,5 +685,105 @@ describe("moveMember", () => {
 
     const { moveMember } = await import("@/server/actions/admin");
     await expect(moveMember(a1!.id, seed.groupB)).rejects.toThrow("這位同學已經在第2組了");
+  });
+
+  // F5(b)：moveMember 只搬動被指定的那一列，這個人在其他組的另一列身份要維持原樣
+  // （group_id、student_id、dept_year 都不能被動到）。
+  it("換組後，這個人在其他組的另一列身份不受影響", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const svc = createServiceSupabase();
+    const { data: a1 } = await svc
+      .from("members")
+      .select("id")
+      .eq("semester_id", seed.semesterId)
+      .eq("email", "a1@g.nccu.edu.tw")
+      .single();
+    // 讓 a1 同時也是第2組的專案生（多列身份），這一列跟被搬動的那一列不同 id。
+    const { data: otherRow, error: insertError } = await svc
+      .from("members")
+      .insert({
+        semester_id: seed.semesterId,
+        email: "a1@g.nccu.edu.tw",
+        name: "甲一",
+        role: "student",
+        student_id: "110701001",
+        dept_year: "資科三",
+        group_id: seed.groupB,
+      })
+      .select("id, group_id, student_id, dept_year")
+      .single();
+    expect(insertError).toBeNull();
+
+    // 建第三組，把 a1 原本第1組那一列搬過去；第2組那一列（otherRow）不該被動到。
+    const { data: groupC } = await svc.from("groups").insert({ semester_id: seed.semesterId, name: "第3組", project_name: "專案C" }).select("id").single();
+
+    const { moveMember } = await import("@/server/actions/admin");
+    await moveMember(a1!.id, groupC!.id);
+
+    const { data: movedRow } = await svc.from("members").select("id, group_id").eq("id", a1!.id).single();
+    expect(movedRow?.group_id).toBe(groupC!.id);
+
+    const { data: untouchedRow } = await svc
+      .from("members")
+      .select("id, group_id, student_id, dept_year")
+      .eq("id", otherRow!.id)
+      .single();
+    expect(untouchedRow).toEqual(otherRow);
+  });
+
+  // F3：舊資料相容——沒有學號、系級的既有成員（seedSemester() 種子資料本來就是這樣）換組
+  // 仍要成功，管理員頁名單查詢（select ... student_id ...）也不會被 null 值弄壞。
+  it("成員沒有學號、系級（舊資料）時，換組仍成功，名單查詢也不出錯", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const svc = createServiceSupabase();
+    const { data: a1 } = await svc
+      .from("members")
+      .select("id, student_id, dept_year")
+      .eq("semester_id", seed.semesterId)
+      .eq("email", "a1@g.nccu.edu.tw")
+      .single();
+    expect(a1?.student_id).toBeNull();
+    expect(a1?.dept_year).toBeNull();
+
+    const { moveMember } = await import("@/server/actions/admin");
+    await moveMember(a1!.id, seed.groupB);
+
+    const { data: moved } = await svc.from("members").select("group_id, student_id, dept_year").eq("id", a1!.id).single();
+    expect(moved).toEqual({ group_id: seed.groupB, student_id: null, dept_year: null });
+
+    // 管理員頁換組選單用的查詢（src/app/(app)/admin/page.tsx）：對 null 學號的列也要正常回傳。
+    const { data: roster, error: rosterError } = await svc
+      .from("members")
+      .select("id, name, email, role, student_id, group_id")
+      .eq("semester_id", seed.semesterId)
+      .order("name");
+    expect(rosterError).toBeNull();
+    expect(roster?.some((m) => m.id === a1!.id && m.student_id === null)).toBe(true);
+  });
+});
+
+// F5(a)：members_identity_key 唯一索引要真的擋住 DB 層面的重複身份，不只是靠應用層的
+// pre-check。幹部（role=officer）沒有組別，group_id 是 null；index 用 coalesce 把 null
+// 也當成可比較的值，同一學期、同一信箱、同一角色、group 都是 null 的第二列必須被拒絕。
+describe("members_identity_key 唯一索引", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  it("同一學期、同信箱、同角色（其他幹部）、組別都是 null，插入第二列會被唯一索引擋下來", async () => {
+    const seed = await seedSemester();
+    const svc = createServiceSupabase();
+
+    const { error: firstError } = await svc
+      .from("members")
+      .insert({ semester_id: seed.semesterId, email: "dup-officer@g.nccu.edu.tw", name: "重複幹部", role: "officer", group_id: null });
+    expect(firstError).toBeNull();
+
+    const { error: secondError } = await svc
+      .from("members")
+      .insert({ semester_id: seed.semesterId, email: "dup-officer@g.nccu.edu.tw", name: "重複幹部", role: "officer", group_id: null });
+    expect(secondError?.code).toBe("23505");
   });
 });

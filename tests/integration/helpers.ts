@@ -8,7 +8,7 @@ import type { Access } from "../../src/domain/access";
 // 本機測試專用密碼；正式環境不會用到（test-login route 只在 ENABLE_TEST_LOGIN=true 時開放）。
 export const TEST_PASSWORD = "local-test-password-only!";
 
-function service() {
+export function service() {
   // resetDb／seedSemester／clientAs 都會清空資料表或建立測試帳號，絕對不能不小心對正式站做這些事。
   assertLocalSupabaseUrl(env.supabaseUrl);
   return createClient(env.supabaseUrl, env.supabaseServiceKey, { auth: { persistSession: false } });
