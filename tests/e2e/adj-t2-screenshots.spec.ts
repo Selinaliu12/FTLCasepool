@@ -1,0 +1,91 @@
+import { test, expect, type Page } from "@playwright/test";
+import fs from "node:fs";
+import { createClient } from "@supabase/supabase-js";
+import { resetDb, seedSemester } from "../integration/helpers";
+import { env } from "../../src/server/env";
+
+// helpers.ts 的 service() 沒有 export；這裡跟它一樣直接用 supabase-js 建一個服務身分的
+// client，不能 import "@/server/supabase"（它頂層 import "server-only"，playwright 的測試
+// 行程不是 Next.js 環境，載入會直接丟例外——跟這個檔案裡其他 helper 避開 "@/server/r2" 是
+// 同一個理由）。
+function createServiceSupabase() {
+  return createClient(env.supabaseUrl, env.supabaseServiceKey, { auth: { persistSession: false } });
+}
+
+// Adjustments Task 2 視覺自我檢查用的截圖腳本：名單匯入區（新欄位說明／placeholder）與換組選單
+// （「姓名（學號）· 第N組」，null 學號顯示「—」）。跟 Task 14 的 manual-screenshots.spec.ts
+// 同一套規矩：預設跳過，明確帶 CAPTURE_SCREENSHOTS=1 才會真的執行、把截圖存成檔案。
+//
+//   CAPTURE_SCREENSHOTS=1 npx playwright test tests/e2e/adj-t2-screenshots.spec.ts
+const CAPTURE = process.env.CAPTURE_SCREENSHOTS === "1";
+const ROUND = process.env.SCREENSHOT_ROUND ?? "1";
+
+const SIZES = [
+  { name: "1280", width: 1280, height: 800 },
+  { name: "375", width: 375, height: 812 },
+];
+
+async function loginAndPassWelcome(page: Page, email: string, waitForUrl: RegExp) {
+  await page.goto(`/test-login?email=${email}`);
+  await Promise.race([
+    page.waitForURL(waitForUrl),
+    page.getByRole("button", { name: "我已了解" }).waitFor({ state: "visible" }),
+  ]);
+  if (await page.getByRole("button", { name: "我已了解" }).isVisible().catch(() => false)) {
+    await page.getByRole("button", { name: "我已了解" }).click();
+  }
+  await expect(page).toHaveURL(waitForUrl);
+}
+
+test.describe.serial(`adj-t2 視覺自我檢查截圖 round${ROUND}`, () => {
+  test.skip(!CAPTURE, "手動截圖用；預設跳過。執行方式見檔案開頭註解（CAPTURE_SCREENSHOTS=1）。");
+
+  test.beforeAll(async () => {
+    fs.mkdirSync(".screenshots", { recursive: true });
+    await resetDb();
+    const seed = await seedSemester();
+    // 多補一列：讓同一個人（a1）同時也是第2組的專案生（多列身份），且有學號／系級，
+    // 用來檢查換組選單「一個學生身份一個選項」＋「（學號）」的顯示。
+    const svc = createServiceSupabase();
+    await svc
+      .from("members")
+      .update({ student_id: "110701001", dept_year: "資科三" })
+      .eq("semester_id", seed.semesterId)
+      .eq("email", "a1@g.nccu.edu.tw");
+    await svc.from("members").insert({
+      semester_id: seed.semesterId,
+      email: "a1@g.nccu.edu.tw",
+      name: "甲一",
+      role: "student",
+      student_id: "110701001",
+      dept_year: "資科三",
+      group_id: seed.groupB,
+    });
+  });
+
+  test.afterAll(async () => {
+    await resetDb();
+    await seedSemester();
+  });
+
+  for (const size of SIZES) {
+    test(`名單匯入區（新欄位說明、placeholder）@ ${size.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: size.width, height: size.height });
+      await loginAndPassWelcome(page, "admin@g.nccu.edu.tw", /\/admin$/);
+      await expect(page.getByText("名單匯入")).toBeVisible();
+      await expect(page.getByLabel("貼上名單 CSV")).toBeVisible();
+      await page.screenshot({ path: `.screenshots/round${ROUND}-adj-t2-roster-import-${size.name}.png`, fullPage: true });
+    });
+
+    test(`換組選單（姓名（學號）· 第N組，多身份各一個選項）@ ${size.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: size.width, height: size.height });
+      await loginAndPassWelcome(page, "admin@g.nccu.edu.tw", /\/admin$/);
+      await page.getByLabel("選擇成員").click();
+      await expect(page.getByRole("option", { name: "甲一（110701001）· 第1組" })).toBeVisible();
+      await expect(page.getByRole("option", { name: "甲一（110701001）· 第2組" })).toBeVisible();
+      await expect(page.getByRole("option", { name: "甲二（—）· 第1組" })).toBeVisible();
+      await page.screenshot({ path: `.screenshots/round${ROUND}-adj-t2-move-member-select-${size.name}.png`, fullPage: true });
+      await page.keyboard.press("Escape");
+    });
+  }
+});
