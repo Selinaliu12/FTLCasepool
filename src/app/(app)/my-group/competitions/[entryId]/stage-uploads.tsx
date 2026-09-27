@@ -17,7 +17,7 @@ import {
 import { formatTaipei } from "@/domain/time";
 import { lockedAt } from "@/domain/lock";
 import { validatePdfMeta } from "@/domain/pdf";
-import type { Stage, ReviewStatus } from "@/domain/competition-line";
+import { STAGE_UPLOAD_HINT, type Stage, type ReviewStatus } from "@/domain/competition-line";
 import type { StageSubmission } from "@/server/queries/entries";
 import { putWithProgress } from "../../periods/[periodId]/report-shared";
 import { requestPdfUpload } from "@/server/actions/upload";
@@ -191,6 +191,7 @@ function StageCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
+        <p className="text-sm text-muted-foreground">{STAGE_UPLOAD_HINT[stage.key]}</p>
         {active && activeSubmission && (
           <>
             {active.locked ? (

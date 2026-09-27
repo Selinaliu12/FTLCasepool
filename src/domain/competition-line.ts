@@ -14,6 +14,13 @@ export const STAGE_LABEL: Record<StageKey, StageLabel> = {
   final: "決賽",
 };
 
+// Final review minor 2：每個階段要上傳什麼（規格第 13 節：報名成功證明／送出的作品／決賽簡報）。
+export const STAGE_UPLOAD_HINT: Record<StageKey, string> = {
+  signup: "上傳報名成功證明 PDF",
+  submission: "上傳送出的作品 PDF",
+  final: "上傳決賽簡報 PDF",
+};
+
 export type ReviewStatus = "pending" | "approved" | "returned";
 
 export type EntryResult = "advanced" | "awarded" | "not_selected" | null;

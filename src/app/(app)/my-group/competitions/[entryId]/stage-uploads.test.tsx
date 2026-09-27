@@ -116,6 +116,25 @@ describe("StageUploads", () => {
     expect(screen.getByText(/做得很好/)).toBeTruthy();
   });
 
+  // Final review minor 2：每個階段卡片寫清楚要上傳什麼。
+  it("三個階段各自顯示要上傳的內容", () => {
+    render(
+      <StageUploads
+        entryId="e1"
+        stages={[
+          stage(),
+          stage({ key: "submission", label: "繳件" }),
+          stage({ key: "final", label: "決賽", deadline: null, required: false }),
+        ]}
+        submissions={[]}
+        ended={false}
+      />
+    );
+    expect(screen.getByText("上傳報名成功證明 PDF")).toBeTruthy();
+    expect(screen.getByText("上傳送出的作品 PDF")).toBeTruthy();
+    expect(screen.getByText("上傳決賽簡報 PDF")).toBeTruthy();
+  });
+
   it("比賽已結束、還沒交過：不顯示上傳按鈕，改顯示已結束", () => {
     render(<StageUploads entryId="e1" stages={[stage()]} submissions={[]} ended={true} />);
     expect(screen.queryByRole("button", { name: "上傳" })).toBeNull();
