@@ -16,6 +16,9 @@ const WRONG_GROUP_MEMBER = "只能勾選自己組的專案生";
 const ALREADY_CONFIRMED = "這筆報名已經確認過了";
 const STUDENT_ONLY = "只有專案生可以操作比賽報名";
 
+const RESULT_VALUES = ["advanced", "awarded", "not_selected"] as const;
+type EntryResult = (typeof RESULT_VALUES)[number] | null;
+
 type OkAccess = Extract<Access, { kind: "ok" }>;
 type StudentAccess = OkAccess & { member: NonNullable<OkAccess["member"]> & { groupId: string } };
 
@@ -248,6 +251,49 @@ export async function withdrawEntry(entryId: string): Promise<{ ok: true } | { o
     .from("competition_entries")
     .update({ withdrawn_at: new Date().toISOString() })
     .eq("id", entryId)
+    .is("withdrawn_at", null)
+    .select("id");
+  if (error) throw error;
+  if ((updated ?? []).length === 0) return { ok: false, error: NOT_FOUND };
+
+  revalidatePath(`/my-group/competitions/${entryId}`);
+  revalidatePath("/my-group");
+  revalidatePath("/competitions");
+  return { ok: true };
+}
+
+// 比賽結果：組員可以任意次更正（包含改回 null／尚未公布），效果（結束線、決賽仍必要、
+// 重新開放已結束的線）全部交給既有的純函式（isLineEnded／competitionStages／
+// competitionStatus，見 src/domain/competition-line.ts）處理——這裡只負責原子地寫入
+// competition_entries.result，並且套用跟其他比賽動作一致的權限（只有這組專案生、已按過
+// 我已了解）與統一錯誤訊息（別組、亂填的 id、報名還沒確認、已經退出，全部回「找不到這筆
+// 報名」，不透露細節）。
+//
+// controller ruling 1：用條件式 update（confirmed_at is not null and withdrawn_at is null）
+// 而不是先讀一次再判斷——影響 0 筆的時候回 NOT_FOUND，避免「先讀到還沒退出、真的寫入之前
+// 剛好被取消報名搶先」這種時間窗留下不一致的狀態（跟 withdrawEntry() 的併發防護同一個模式）。
+export async function setResult(
+  entryId: string,
+  result: EntryResult
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const guard = await requireStudent(NOT_FOUND);
+  if (!guard.ok) return guard;
+  const { access } = guard;
+  const notAcknowledged = await acknowledgementRequired(access.semesterId, access.email);
+  if (notAcknowledged) return notAcknowledged;
+
+  if (!isUuid(entryId)) return { ok: false, error: NOT_FOUND };
+  if (result !== null && !(RESULT_VALUES as readonly string[]).includes(result)) {
+    return { ok: false, error: NOT_FOUND };
+  }
+
+  const db = createServiceSupabase();
+  const { data: updated, error } = await db
+    .from("competition_entries")
+    .update({ result })
+    .eq("id", entryId)
+    .eq("group_id", access.member.groupId)
+    .not("confirmed_at", "is", null)
     .is("withdrawn_at", null)
     .select("id");
   if (error) throw error;
