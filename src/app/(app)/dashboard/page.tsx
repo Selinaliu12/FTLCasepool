@@ -1,8 +1,12 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAccess } from "@/server/session";
 import { loadDashboard } from "@/server/queries/dashboard";
+import { loadReviewQueue } from "@/server/queries/review-queue";
 import { worstLight } from "@/domain/dashboard";
 import { GroupCard } from "@/components/group-card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatTaipei } from "@/domain/time";
 
 export default async function DashboardPage() {
   const access = await getAccess();
@@ -19,7 +23,7 @@ export default async function DashboardPage() {
     redirect("/admin");
   }
 
-  const { cards, myPmGroupIds } = await loadDashboard();
+  const [{ cards, myPmGroupIds }, reviewQueue] = await Promise.all([loadDashboard(), loadReviewQueue()]);
   const myPmGroupIdSet = new Set(myPmGroupIds);
   // 看板每張卡的「看內容」連結：規格第 3 節，只有專案幹部與管理員能看進度內容，
   // 其他幹部沒有這個連結（直接打網址會撞到 /groups/[id] 的 404，見 loadGroupDetail）。
@@ -36,6 +40,32 @@ export default async function DashboardPage() {
           紅燈 {counts.red} 組 · 黃燈 {counts.yellow} 組 · 綠燈 {counts.green} 組
         </p>
       </div>
+
+      {access.member?.role === "pm" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>待你審核{reviewQueue.length > 0 ? `（${reviewQueue.length}）` : ""}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {reviewQueue.length === 0 ? (
+              <p className="text-sm text-muted-foreground">目前沒有待審核的繳交</p>
+            ) : (
+              <ul className="flex flex-col gap-2 text-sm">
+                {reviewQueue.map((item) => (
+                  <li key={item.submissionId}>
+                    <Link href={item.href} className="text-primary underline-offset-4 hover:underline">
+                      {item.groupName} · {item.competitionName} · {item.stageLabel}第 {item.version} 版
+                    </Link>
+                    <span className="ml-2 text-muted-foreground">
+                      {formatTaipei(item.uploadedAt)} 上傳 · 已等 {item.waitingDays} 天
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {cards.length === 0 ? (
         <p className="text-sm text-muted-foreground">還沒有組別，請管理員匯入名單</p>

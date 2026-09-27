@@ -3,8 +3,9 @@
 import { getAccess } from "@/server/session";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
 import { presignPdfGet } from "@/server/r2";
-import { pdfDownloadName } from "@/domain/download";
+import { pdfDownloadName, stageDownloadName } from "@/domain/download";
 import { isUuid } from "@/domain/id";
+import type { StageKey } from "@/domain/competition-line";
 
 const NOT_FOUND = "找不到這份進度" as const;
 
@@ -68,5 +69,61 @@ export async function getPdfDownloadUrl(
   });
 
   const url = await presignPdfGet(report.pdf_key as string, downloadName);
+  return { ok: true, url };
+}
+
+// 比賽階段繳交的 PDF 下載——跟 getPdfDownloadUrl 同一套規則：唯讀、不要求「我已了解」，
+// 靠 getAccess() 是不是 "ok" ＋ stage_submissions 的 RLS（can_read_content：is_pm() 或自己組）
+// 決定看不看得到；其他幹部、別組學生讀不到那一列，一律回統一的「找不到這份進度」。管理員
+// （沒有 member 列，或有 member 列但不是學生）走服務身分繞過 RLS。
+export async function getStagePdfDownloadUrl(
+  submissionId: string
+): Promise<{ ok: true; url: string } | { ok: false; error: typeof NOT_FOUND }> {
+  if (!isUuid(submissionId)) return { ok: false, error: NOT_FOUND };
+
+  const access = await getAccess();
+  if (access.kind !== "ok") return { ok: false, error: NOT_FOUND };
+
+  const useService = access.isAdmin && access.member?.role !== "student";
+  const db = useService ? createServiceSupabase() : await createServerSupabase();
+
+  const { data: submission, error } = await db
+    .from("stage_submissions")
+    .select("pdf_key, stage, version, line_id")
+    .eq("id", submissionId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!submission) return { ok: false, error: NOT_FOUND };
+
+  const { data: line, error: lineError } = await db
+    .from("lines")
+    .select("group_id, entry_id")
+    .eq("id", submission.line_id as string)
+    .single();
+  if (lineError) throw lineError;
+
+  const [{ data: group, error: groupError }, { data: entry, error: entryError }] = await Promise.all([
+    db.from("groups").select("name, semester_id").eq("id", line.group_id as string).single(),
+    db.from("competition_entries").select("competition_id").eq("id", line.entry_id as string).single(),
+  ]);
+  if (groupError) throw groupError;
+  if (entryError) throw entryError;
+
+  const [{ data: semester, error: semesterError }, { data: competition, error: competitionError }] = await Promise.all([
+    db.from("semesters").select("name").eq("id", group.semester_id as string).single(),
+    db.from("competitions").select("name").eq("id", entry.competition_id as string).single(),
+  ]);
+  if (semesterError) throw semesterError;
+  if (competitionError) throw competitionError;
+
+  const downloadName = stageDownloadName({
+    semesterName: semester.name as string,
+    groupName: group.name as string,
+    competitionName: competition.name as string,
+    stage: submission.stage as StageKey,
+    version: submission.version as number,
+  });
+
+  const url = await presignPdfGet(submission.pdf_key as string, downloadName);
   return { ok: true, url };
 }

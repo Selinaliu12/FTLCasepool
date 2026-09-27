@@ -1,9 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { pdfDownloadName, contentDisposition } from "./download";
+import { pdfDownloadName, stageDownloadName, contentDisposition } from "./download";
 
 describe("pdfDownloadName", () => {
   it("組成「{學期}-{組名}-第{N}期.pdf」", () => {
     expect(pdfDownloadName({ semesterName: "115-1", groupName: "第1組", seq: 2 })).toBe("115-1-第1組-第2期.pdf");
+  });
+});
+
+describe("stageDownloadName", () => {
+  it("組成「{學期}-{組名}-{比賽名}-{階段}-v{N}.pdf」", () => {
+    expect(
+      stageDownloadName({ semesterName: "115-1", groupName: "第1組", competitionName: "黑客松", stage: "signup", version: 2 })
+    ).toBe("115-1-第1組-黑客松-報名-v2.pdf");
+  });
+
+  it("繳件、決賽階段標籤正確", () => {
+    expect(
+      stageDownloadName({ semesterName: "115-1", groupName: "第1組", competitionName: "黑客松", stage: "submission", version: 1 })
+    ).toBe("115-1-第1組-黑客松-繳件-v1.pdf");
+    expect(
+      stageDownloadName({ semesterName: "115-1", groupName: "第1組", competitionName: "黑客松", stage: "final", version: 3 })
+    ).toBe("115-1-第1組-黑客松-決賽-v3.pdf");
   });
 });
 
