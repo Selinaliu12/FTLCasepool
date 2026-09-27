@@ -2,7 +2,7 @@ import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import fs from "node:fs";
 import { createClient } from "@supabase/supabase-js";
-import { resetDb, seedSemester } from "../integration/helpers";
+import { resetDb, seedSemester, backdateStageSubmissionUploadedAt } from "../integration/helpers";
 
 function serviceSupabase() {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
@@ -74,6 +74,80 @@ async function setupConfirmedEntry(): Promise<{ entryId: string }> {
   return { entryId: entry.id as string };
 }
 
+// fix round 1：locked／returned-with-comment／版本列表這三個畫面狀態，round 1 的截圖沒有涵蓋
+// 到——這裡另外建一個「報名已經鎖定、被退回、留了原因」的第 1 版（同一套流程見
+// tests/e2e/stage-uploads.spec.ts 的「鎖定與版本列表」describe）。
+async function setupReturnedLockedEntry(): Promise<{ entryId: string }> {
+  await resetDb();
+  const seed = await seedSemester({ acknowledged: true });
+  const db = serviceSupabase();
+
+  const { data: competition, error: competitionError } = await db
+    .from("competitions")
+    .insert({
+      semester_id: seed.semesterId,
+      name: "全國大學生黑客松",
+      url: "https://example.com/hackathon",
+      signup_deadline: "2099-12-01T15:59:59.999Z",
+      submission_deadline: "2099-12-15T15:59:59.999Z",
+      final_date: "2099-12-31T15:59:59.999Z",
+      status: "published",
+      created_by: "pm@g.nccu.edu.tw",
+    })
+    .select()
+    .single();
+  if (competitionError) throw competitionError;
+
+  const { data: entry, error: entryError } = await db
+    .from("competition_entries")
+    .insert({
+      group_id: seed.groupA,
+      competition_id: competition.id,
+      created_by: "a1@g.nccu.edu.tw",
+      confirmed_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+  if (entryError) throw entryError;
+
+  const { data: line, error: lineError } = await db
+    .from("lines")
+    .insert({ group_id: seed.groupA, kind: "competition", entry_id: entry.id })
+    .select()
+    .single();
+  if (lineError) throw lineError;
+
+  const { data: submission, error: submissionError } = await db
+    .from("stage_submissions")
+    .insert({
+      line_id: line.id,
+      stage: "signup",
+      version: 1,
+      pdf_key: `115-1/${seed.groupA}/signup-v1.pdf`,
+      pdf_size: 1024,
+      pdf_uploaded_at: new Date().toISOString(),
+      pdf_uploaded_by: "a1@g.nccu.edu.tw",
+      submitted_by: "a1@g.nccu.edu.tw",
+    })
+    .select()
+    .single();
+  if (submissionError) throw submissionError;
+
+  await backdateStageSubmissionUploadedAt(submission.id as string, new Date(Date.now() - 3 * 60 * 60 * 1000));
+  const { error: returnError } = await db
+    .from("stage_submissions")
+    .update({
+      review_status: "returned",
+      reviewed_by: "pm@g.nccu.edu.tw",
+      reviewed_at: new Date().toISOString(),
+      comment: "格式不對，請用官方範本重新輸出",
+    })
+    .eq("id", submission.id);
+  if (returnError) throw returnError;
+
+  return { entryId: entry.id as string };
+}
+
 test.describe(`b2-t5 視覺自我檢查截圖 ${ROUND}`, () => {
   test.skip(!CAPTURE, "手動截圖用；預設跳過。執行方式見檔案開頭註解（CAPTURE_SCREENSHOTS=1）。");
 
@@ -109,6 +183,21 @@ test.describe(`b2-t5 視覺自我檢查截圖 ${ROUND}`, () => {
       await expect(page.getByRole("button", { name: "撤回" })).toBeVisible();
 
       await page.screenshot({ path: `.screenshots/${ROUND}-b2-t5-stage-uploaded-${size.name}.png`, fullPage: true });
+    });
+
+    // fix round 1：鎖定（已通過／等待審核以外的狀態不會顯示換 PDF／撤回）、退回帶原因、
+    // 版本列表——round 1 的兩張截圖沒有涵蓋到這三個狀態，round 2 補上。
+    test(`報名頁：已鎖定、被退回並留了原因，版本列表可以重交 @ ${size.name}`, async ({ page }) => {
+      const { entryId } = await setupReturnedLockedEntry();
+      await page.setViewportSize({ width: size.width, height: size.height });
+      await loginAndPassWelcome(page, "a1@g.nccu.edu.tw", /\/my-group$/);
+      await page.goto(`/my-group/competitions/${entryId}`);
+
+      await expect(page.getByRole("button", { name: "上傳" }).first()).toBeVisible();
+      await expect(page.getByText(/第 1 版 · 已退回/)).toBeVisible();
+      await expect(page.getByText(/格式不對，請用官方範本重新輸出/)).toBeVisible();
+
+      await page.screenshot({ path: `.screenshots/${ROUND}-b2-t5-stage-returned-locked-${size.name}.png`, fullPage: true });
     });
   }
 });

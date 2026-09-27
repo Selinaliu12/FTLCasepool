@@ -170,6 +170,11 @@ function StageCard({
       }
       toast.success("已撤回");
       router.refresh();
+    } catch (err) {
+      // fix round 1（controller ruling 9）：withdrawStage() 本身丟出未預期的例外（網路中斷、
+      // 資料庫暫時打不通等）不該讓使用者看起來像什麼都沒發生——跟 doSubmit／doReplace 的
+      // catch 一樣，用一句訊息告訴使用者，不是靜靜吞掉。
+      toast.error(err instanceof Error ? err.message : "撤回失敗，請重試");
     } finally {
       setWithdrawing(false);
       setWithdrawOpen(false);
@@ -199,27 +204,34 @@ function StageCard({
                   已上傳第 {active.version} 版 · {REVIEW_STATUS_LABEL[active.status]} · 可修改到{" "}
                   {formatTaipei(lockedAt(new Date(activeSubmission.pdfUploadedAt)))}
                 </p>
-                <p className="text-sm text-[color:var(--warn,#8A5300)]">⚠️ 替換檔案後，繳交時間以新檔案為準。</p>
+                {/* controller ruling 6（fix round 1）：線已結束時，換 PDF 會被 replaceStagePdf
+                    擋下來（ENDED_ERROR）——不顯示這個按鈕，不讓使用者點了才發現不能用；撤回仍然
+                    允許（withdrawStage 對已結束的線不擋 pending、還沒鎖定的版本），按鈕留著。 */}
+                {!ended && <p className="text-sm text-[color:var(--warn,#8A5300)]">⚠️ 替換檔案後，繳交時間以新檔案為準。</p>}
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={uploading}
-                    onClick={() => replaceInputRef.current?.click()}
-                  >
-                    換 PDF
-                  </Button>
+                  {!ended && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={uploading}
+                      onClick={() => replaceInputRef.current?.click()}
+                    >
+                      換 PDF
+                    </Button>
+                  )}
                   <Button type="button" variant="destructive" disabled={uploading} onClick={() => setWithdrawOpen(true)}>
                     撤回
                   </Button>
-                  <input
-                    ref={replaceInputRef}
-                    type="file"
-                    accept="application/pdf"
-                    className="hidden"
-                    onChange={onPickForReplace}
-                    aria-label={`${stage.label} 換 PDF`}
-                  />
+                  {!ended && (
+                    <input
+                      ref={replaceInputRef}
+                      type="file"
+                      accept="application/pdf"
+                      className="hidden"
+                      onChange={onPickForReplace}
+                      aria-label={`${stage.label} 換 PDF`}
+                    />
+                  )}
                 </div>
               </>
             )}

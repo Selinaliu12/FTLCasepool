@@ -98,4 +98,22 @@ describe("StageUploads", () => {
     expect(screen.queryByRole("button", { name: "上傳" })).toBeNull();
     expect(screen.getByText("這場比賽已經結束")).toBeTruthy();
   });
+
+  // controller ruling 6（fix round 1）：線已結束、但還有一版 pending 且還沒鎖定——撤回仍然
+  // 允許（withdrawStage 不擋），換 PDF 不允許（replaceStagePdf 擋），按鈕要分開處理。
+  it("比賽已結束、有一版 pending 且還沒鎖定：隱藏換 PDF，保留撤回", () => {
+    const submissions: StageSubmission[] = [
+      { id: "s1", stage: "signup", version: 1, reviewStatus: "pending", pdfUploadedAt: new Date().toISOString(), comment: null },
+    ];
+    render(
+      <StageUploads
+        entryId="e1"
+        stages={[stage({ latest: { version: 1, status: "pending", locked: false } })]}
+        submissions={submissions}
+        ended={true}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "換 PDF" })).toBeNull();
+    expect(screen.getByRole("button", { name: "撤回" })).toBeTruthy();
+  });
 });
