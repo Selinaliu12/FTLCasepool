@@ -10,13 +10,12 @@ import { MAX_PDF_BYTES } from "@/domain/pdf";
 import { inspectUploaded, deleteObject } from "@/server/r2";
 import { isLineEnded, STAGE_KEYS, type StageKey } from "@/domain/competition-line";
 import type { Access } from "@/domain/access";
+import { STAGE_ERRORS, mapSubmitStageError, mapReplaceStageError, mapWithdrawStageError } from "@/domain/stage-errors";
 
-const NOT_FOUND = "找不到這筆繳交";
-const UPLOAD_FAILED = "檔案沒有上傳成功，請重新選擇 PDF";
-const LOCKED_ERROR = "已超過 2 小時，已鎖定不能修改";
-const ENDED_ERROR = "這場比賽已經結束，不能再上傳";
-const STAGE_ACTIVE_ERROR = "這個階段已經交了，等審核結果或被退回後再重交";
-const STALE_WRITE_ERROR = "這個階段的繳交剛剛被組員改過，請重新整理";
+const NOT_FOUND = STAGE_ERRORS.notFound;
+const UPLOAD_FAILED = STAGE_ERRORS.uploadFailed;
+const LOCKED_ERROR = STAGE_ERRORS.locked;
+const ENDED_ERROR = STAGE_ERRORS.ended;
 
 const REVIEW_COMMENT_REQUIRED = "退回請寫原因";
 const REVIEW_NOT_LOCKED = "還在 2 小時可修改時間內，鎖定後才能審核";
@@ -180,29 +179,13 @@ export async function submitStage(
   });
 
   if (rpcError) {
-    if (rpcError.message.includes("stage_active")) {
-      await deleteObject(pdfKey).catch(() => {});
-      return { ok: false, error: STAGE_ACTIVE_ERROR };
-    }
-    if (rpcError.message.includes("ended")) {
-      // 應用層（loadLineForEntry）已經先擋過一次已結束的線；這裡是 RPC 內部再檢查一次撞到的
-      // 時間窗（檢查完、真的送出之前，隊友剛好取消報名／填了結果）。這時候票務檢查已經證明
-      // pdfKey 是呼叫者自己的，要刪掉這個孤兒物件。
-      await deleteObject(pdfKey).catch(() => {});
-      return { ok: false, error: ENDED_ERROR };
-    }
-    if (rpcError.code === "23505") {
-      // 撞到部分唯一索引（併發送出同一階段）：走到這裡，票務檢查已經證明 pdfKey 是呼叫者
-      // 自己申請、還沒用掉的——這次請求沒有真的把它用掉（insert 整個回滾），是孤兒物件，要刪。
-      await deleteObject(pdfKey).catch(() => {});
-      return { ok: false, error: STAGE_ACTIVE_ERROR };
-    }
-    if (rpcError.message.includes("invalid_ticket")) {
-      // 票被搶先用掉：這次請求沒有真的用上這把 key，不該去刪它——它可能是別的併發請求真正
-      // 用掉的那份。
-      return { ok: false, error: STAGE_ACTIVE_ERROR };
-    }
-    throw rpcError;
+    // Final review minor 11：精確比對＋23505 只認階段的兩個唯一限制，見 domain/stage-errors.ts。
+    // deleteUpload：票務檢查已經證明 pdfKey 是呼叫者自己的、這次又沒有被用上（孤兒物件）才刪；
+    // 票被搶先用掉（invalid_ticket）或撞到別的限制時不刪——那把 key 可能是別人真正用掉的。
+    const mapped = mapSubmitStageError(rpcError);
+    if (!mapped) throw rpcError;
+    if (mapped.deleteUpload) await deleteObject(pdfKey).catch(() => {});
+    return { ok: false, error: mapped.error };
   }
 
   revalidatePath(`/my-group/competitions/${entryId}`);
@@ -263,28 +246,11 @@ export async function replaceStagePdf(
   });
 
   if (rpcError) {
-    if (rpcError.message.includes("LOCKED")) {
-      await deleteObject(pdfKey).catch(() => {});
-      return { ok: false, error: LOCKED_ERROR };
-    }
-    if (rpcError.message.includes("stale_write")) {
-      await deleteObject(pdfKey).catch(() => {});
-      return { ok: false, error: STALE_WRITE_ERROR };
-    }
-    if (rpcError.message.includes("submission_not_found")) {
-      await deleteObject(pdfKey).catch(() => {});
-      return { ok: false, error: NOT_FOUND };
-    }
-    if (rpcError.message.includes("ended")) {
-      // 跟 submitStage 同一個理由：這是 RPC 內部再檢查一次撞到的時間窗，應用層
-      // （loadOwnedSubmission）已經先擋過一次。
-      await deleteObject(pdfKey).catch(() => {});
-      return { ok: false, error: ENDED_ERROR };
-    }
-    if (rpcError.code === "23505" || rpcError.message.includes("invalid_ticket")) {
-      return { ok: false, error: UPLOAD_FAILED };
-    }
-    throw rpcError;
+    // Final review minor 11：精確比對（以前 includes("LOCKED") 也會吃到 NOT_LOCKED）。
+    const mapped = mapReplaceStageError(rpcError);
+    if (!mapped) throw rpcError;
+    if (mapped.deleteUpload) await deleteObject(pdfKey).catch(() => {});
+    return { ok: false, error: mapped.error };
   }
 
   // 舊檔在資料庫成功換成新檔之後才刪，不是之前——RPC 已經用 pdf_key = p_old_key 確認過
@@ -313,9 +279,9 @@ export async function withdrawStage(submissionId: string): Promise<{ ok: true } 
 
   const { data: deletedKey, error: rpcError } = await db.rpc("withdraw_stage", { p_submission_id: submissionId });
   if (rpcError) {
-    if (rpcError.message.includes("LOCKED")) return { ok: false, error: LOCKED_ERROR };
-    if (rpcError.message.includes("submission_not_found")) return { ok: false, error: NOT_FOUND };
-    throw rpcError;
+    const mapped = mapWithdrawStageError(rpcError);
+    if (!mapped) throw rpcError;
+    return { ok: false, error: mapped };
   }
   if (!deletedKey) return { ok: false, error: NOT_FOUND };
 
