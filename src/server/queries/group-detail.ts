@@ -7,7 +7,11 @@ import { onTimeRate } from "@/domain/on-time";
 import { submissionTiming } from "@/domain/progress";
 import { mapCheckinHistory, type CheckinHistoryEntry } from "@/domain/checkin-history";
 import { isUuid } from "@/domain/id";
+import { sortMembersByName } from "@/domain/dashboard";
 import { loadCompetitionLinesForGroup, type CompetitionLineSummary } from "@/server/queries/competition-lines";
+
+// /groups/[id]：姓名、學號、系級——這裡跟管理員頁是唯二顯示學號的地方（規格 §14 第 1 點）。
+export type GroupDetailMember = { name: string; studentId: string | null; deptYear: string | null };
 
 export type GroupDetailPeriod = {
   seq: number;
@@ -27,7 +31,15 @@ export type GroupDetailPeriod = {
 };
 
 export type GroupDetail = {
-  group: { id: string; name: string; projectName: string };
+  group: {
+    id: string;
+    name: string;
+    projectName: string | null;
+    note: string | null;
+    noteUpdatedBy: string | null;
+    noteUpdatedAt: Date | null;
+    members: GroupDetailMember[];
+  };
   display: { light: Light; source: string };
   onTime: number | null;
   periods: GroupDetailPeriod[];
@@ -66,12 +78,19 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
   const db = useService ? createServiceSupabase() : await createServerSupabase();
   const semesterId = access.semesterId;
 
-  const [groupRes, lineRes, periodsRes, semesterRes, membersRes] = await Promise.all([
-    db.from("groups").select("id, name, project_name").eq("id", groupId).eq("semester_id", semesterId).maybeSingle(),
+  const [groupRes, lineRes, periodsRes, semesterRes, membersRes, groupMembersRes] = await Promise.all([
+    db
+      .from("groups")
+      .select("id, name, project_name, note, note_updated_by, note_updated_at")
+      .eq("id", groupId)
+      .eq("semester_id", semesterId)
+      .maybeSingle(),
     db.from("lines").select("id").eq("group_id", groupId).eq("kind", "project").maybeSingle(),
     db.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq"),
     db.from("semesters").select("red_after_hours").eq("id", semesterId).single(),
     db.from("members").select("email, name").eq("semester_id", semesterId),
+    // 這組組員的姓名、學號、系級——規格 §14 第 1、7 點，跟看板卡片／my-group 不同，這裡要含學號。
+    db.from("members").select("name, student_id, dept_year").eq("group_id", groupId).eq("role", "student"),
   ]);
 
   if (groupRes.error) throw groupRes.error;
@@ -79,6 +98,7 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
   if (periodsRes.error) throw periodsRes.error;
   if (semesterRes.error) throw semesterRes.error;
   if (membersRes.error) throw membersRes.error;
+  if (groupMembersRes.error) throw groupMembersRes.error;
 
   // 其他幹部、別組學生在 !useService 分支已經被擋掉；這裡的 null 涵蓋「groupId 亂填」或
   // RLS 擋下（理論上不會發生在通過上面檢查的角色，屬於防禦性檢查）兩種情況。
@@ -154,11 +174,23 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
 
   const competitionLines = await loadCompetitionLinesForGroup(db, groupId, semesterRes.data.red_after_hours as number, now);
 
+  const members = sortMembersByName(
+    (groupMembersRes.data ?? []).map((m) => ({
+      name: m.name as string,
+      studentId: (m.student_id as string | null) ?? null,
+      deptYear: (m.dept_year as string | null) ?? null,
+    }))
+  );
+
   return {
     group: {
       id: groupRes.data.id as string,
       name: groupRes.data.name as string,
-      projectName: groupRes.data.project_name as string,
+      projectName: (groupRes.data.project_name as string | null) ?? null,
+      note: (groupRes.data.note as string | null) ?? null,
+      noteUpdatedBy: (groupRes.data.note_updated_by as string | null) ?? null,
+      noteUpdatedAt: groupRes.data.note_updated_at ? new Date(groupRes.data.note_updated_at as string) : null,
+      members,
     },
     display,
     onTime,
