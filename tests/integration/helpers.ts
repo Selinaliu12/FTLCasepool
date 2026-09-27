@@ -49,6 +49,7 @@ export async function resetDb(): Promise<void> {
     await client.query("set session_replication_role = replica");
     await client.query("delete from progress_reports");
   });
+  await db.from("competitions").delete().neq("id", ZERO_UUID);
   await db.from("periods").delete().neq("id", ZERO_UUID);
   await db.from("lines").delete().neq("id", ZERO_UUID);
   await db.from("pm_assignments").delete().not("group_id", "is", null);
