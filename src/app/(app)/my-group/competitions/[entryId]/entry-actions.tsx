@@ -76,6 +76,7 @@ export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemb
   const [pending, setPending] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [editing, setEditing] = useState(false);
 
   function toggle(id: string, checked: boolean) {
@@ -128,6 +129,25 @@ export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemb
       }
       setWithdrawOpen(false);
       toast.success("已取消報名");
+      router.push("/my-group");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  // Final review minor 4：還沒確認的報名可以「移除」——withdrawEntry() 對未確認的報名是整筆
+  // 刪除（controller ruling：把未確認的取消當移除），移除後可以重新掛同一場。
+  async function onRemove() {
+    setPending(true);
+    try {
+      const result = await withdrawEntry(entry.entryId);
+      if (!result.ok) {
+        setError(result.error);
+        toast.error(result.error);
+        return;
+      }
+      setRemoveOpen(false);
+      toast.success("已移除");
       router.push("/my-group");
     } finally {
       setPending(false);
@@ -226,9 +246,29 @@ export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemb
 
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
-      <Button type="button" className="self-start" onClick={() => setConfirmOpen(true)} disabled={pending}>
-        確認報名
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" onClick={() => setConfirmOpen(true)} disabled={pending}>
+          確認報名
+        </Button>
+        <Button type="button" variant="outline" onClick={() => setRemoveOpen(true)} disabled={pending}>
+          移除
+        </Button>
+      </div>
+
+      <Dialog open={removeOpen} onOpenChange={setRemoveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>確定要移除這場比賽嗎？</DialogTitle>
+            <DialogDescription>還沒確認報名，移除後這場比賽會從你們組拿掉，之後可以再從競賽大廳重新掛。</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" disabled={pending} />}>再想想</DialogClose>
+            <Button type="button" variant="destructive" onClick={onRemove} disabled={pending}>
+              {pending ? "處理中…" : "確定移除"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>

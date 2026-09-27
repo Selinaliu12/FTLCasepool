@@ -11,7 +11,10 @@ vi.mock("@/server/actions/entries", () => ({
   confirmEntry: (...args: unknown[]) => confirmEntry(...args),
   withdrawEntry: (...args: unknown[]) => withdrawEntry(...args),
 }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
+const push = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push }) }));
+const toastError = vi.fn();
+vi.mock("sonner", () => ({ toast: { error: (...args: unknown[]) => toastError(...args), success: vi.fn() } }));
 
 function confirmedEntryWithMovedOutMember(): EntryDetail {
   return {
@@ -120,3 +123,45 @@ describe("EntryActions：換組成員與編輯參賽成員", () => {
     expect(screen.getByText("甲一、（已不在名單）")).toBeTruthy();
   });
 });
+
+function unconfirmedEntry(): EntryDetail {
+  return {
+    ...confirmedEntryWithMovedOutMember(),
+    status: "unconfirmed",
+    confirmedAt: null,
+    selectedMemberIds: [],
+    selectedMembers: [],
+  };
+}
+
+// Final review minor 4：還沒確認的報名可以「移除」（withdrawEntry 對未確認的報名是整筆刪除），
+// 要先跳確認對話框。
+describe("EntryActions：移除未確認的報名", () => {
+  beforeEach(() => {
+    withdrawEntry.mockReset();
+    push.mockReset();
+    toastError.mockReset();
+  });
+  afterEach(() => cleanup());
+
+  it("按移除先跳確認對話框，確定後呼叫 withdrawEntry 並回到我的組", async () => {
+    withdrawEntry.mockResolvedValue({ ok: true });
+    render(<EntryActions entry={unconfirmedEntry()} myMemberId="a1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "移除" }));
+    expect(withdrawEntry).not.toHaveBeenCalled();
+    expect(screen.getByText("確定要移除這場比賽嗎？")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "確定移除" }));
+    await waitFor(() => expect(withdrawEntry).toHaveBeenCalledWith("entry-1"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/my-group"));
+  });
+
+  it("確認對話框按再想想：不呼叫 withdrawEntry", () => {
+    render(<EntryActions entry={unconfirmedEntry()} myMemberId="a1" />);
+    fireEvent.click(screen.getByRole("button", { name: "移除" }));
+    fireEvent.click(screen.getByRole("button", { name: "再想想" }));
+    expect(withdrawEntry).not.toHaveBeenCalled();
+  });
+});
+
