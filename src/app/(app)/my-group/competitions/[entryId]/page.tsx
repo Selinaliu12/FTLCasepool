@@ -6,6 +6,7 @@ import { ENTRY_STATUS_LABEL } from "@/domain/entries";
 import { isLineEnded } from "@/domain/competition-line";
 import { EntryActions } from "./entry-actions";
 import { StageUploads } from "./stage-uploads";
+import { ResultSelect } from "./result-select";
 
 export default async function EntryPage({ params }: { params: Promise<{ entryId: string }> }) {
   const { entryId } = await params;
@@ -40,6 +41,20 @@ export default async function EntryPage({ params }: { params: Promise<{ entryId:
           <EntryActions entry={entry} myMemberId={myMemberId} />
         </CardContent>
       </Card>
+
+      {/* 填比賽結果：只要報名已確認、還沒退出就能填／更正（包含比賽已經結束之後還想更正，
+          例如得獎改回晉級——controller ruling 2 明確允許重新開放線），跟 setResult() 的權限
+          條件一致（confirmed_at is not null and withdrawn_at is null）。 */}
+      {entry.status === "in_progress" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-medium">比賽結果</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResultSelect entryId={entry.entryId} result={entry.result} />
+          </CardContent>
+        </Card>
+      )}
 
       {entry.lineId && (
         <StageUploads
