@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { attachCompetition } from "@/server/actions/entries";
 
+const UNEXPECTED_ERROR = "操作失敗，請重試";
+
 // 大廳卡片上的「掛到我們組」／「已掛到你們組」按鈕：只有學生（有組）才會看到這顆按鈕
 // （page.tsx 只在 isStudent 時才傳這個元件進來）。已經掛過的直接顯示連結，不用再按。
 export function AttachCompetitionButton({ competitionId, entryId }: { competitionId: string; entryId: string | null }) {
@@ -34,6 +36,10 @@ export function AttachCompetitionButton({ competitionId, entryId }: { competitio
       }
       toast.success("已掛到你們組");
       router.push(`/my-group/competitions/${result.entryId}`);
+    } catch {
+      // Final review minor 5：server action 丟出未預期的例外（網路中斷等）時跳 toast，不要靜靜吞掉；
+      // 不顯示 err.message——production 的 server action 例外訊息會被遮掉，沒有意義。
+      toast.error(UNEXPECTED_ERROR);
     } finally {
       setPending(false);
     }

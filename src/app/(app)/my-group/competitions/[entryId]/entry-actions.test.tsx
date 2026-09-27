@@ -165,3 +165,37 @@ describe("EntryActions：移除未確認的報名", () => {
   });
 });
 
+// Final review minor 5：server action 丟出未預期的例外（網路中斷等）時要跳 toast，不能靜靜吞掉。
+describe("EntryActions：例外時跳 toast", () => {
+  beforeEach(() => {
+    confirmEntry.mockReset();
+    setEntryMembers.mockReset();
+    withdrawEntry.mockReset();
+    toastError.mockReset();
+  });
+  afterEach(() => cleanup());
+
+  it("確認報名丟例外 → toast", async () => {
+    confirmEntry.mockRejectedValue(new Error("boom"));
+    render(<EntryActions entry={unconfirmedEntry()} myMemberId="a1" />);
+    fireEvent.click(screen.getByRole("button", { name: "確認報名" }));
+    fireEvent.click(screen.getByRole("button", { name: "確定" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith("操作失敗，請重試"));
+  });
+
+  it("儲存參賽成員丟例外 → toast", async () => {
+    setEntryMembers.mockRejectedValue(new Error("boom"));
+    render(<EntryActions entry={confirmedEntryWithMovedOutMember()} myMemberId="a1" />);
+    fireEvent.click(screen.getByRole("button", { name: "編輯參賽成員" }));
+    fireEvent.click(screen.getByRole("button", { name: "儲存" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith("操作失敗，請重試"));
+  });
+
+  it("取消報名丟例外 → toast", async () => {
+    withdrawEntry.mockRejectedValue(new Error("boom"));
+    render(<EntryActions entry={confirmedEntryWithMovedOutMember()} myMemberId="a1" />);
+    fireEvent.click(screen.getByRole("button", { name: "取消報名" }));
+    fireEvent.click(screen.getByRole("button", { name: "確定取消報名" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith("操作失敗，請重試"));
+  });
+});

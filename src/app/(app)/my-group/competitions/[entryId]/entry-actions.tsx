@@ -17,6 +17,8 @@ import {
 import { confirmEntry, withdrawEntry, setEntryMembers } from "@/server/actions/entries";
 import type { EntryDetail } from "@/server/queries/entries";
 
+const UNEXPECTED_ERROR = "操作失敗，請重試";
+
 // 已經確認過的參賽成員清單：換組的人不會消失，標成「（已換組）」（controller ruling，
 // fix round 1）——不然看起來像這個人從沒參加過這場比賽。fix round 2（cosmetic）：如果
 // entry_members 指到的那筆 member 整列都不在了（不是換組，是真的查不到名字），movedOut 還是
@@ -96,6 +98,10 @@ export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemb
       setConfirmOpen(false);
       toast.success("已確認報名");
       router.refresh();
+    } catch {
+      // Final review minor 5：server action 丟出未預期的例外（網路中斷等）時跳 toast，不要靜靜吞掉；
+      // 不顯示 err.message——production 的 server action 例外訊息會被遮掉，沒有意義。
+      toast.error(UNEXPECTED_ERROR);
     } finally {
       setPending(false);
     }
@@ -113,6 +119,10 @@ export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemb
       setEditing(false);
       toast.success("已更新參賽成員");
       router.refresh();
+    } catch {
+      // Final review minor 5：server action 丟出未預期的例外（網路中斷等）時跳 toast，不要靜靜吞掉；
+      // 不顯示 err.message——production 的 server action 例外訊息會被遮掉，沒有意義。
+      toast.error(UNEXPECTED_ERROR);
     } finally {
       setPending(false);
     }
@@ -130,6 +140,10 @@ export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemb
       setWithdrawOpen(false);
       toast.success("已取消報名");
       router.push("/my-group");
+    } catch {
+      // Final review minor 5：server action 丟出未預期的例外（網路中斷等）時跳 toast，不要靜靜吞掉；
+      // 不顯示 err.message——production 的 server action 例外訊息會被遮掉，沒有意義。
+      toast.error(UNEXPECTED_ERROR);
     } finally {
       setPending(false);
     }
@@ -149,6 +163,10 @@ export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemb
       setRemoveOpen(false);
       toast.success("已移除");
       router.push("/my-group");
+    } catch {
+      // Final review minor 5：server action 丟出未預期的例外（網路中斷等）時跳 toast，不要靜靜吞掉；
+      // 不顯示 err.message——production 的 server action 例外訊息會被遮掉，沒有意義。
+      toast.error(UNEXPECTED_ERROR);
     } finally {
       setPending(false);
     }

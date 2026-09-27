@@ -17,6 +17,8 @@ import {
 import { setResult } from "@/server/actions/entries";
 import type { EntryResult } from "@/domain/competition-line";
 
+const UNEXPECTED_ERROR = "操作失敗，請重試";
+
 const RESULT_OPTIONS: { value: string; label: string }[] = [
   { value: "none", label: "尚未公布" },
   { value: "advanced", label: "晉級" },
@@ -71,6 +73,10 @@ export function ResultSelect({
       setConfirmOpen(false);
       toast.success("已更新比賽結果");
       router.refresh();
+    } catch {
+      // Final review minor 5：server action 丟出未預期的例外（網路中斷等）時跳 toast，不要靜靜吞掉；
+      // 不顯示 err.message——production 的 server action 例外訊息會被遮掉，沒有意義。
+      toast.error(UNEXPECTED_ERROR);
     } finally {
       setPending(false);
     }

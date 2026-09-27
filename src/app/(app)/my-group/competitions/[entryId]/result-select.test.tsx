@@ -5,6 +5,8 @@ import { ResultSelect } from "./result-select";
 const setResult = vi.fn();
 vi.mock("@/server/actions/entries", () => ({ setResult: (...args: unknown[]) => setResult(...args) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+const toastError = vi.fn();
+vi.mock("sonner", () => ({ toast: { error: (...args: unknown[]) => toastError(...args), success: vi.fn() } }));
 
 describe("ResultSelect：比賽結果選單與確認對話框", () => {
   beforeEach(() => {
@@ -111,5 +113,16 @@ describe("ResultSelect：比賽結果選單與確認對話框", () => {
   it("報名階段還沒通過、但結果已經有值：仍然顯示選單（可以清回尚未公布）", () => {
     render(<ResultSelect entryId="entry-1" result="advanced" signupApproved={false} />);
     expect(screen.getByRole("button", { name: "更新結果" })).toBeTruthy();
+  });
+
+  // Final review minor 5：setResult 丟出未預期的例外時跳 toast，按鈕恢復可按。
+  it("setResult 丟例外 → toast，按鈕恢復", async () => {
+    toastError.mockReset();
+    setResult.mockRejectedValue(new Error("boom"));
+    render(<ResultSelect entryId="entry-1" result={null} signupApproved />);
+    fireEvent.click(screen.getByText("晉級"));
+    fireEvent.click(screen.getByRole("button", { name: "更新結果" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith("操作失敗，請重試"));
+    expect((screen.getByRole("button", { name: "更新結果" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
