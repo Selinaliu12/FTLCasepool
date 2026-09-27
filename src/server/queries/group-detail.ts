@@ -7,6 +7,7 @@ import { onTimeRate } from "@/domain/on-time";
 import { submissionTiming } from "@/domain/progress";
 import { mapCheckinHistory, type CheckinHistoryEntry } from "@/domain/checkin-history";
 import { isUuid } from "@/domain/id";
+import { loadCompetitionLinesForGroup, type MyGroupCompetitionLine } from "@/server/queries/my-group";
 
 export type GroupDetailPeriod = {
   seq: number;
@@ -31,6 +32,7 @@ export type GroupDetail = {
   onTime: number | null;
   periods: GroupDetailPeriod[];
   checkins: CheckinHistoryEntry[];
+  competitionLines: MyGroupCompetitionLine[];
 };
 
 // 規格第 3 節「看進度內容（三句話、PDF、紅燈說明）」：管理員 ✓、專案幹部 ✓（看得到所有組）、
@@ -152,6 +154,8 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
     nameByEmail
   );
 
+  const competitionLines = await loadCompetitionLinesForGroup(db, groupId, semesterRes.data.red_after_hours as number, now);
+
   return {
     group: {
       id: groupRes.data.id as string,
@@ -162,5 +166,6 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
     onTime,
     periods,
     checkins,
+    competitionLines,
   };
 }

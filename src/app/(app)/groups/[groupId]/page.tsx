@@ -4,6 +4,7 @@ import { LightBadge } from "@/components/light-badge";
 import { PdfDownloadButton } from "@/components/pdf-download-button";
 import { CheckinHistory } from "@/components/checkin-history";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { formatTaipei } from "@/domain/time";
 import { overdueLabel } from "@/domain/lights";
 import { lateBy } from "@/domain/progress";
@@ -85,6 +86,29 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
           );
         })}
       </div>
+
+      {data.competitionLines.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2 className="font-heading text-lg font-bold text-foreground">比賽</h2>
+          <div className="flex flex-col gap-2">
+            {data.competitionLines.map((line) => (
+              <div
+                key={line.lineId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--r-sm,12px)] border border-[var(--line,#DEE9F8)] p-3 text-sm"
+              >
+                <span className="text-foreground">{line.competitionName}</span>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{line.status}</Badge>
+                  <LightBadge light={line.display.light} source={line.display.source} />
+                  <span className="text-xs text-muted-foreground">
+                    {line.onTime === null ? "—" : `準時 ${Math.round(line.onTime * 100)}%`}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <CheckinHistory checkins={data.checkins} />
     </main>

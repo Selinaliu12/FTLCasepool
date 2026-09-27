@@ -101,4 +101,45 @@ describe("loadGroupDetail", () => {
 
     await expect(loadGroupDetail("00000000-0000-0000-0000-000000000000")).resolves.toBeNull();
   });
+
+  it("帶出這組的比賽線狀態摘要", async () => {
+    const db = createServiceSupabase();
+    const { data: competition, error: competitionError } = await db
+      .from("competitions")
+      .insert({
+        semester_id: seed.semesterId,
+        name: "黑客松",
+        url: "https://example.com",
+        signup_deadline: "2026-10-01T15:59:59.999Z",
+        status: "published",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (competitionError) throw competitionError;
+
+    const { data: entry, error: entryError } = await db
+      .from("competition_entries")
+      .insert({
+        group_id: seed.groupA,
+        competition_id: competition.id,
+        created_by: "a1@g.nccu.edu.tw",
+        confirmed_at: new Date("2026-09-01T00:00:00Z").toISOString(),
+      })
+      .select()
+      .single();
+    if (entryError) throw entryError;
+
+    const { error: lineError } = await db.from("lines").insert({ group_id: seed.groupA, kind: "competition", entry_id: entry.id });
+    if (lineError) throw lineError;
+
+    asPm(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
+
+    const result = await loadGroupDetail(seed.groupA);
+    expect(result).not.toBeNull();
+    expect(result!.competitionLines).toHaveLength(1);
+    expect(result!.competitionLines[0].competitionName).toBe("黑客松");
+    expect(result!.competitionLines[0].status).toBe("準備中");
+  });
 });
