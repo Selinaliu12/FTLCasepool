@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester, asUser, clientAs, backdateStageSubmissionUploadedAt } from "./helpers";
+import { resetDb, seedSemester, asUser, clientAs } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
