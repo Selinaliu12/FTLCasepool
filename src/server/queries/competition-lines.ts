@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Light } from "@/domain/lights";
+import { isLocked } from "@/domain/lock";
 import {
   competitionStages,
   competitionLineDisplay,
@@ -8,9 +9,24 @@ import {
   competitionStatus,
   type Stage,
   type CompetitionStatus,
+  type StageKey,
+  type ReviewStatus,
   type StageSubmissionInput,
   type EntryInput,
 } from "@/domain/competition-line";
+
+// 每一版的完整明細（含 id、評語）——給 group-detail 頁的審核 UI／學生看每一版評語用。跟
+// stage_status 視圖（只有狀態欄位，給其他幹部算燈號）分開；這裡直接讀 stage_submissions 本表，
+// 只能在已經確認「呼叫者看得到內容」的情境（PM／自己組／管理員）使用。
+export type StageSubmissionDetail = {
+  id: string;
+  stage: StageKey;
+  version: number;
+  reviewStatus: ReviewStatus;
+  pdfUploadedAt: Date;
+  locked: boolean;
+  comment: string | null;
+};
 
 // 一條比賽線的摘要：dashboard 組卡與 /my-group／group-detail 都要，欄位是兩邊的聯集——
 // dashboard 只用 lineId／competitionName／light／source／onTime，my-group／group-detail
@@ -24,6 +40,7 @@ export type CompetitionLineSummary = {
   light: Light | null;
   source: string | null;
   onTime: number | null;
+  submissions: StageSubmissionDetail[];
 };
 
 // fix round 1 #3/#4：把 competitionStages／competitionLineDisplay／competitionStatus／
@@ -38,6 +55,7 @@ export function summarizeCompetitionLine(input: {
   submissions: StageSubmissionInput[];
   now: Date;
   redAfterHours: number;
+  submissionDetails?: StageSubmissionDetail[];
 }): CompetitionLineSummary {
   const stages = competitionStages(
     {
@@ -63,6 +81,7 @@ export function summarizeCompetitionLine(input: {
     light: display.light,
     source: display.source,
     onTime: competitionOnTime(stages, input.entry, input.now),
+    submissions: input.submissionDetails ?? [],
   };
 }
 
@@ -97,15 +116,23 @@ export async function loadCompetitionLinesForGroup(
   const entryIds = lines.map((l) => l.entry_id as string);
   const lineIds = lines.map((l) => l.id as string);
 
-  const [entriesRes, stageStatusRes] = await Promise.all([
+  // stage_status（狀態視圖，只有狀態欄位）算 Stage［截止日、locked、completedAt］用；
+  // stage_submissions（本表，含 id／comment，read policy 是 can_read_content——只有 PM／
+  // 自己組／管理員讀得到）給審核 UI 與學生看每一版評語用。兩邊都查一次，欄位用途不重疊。
+  const [entriesRes, stageStatusRes, submissionsRes] = await Promise.all([
     supabase
       .from("competition_entries")
       .select("id, confirmed_at, withdrawn_at, result, competitions(name, signup_deadline, submission_deadline, final_date)")
       .in("id", entryIds),
     supabase.from("stage_status").select("line_id, stage, version, pdf_uploaded_at, review_status").in("line_id", lineIds),
+    supabase
+      .from("stage_submissions")
+      .select("id, line_id, stage, version, pdf_uploaded_at, review_status, comment")
+      .in("line_id", lineIds),
   ]);
   if (entriesRes.error) throw entriesRes.error;
   if (stageStatusRes.error) throw stageStatusRes.error;
+  if (submissionsRes.error) throw submissionsRes.error;
 
   const entriesById = new Map(((entriesRes.data ?? []) as EntryRow[]).map((e) => [e.id, e]));
   const stageStatusByLine = new Map<string, StageStatusRow[]>();
@@ -113,6 +140,14 @@ export async function loadCompetitionLinesForGroup(
     const arr = stageStatusByLine.get(row.line_id) ?? [];
     arr.push(row);
     stageStatusByLine.set(row.line_id, arr);
+  }
+
+  type SubmissionRow = { id: string; line_id: string; stage: string; version: number; pdf_uploaded_at: string; review_status: string; comment: string | null };
+  const submissionsByLine = new Map<string, SubmissionRow[]>();
+  for (const row of (submissionsRes.data ?? []) as SubmissionRow[]) {
+    const arr = submissionsByLine.get(row.line_id) ?? [];
+    arr.push(row);
+    submissionsByLine.set(row.line_id, arr);
   }
 
   return lines.map((line) => {
@@ -146,6 +181,17 @@ export async function loadCompetitionLinesForGroup(
       submissions: stageSubmissions,
       now,
       redAfterHours,
+      submissionDetails: (submissionsByLine.get(line.id as string) ?? [])
+        .map((s) => ({
+          id: s.id,
+          stage: s.stage as StageKey,
+          version: s.version,
+          reviewStatus: s.review_status as ReviewStatus,
+          pdfUploadedAt: new Date(s.pdf_uploaded_at),
+          locked: isLocked(new Date(s.pdf_uploaded_at), now),
+          comment: s.comment,
+        }))
+        .sort((a, b) => a.version - b.version),
     });
   });
 }
