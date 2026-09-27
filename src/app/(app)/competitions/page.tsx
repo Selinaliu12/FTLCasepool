@@ -53,8 +53,17 @@ export default async function CompetitionsPage() {
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-semibold text-foreground">已截止</h2>
           <div className="grid gap-4 sm:grid-cols-2">
+            {/* Final review minor 13：已截止的卡片不能再掛，但這組已經掛了的，仍然顯示「已掛到你們組」
+                連到報名頁（AttachCompetitionButton 有 entryId 時只畫連結，不畫掛的按鈕）。 */}
             {lobby.closed.map((c) => (
-              <CompetitionCard key={c.id} card={c} now={now} canEdit={lobby.canEdit} />
+              <CompetitionCard
+                key={c.id}
+                card={c}
+                now={now}
+                canEdit={lobby.canEdit}
+                showAttach={lobby.isStudent && !!lobby.myGroupAttached[c.id]}
+                attachedEntryId={lobby.myGroupAttached[c.id] ?? null}
+              />
             ))}
           </div>
         </section>
