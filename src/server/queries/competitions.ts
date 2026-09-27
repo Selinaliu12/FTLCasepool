@@ -68,7 +68,11 @@ export async function loadLobby(now: Date = new Date()): Promise<Lobby> {
 
   const cards = ((data ?? []) as CompetitionRow[]).map(toCard);
   const published = cards.filter((c) => c.status === "published");
-  const draftCards = canEdit ? cards.filter((c) => c.status === "draft") : [];
+  // Minor 6（fix round 1）：草稿也依報名截止日由近到遠排序，跟 open 區一致，不要留在資料庫
+  // 回傳的原始順序（等於「誰先建立」，跟幹部真正關心的「快截止了」無關）。
+  const draftCards = canEdit
+    ? cards.filter((c) => c.status === "draft").sort((a, b) => a.signupDeadline.getTime() - b.signupDeadline.getTime())
+    : [];
 
   const { open, closed } = sortLobby(published, now);
 
