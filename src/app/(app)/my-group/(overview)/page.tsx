@@ -14,9 +14,9 @@ import { cn } from "cn";
 import { formatTaipei } from "@/domain/time";
 import { lateBy } from "@/domain/progress";
 import { overdueLabel } from "@/domain/lights";
-import { SubmittedToast } from "./submitted-toast";
-import { daysLeft } from "./period-status";
-import { CheckinDialog } from "./checkin-dialog";
+import { SubmittedToast } from "../submitted-toast";
+import { daysLeft } from "../period-status";
+import { CheckinDialog } from "../checkin-dialog";
 import { LIGHT_LABEL } from "@/domain/lights";
 import type { Stage } from "@/domain/competition-line";
 

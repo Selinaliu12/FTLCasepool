@@ -79,6 +79,15 @@ test.describe.serial("掛比賽、確認報名、取消報名", () => {
   });
 
   // Minor 9（fix round 1）：真的點下去，不是只檢查連結存在——要走到報名頁才算數。
+  // Final review minor 6：/my-group 的 loading.tsx 放在 (overview) route group 裡，不包住報名頁
+  // ——找不到的報名要回真的 404 狀態碼（controller ruling 4 同一個理由）。
+  test("找不到的報名頁回真的 404", async ({ page }) => {
+    await loginAndPassWelcome(page, "a1@g.nccu.edu.tw", /\/my-group$/);
+    const response = await page.goto("/my-group/competitions/00000000-0000-0000-0000-000000000000");
+    expect(response?.status()).toBe(404);
+    await expect(page.getByText("This page could not be found.")).toBeVisible();
+  });
+
   test("大廳卡片顯示已掛到你們組，點連結回到報名頁", async ({ page }) => {
     await loginAndPassWelcome(page, "a1@g.nccu.edu.tw", /\/my-group$/);
     await page.goto("/competitions");

@@ -98,12 +98,16 @@ test.describe.serial("競賽大廳", () => {
   test("學生打 /competitions/new 與 /competitions/[id]/edit（真實存在的草稿）都是 404", async ({ page }) => {
     await loginAndPassWelcome(page, "a1@g.nccu.edu.tw", /\/my-group$/);
 
-    await page.goto("/competitions/new");
+    // Final review minor 6：/competitions 的 loading.tsx 放在 (lobby) route group 裡，不包住
+    // new／edit——這裡同時斷言真的 404 狀態碼，不是串流之後才畫 404 畫面的 200。
+    const newResponse = await page.goto("/competitions/new");
+    expect(newResponse?.status()).toBe(404);
     await expect(page.getByText("This page could not be found.")).toBeVisible();
 
     // 用一個真實存在（beforeAll 建的）草稿 id，證明是「學生看不到這場比賽」擋下來的，
     // 不是單純因為 id 亂填／查無此列。
-    await page.goto(`/competitions/${realDraftId}/edit`);
+    const editResponse = await page.goto(`/competitions/${realDraftId}/edit`);
+    expect(editResponse?.status()).toBe(404);
     await expect(page.getByText("This page could not be found.")).toBeVisible();
   });
 
