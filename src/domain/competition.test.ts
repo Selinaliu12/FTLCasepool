@@ -59,6 +59,25 @@ describe("validateCompetition", () => {
     expect(result).toEqual({ ok: false, errors: { finalDate: "決賽日期不能早於繳件截止日" } });
   });
 
+  // Final review minor 12：繳件日沒填時，決賽日期還是不能早於報名截止日。
+  it("繳件日沒填、決賽日期早於報名截止 → 決賽日期不能早於報名截止日", () => {
+    const result = validateCompetition(
+      baseInput({
+        signupDeadline: new Date("2026-10-10T15:59:59.999Z"),
+        submissionDeadline: null,
+        finalDate: new Date("2026-10-05T15:59:59.999Z"),
+      })
+    );
+    expect(result).toEqual({ ok: false, errors: { finalDate: "決賽日期不能早於報名截止日" } });
+  });
+
+  it("繳件日沒填、決賽日期晚於報名截止 → ok", () => {
+    const result = validateCompetition(
+      baseInput({ signupDeadline: new Date("2026-10-10T15:59:59.999Z"), finalDate: new Date("2026-10-20T15:59:59.999Z") })
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
   it("全部合法 → ok", () => {
     const result = validateCompetition(baseInput());
     expect(result).toEqual({ ok: true });

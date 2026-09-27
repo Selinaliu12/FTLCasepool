@@ -50,6 +50,16 @@ export function validateCompetition(
     errors.finalDate = "決賽日期不能早於繳件截止日";
   }
 
+  // Final review minor 12：繳件日沒填時，決賽日期直接跟報名截止日比。
+  if (
+    !input.submissionDeadline &&
+    input.signupDeadline &&
+    input.finalDate &&
+    input.finalDate.getTime() < input.signupDeadline.getTime()
+  ) {
+    errors.finalDate = "決賽日期不能早於報名截止日";
+  }
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   return { ok: true };
 }
