@@ -7,7 +7,7 @@ import { emptyCompetitionForm } from "../competition-form-defaults";
 // 打這條網址一律 404（規格第 3 節；controller ruling #4）。
 export default async function NewCompetitionPage() {
   const access = await getAccess();
-  const isStaff = access.kind === "ok" && (access.isAdmin || access.member?.role === "pm" || access.member?.role === "officer");
+  const isStaff = access.kind === "ok" && access.active.role !== "student";
   if (!isStaff) notFound();
 
   return (

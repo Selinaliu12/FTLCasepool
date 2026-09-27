@@ -36,10 +36,10 @@ export type MyGroup = {
 // members 都有各自的 read policy）——這個 query 只該讓使用者看到自己有權限看的東西。
 export async function loadMyGroup(): Promise<MyGroup> {
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || !access.member.groupId) {
+  if (access.kind !== "ok" || access.active.role !== "student" || !access.active.groupId) {
     throw new Error("只有專案生能看到自己的組頁");
   }
-  const groupId = access.member.groupId;
+  const groupId = access.active.groupId;
   const semesterId = access.semesterId;
 
   const supabase = await createServerSupabase();

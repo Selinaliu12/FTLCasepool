@@ -24,12 +24,12 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
   // 之後 reviewStage() 自己會再檢查一次）。不是 PM 的身分（含管理員、自己組的學生）一律不顯示。
   const access = await getAccess();
   let canReview = false;
-  if (access.kind === "ok" && access.member?.role === "pm") {
+  if (access.kind === "ok" && access.active.role === "pm" && access.active.memberId) {
     const db = createServiceSupabase();
     const { data: assignment } = await db
       .from("pm_assignments")
       .select("group_id")
-      .eq("pm_member_id", access.member.id)
+      .eq("pm_member_id", access.active.memberId)
       .eq("group_id", groupId)
       .maybeSingle();
     canReview = !!assignment;

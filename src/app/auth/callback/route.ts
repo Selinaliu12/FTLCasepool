@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerSupabase } from "@/server/supabase";
 import { getAccess } from "@/server/session";
+import { homeFor } from "@/domain/access";
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
@@ -16,9 +17,8 @@ export async function GET(req: NextRequest) {
   const access = await getAccess();
   let dest = "/login?error=domain";
   if (access.kind === "ok") {
-    if (access.isAdmin) dest = "/admin";
-    else if (access.member?.role === "pm" || access.member?.role === "officer") dest = "/dashboard";
-    else dest = "/my-group";
+    // 登入後進上次用的身份（cookie ftl_identity，getAccess 已驗證過；沒有或不合法就是第一個）。
+    dest = homeFor(access.active);
   } else if (access.kind === "not_in_roster") {
     dest = "/not-in-roster";
   } else if (access.kind === "no_semester") {

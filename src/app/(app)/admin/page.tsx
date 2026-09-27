@@ -15,8 +15,9 @@ import { MoveMemberForm } from "./move-member-form";
 export default async function AdminPage() {
   const access = await getAccess();
   // (app)/layout.tsx 的 requireOk() 已經擋掉 wrong_domain／not_in_roster／
-  // no_semester+非管理員；這裡只需要再擋「有學期但不是管理員」這一種漏網之魚。
-  if (access.kind === "ok" && !access.isAdmin) redirect("/");
+  // no_semester+非管理員；這裡只需要再擋「有學期但目前身份不是管理員」這一種漏網之魚
+  // （Adjustments Task 3：管理員兼名單身份的人要切回「管理員」身份才看得到這頁）。
+  if (access.kind === "ok" && access.active.role !== "admin") redirect("/");
 
   const semesterId = access.kind === "ok" ? access.semesterId : null;
 

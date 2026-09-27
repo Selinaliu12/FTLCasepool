@@ -11,7 +11,10 @@ async function requireAdmin(): Promise<void> {
   // kind 可能是 "no_semester"：建立第一個學期（createSemester）就是在還沒有任何學期時呼叫的，
   // 這時 access.kind 必然是 "no_semester"，不能只接受 "ok"。wrong_domain／not_in_roster
   // 這兩種 kind 沒有 isAdmin 欄位（一定不是管理員），所以先排除掉它們。
-  const isAdmin = (access.kind === "ok" || access.kind === "no_semester") && access.isAdmin;
+  // Adjustments Task 3：kind "ok" 看「目前身份」是不是管理員（規格 §14 第 3 點：動作依目前選的
+  // 身份）；管理員兼名單身份的人要先切回「管理員」身份才能做管理動作。
+  const isAdmin =
+    (access.kind === "ok" && access.active.role === "admin") || (access.kind === "no_semester" && access.isAdmin);
   if (!isAdmin) {
     throw new Error("只有系統管理員可以這樣做");
   }

@@ -35,7 +35,7 @@ export default async function MyGroupPage() {
   const access = await getAccess();
   // 幹部／管理員不該看到這頁：(app)/page.tsx 已經把他們導到別的地方，這裡再擋一次，
   // 涵蓋「幹部直接打這條網址」的情況。
-  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+  if (access.kind !== "ok" || access.active.role !== "student" || !access.active.groupId) {
     redirect("/");
   }
 

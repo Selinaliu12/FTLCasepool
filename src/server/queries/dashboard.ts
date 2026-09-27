@@ -14,9 +14,9 @@ export type Dashboard = { cards: GroupCard[]; myPmGroupIds: string[] };
 // 自己組」。這裡只讀 groups／lines／periods／line_light_events／semesters／
 // pm_assignments／members，絕對不直接讀 progress_reports／checkins。
 //
-// 例外：管理員如果自己不是任何學期的 member（一般情況，管理員信箱不會被匯入名單），
-// me() 回傳 null，is_staff()／read_groups 等 RLS 條件全部不成立，使用者身分連線什麼都
-// 讀不到——這種情況才退回 service client，但一樣只 select 狀態欄位，不讀內容欄位。
+// 例外：目前身份是管理員（管理員通常不在名單上，is_staff()／read_groups 等 RLS 條件全部不成立，
+// 使用者身分連線什麼都讀不到）——這種情況才退回 service client，但一樣只 select 狀態欄位，不讀
+// 內容欄位。
 export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> {
   const access = await getAccess();
   // 只有 "ok"，或者「管理員、但這學期還沒建」（no_semester + isAdmin）能往下走——後者
@@ -30,13 +30,16 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
   }
   // 學生不該走到這裡：(app)/page.tsx／dashboard/page.tsx 已經把學生導去 /my-group，
   // 這裡是查詢層自己的最後一道防線，不依賴呼叫端有沒有記得檢查。
-  if (access.member?.role === "student") {
+  if (access.active.role === "student") {
     throw new Error("只有幹部與管理員可以看總覽看板");
   }
 
   const semesterId = access.semesterId;
-  const useService = access.isAdmin && !access.member;
-  const isPm = access.member?.role === "pm";
+  // Adjustments Task 3：依「目前身份」。目前身份是管理員 → 服務身分（一樣只讀狀態欄位）；
+  // 幹部身份 → 使用者連線（RLS 是所有身份的聯集，但這裡本來就只讀狀態欄位，不讀內容）。
+  const useService = access.active.role === "admin";
+  const pmMemberId = access.active.role === "pm" ? access.active.memberId : null;
+  const isPm = pmMemberId !== null;
 
   const db = useService ? createServiceSupabase() : await createServerSupabase();
 
@@ -205,8 +208,8 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
   }
 
   const myPmGroupIds =
-    access.member?.role === "pm"
-      ? (pmRes.data ?? []).filter((p) => p.pm_member_id === access.member!.id).map((p) => p.group_id as string)
+    pmMemberId !== null
+      ? (pmRes.data ?? []).filter((p) => p.pm_member_id === pmMemberId).map((p) => p.group_id as string)
       : [];
 
   return { cards: sortGroupCards(cards), myPmGroupIds };

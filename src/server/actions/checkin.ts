@@ -16,7 +16,7 @@ export async function submitCheckin(
   input: { light: Light | null; note?: string }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+  if (access.kind !== "ok" || access.active.role !== "student" || !access.active.groupId) {
     return { ok: false, error: REJECTED };
   }
   const notAcknowledged = await acknowledgementRequired(access.semesterId, access.email);
@@ -30,7 +30,7 @@ export async function submitCheckin(
   const { data: line, error: lineError } = await db
     .from("lines")
     .select("id")
-    .eq("group_id", access.member.groupId)
+    .eq("group_id", access.active.groupId)
     .eq("kind", "project")
     .single();
   if (lineError) throw lineError;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester } from "./helpers";
+import { resetDb, seedSemester, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 // submitCheckin 一律先呼叫 getAccess()；跟 progress-actions.test.ts 一樣用 vi.mock 假造
@@ -25,23 +25,23 @@ import { clientAs, backdatePeriodDeadline } from "./helpers";
 const REJECTED = "只有專案生可以點燈號";
 
 function asStudent(semesterId: string, groupId: string, email = "a1@g.nccu.edu.tw", name = "甲一") {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email,
     isAdmin: false,
     member: { id: "m1", semesterId, email, name, role: "student", groupId },
     semesterId,
-  });
+  }));
 }
 
 function asOfficer(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "off@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "m2", semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 async function checkinsFor(lineId: string) {

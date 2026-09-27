@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import { resetDb, seedSemester } from "./helpers";
+import { resetDb, seedSemester, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 const mockGetAccess = vi.fn();
@@ -14,43 +14,43 @@ import {
 } from "@/server/actions/competitions";
 
 function asPm(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "pm@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "pm-id", semesterId, email: "pm@g.nccu.edu.tw", name: "專案幹部", role: "pm", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 function asOfficer(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "off@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "off-id", semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 function asAdmin(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "admin@g.nccu.edu.tw",
     isAdmin: true,
     member: null,
     semesterId,
-  });
+  }));
 }
 
 function asStudent(semesterId: string, groupId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "a1@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "s-id", semesterId, email: "a1@g.nccu.edu.tw", name: "甲一", role: "student", groupId },
     semesterId,
-  });
+  }));
 }
 
 const validForm = {

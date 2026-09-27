@@ -12,7 +12,7 @@ export default async function PeriodPage({ params }: { params: Promise<{ periodI
   const { periodId } = await params;
 
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+  if (access.kind !== "ok" || access.active.role !== "student" || !access.active.groupId) {
     redirect("/");
   }
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import { resetDb, seedSemester, asPm, asOfficer, asStudent, asAdminNoMember, asUser, clientAs } from "./helpers";
+import { resetDb, seedSemester, asPm, asOfficer, asStudent, asAdminNoMember, asUser, clientAs, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 import { NOT_ACKNOWLEDGED_ERROR } from "@/server/queries/acknowledgement";
 
@@ -23,13 +23,13 @@ import { loadReviewQueue } from "@/server/queries/review-queue";
 const NOT_FOUND = "找不到這筆報名";
 
 function asPmMember(semesterId: string, memberId: string, email = "pm@g.nccu.edu.tw") {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email,
     isAdmin: false,
     member: { id: memberId, semesterId, email, name: "專案幹部", role: "pm", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 async function createCompetition(semesterId: string, overrides: Record<string, unknown> = {}) {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import { resetDb, seedSemester } from "./helpers";
+import { resetDb, seedSemester, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 // admin actions 一律先呼叫 requireAdmin()（建在 getAccess() 上）。這裡整份測試都用
@@ -9,13 +9,13 @@ vi.mock("@/server/session", () => ({ getAccess: () => mockGetAccess() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 function asStudent(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "a1@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "m1", semesterId, email: "a1@g.nccu.edu.tw", name: "甲一", role: "student", groupId: "g1" },
     semesterId,
-  });
+  }));
 }
 
 // kind:"ok" 一定帶著真的 semesterId（Access 的型別本來就是這樣定義的：{kind:"ok", semesterId:
@@ -23,13 +23,13 @@ function asStudent(semesterId: string) {
 // kind:"ok" 加一個 null 的 semesterId——那是型別上不可能出現的狀態，fix round 1 之前的版本
 // 誤用了它（asAdmin(null)）。
 function asAdmin(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "admin@g.nccu.edu.tw",
     isAdmin: true,
     member: null,
     semesterId,
-  });
+  }));
 }
 
 function asAdminNoSemester() {

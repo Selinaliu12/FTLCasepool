@@ -5,7 +5,7 @@ import { getAccess } from "@/server/session";
 import { acknowledgementRequired } from "@/server/queries/acknowledgement";
 import { createServiceSupabase } from "@/server/supabase";
 import { isUuid } from "@/domain/id";
-import type { Access } from "@/domain/access";
+import type { StudentAccess } from "@/domain/access";
 
 const NOT_FOUND = "找不到這筆報名";
 const COMPETITION_NOT_FOUND = "找不到這場比賽";
@@ -20,9 +20,6 @@ const SIGNUP_NOT_APPROVED = "報名通過後才能填比賽結果";
 const RESULT_VALUES = ["advanced", "awarded", "not_selected"] as const;
 type EntryResult = (typeof RESULT_VALUES)[number] | null;
 
-type OkAccess = Extract<Access, { kind: "ok" }>;
-type StudentAccess = OkAccess & { member: NonNullable<OkAccess["member"]> & { groupId: string } };
-
 // 掛比賽／參賽成員／確認報名／取消報名一律只有「該組專案生」能做（規格第 3 節）；別組學生、
 // 幹部（包含管理員本人如果掛了幹部角色）都不符合這個條件。onReject 決定「不是這組專案生」
 // 時回什麼錯誤：attachCompetition 沒有既存的 entryId 可以核對，回一個獨立的訊息；
@@ -32,7 +29,7 @@ async function requireStudent(
   onReject: string = STUDENT_ONLY
 ): Promise<{ ok: true; access: StudentAccess } | { ok: false; error: string }> {
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+  if (access.kind !== "ok" || access.active.role !== "student" || !access.active.groupId) {
     return { ok: false, error: onReject };
   }
   return { ok: true, access: access as StudentAccess };
@@ -95,7 +92,7 @@ export async function attachCompetition(
   const { data: existing, error: existingError } = await db
     .from("competition_entries")
     .select("id")
-    .eq("group_id", access.member.groupId)
+    .eq("group_id", access.active.groupId)
     .eq("competition_id", competitionId)
     .is("withdrawn_at", null)
     .maybeSingle();
@@ -104,7 +101,7 @@ export async function attachCompetition(
 
   const { data: inserted, error: insertError } = await db
     .from("competition_entries")
-    .insert({ group_id: access.member.groupId, competition_id: competitionId, created_by: access.email })
+    .insert({ group_id: access.active.groupId, competition_id: competitionId, created_by: access.email })
     .select("id")
     .single();
   if (insertError) {
@@ -158,7 +155,7 @@ export async function setEntryMembers(
   if (notAcknowledged) return notAcknowledged;
 
   const db = createServiceSupabase();
-  const entry = await findOwnEntry(db, entryId, access.member.groupId);
+  const entry = await findOwnEntry(db, entryId, access.active.groupId);
   if (!entry) return { ok: false, error: NOT_FOUND };
   if (entry.withdrawn_at) return { ok: false, error: NOT_FOUND };
 
@@ -192,7 +189,7 @@ export async function confirmEntry(
   if (notAcknowledged) return notAcknowledged;
 
   const db = createServiceSupabase();
-  const entry = await findOwnEntry(db, entryId, access.member.groupId);
+  const entry = await findOwnEntry(db, entryId, access.active.groupId);
   if (!entry) return { ok: false, error: NOT_FOUND };
   if (entry.withdrawn_at) return { ok: false, error: NOT_FOUND };
   if (entry.confirmed_at) return { ok: false, error: ALREADY_CONFIRMED };
@@ -224,7 +221,7 @@ export async function withdrawEntry(entryId: string): Promise<{ ok: true } | { o
   if (notAcknowledged) return notAcknowledged;
 
   const db = createServiceSupabase();
-  const entry = await findOwnEntry(db, entryId, access.member.groupId);
+  const entry = await findOwnEntry(db, entryId, access.active.groupId);
   if (!entry) return { ok: false, error: NOT_FOUND };
   if (entry.withdrawn_at) return { ok: false, error: NOT_FOUND };
 
@@ -305,7 +302,7 @@ export async function setResult(
       .from("competition_entries")
       .select("id")
       .eq("id", entryId)
-      .eq("group_id", access.member.groupId)
+      .eq("group_id", access.active.groupId)
       .not("confirmed_at", "is", null)
       .is("withdrawn_at", null)
       .maybeSingle();
@@ -336,7 +333,7 @@ export async function setResult(
     .from("competition_entries")
     .update({ result })
     .eq("id", entryId)
-    .eq("group_id", access.member.groupId)
+    .eq("group_id", access.active.groupId)
     .not("confirmed_at", "is", null)
     .is("withdrawn_at", null)
     .select("id");

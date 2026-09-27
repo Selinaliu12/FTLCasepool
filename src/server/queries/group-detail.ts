@@ -51,18 +51,16 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
   const access = await getAccess();
   if (access.kind !== "ok") return null;
 
-  // Controller ruling（Task 14 fix round 1）：規格第 3 節「看進度內容」管理員 ✓，不管
-  // 管理員在名單上有沒有 member 列、那筆 member 是什麼角色（只要不是學生）——管理員身分本身
-  // 就該看得到全部內容。改之前的寫法（isAdmin && !member）會讓「同時是管理員又被匯入成
-  // 其他幹部」的人被下面的 officer 分支擋下來，跟權限表衝突。學生即使同時掛 isAdmin，也走
-  // 學生自己的分支（只看自己組），不因為 isAdmin 而升級成看得到全部組。
-  const useService = access.isAdmin && access.member?.role !== "student";
+  // Controller ruling（Task 14 fix round 1）：規格第 3 節「看進度內容」管理員 ✓——管理員身分
+  // 本身就該看得到全部內容。Adjustments Task 3：一律看「目前身份」（規格 §14 第 3 點）：
+  // 目前身份是管理員才走服務身分；專案生只看目前這組（就算他同時是別組專案生、RLS 聯集讀得到，
+  // 頁面也只依目前身份）；其他幹部看不到內容。
+  const active = access.active;
+  const useService = active.role === "admin";
   if (!useService) {
-    const role = access.member?.role;
-    if (role === "student" && access.member?.groupId !== groupId) return null;
-    // catch-all：只有 pm／student 能走到這裡繼續往下查；officer（以及理論上不會出現的其他
-    // 角色）在這裡就被擋掉，不用再特別為 officer 寫一行——這行本來就涵蓋它。
-    if (role !== "pm" && role !== "student") return null;
+    if (active.role === "student" && active.groupId !== groupId) return null;
+    // catch-all：只有 pm／student 能走到這裡繼續往下查；officer 在這裡就被擋掉。
+    if (active.role !== "pm" && active.role !== "student") return null;
   }
 
   const db = useService ? createServiceSupabase() : await createServerSupabase();

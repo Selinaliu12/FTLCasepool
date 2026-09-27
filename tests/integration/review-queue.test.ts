@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester, asUser, clientAs } from "./helpers";
+import { resetDb, seedSemester, asUser, clientAs, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -16,23 +16,23 @@ vi.mock("@/server/supabase", async () => {
 const SEMESTER_NAME = "115-1";
 
 function asPmMember(semesterId: string, memberId: string, email = "pm@g.nccu.edu.tw") {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email,
     isAdmin: false,
     member: { id: memberId, semesterId, email, name: "專案幹部", role: "pm", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 function asStudentMember(semesterId: string, groupId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "a1@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "s-id", semesterId, email: "a1@g.nccu.edu.tw", name: "甲一", role: "student", groupId },
     semesterId,
-  });
+  }));
 }
 
 async function pmMemberId(): Promise<string> {

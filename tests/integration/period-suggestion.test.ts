@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester, clientAs } from "./helpers";
+import { resetDb, seedSemester, clientAs, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 // Batch 2 Task 1：loadMyGroup() 每期要帶出管理員填的「建議繳交內容」（periods.suggestion），
@@ -16,13 +16,13 @@ vi.mock("@/server/supabase", async () => {
 import { loadMyGroup } from "@/server/queries/my-group";
 
 function asStudent(semesterId: string, groupId: string, email: string, name: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email,
     isAdmin: false,
     member: { id: "s-id", semesterId, email, name, role: "student", groupId },
     semesterId,
-  });
+  }));
 }
 
 describe("loadMyGroup：每期建議繳交內容", () => {

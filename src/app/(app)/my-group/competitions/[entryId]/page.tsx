@@ -14,7 +14,7 @@ export default async function EntryPage({ params }: { params: Promise<{ entryId:
   const entry = await loadEntryDetail(entryId);
   if (!entry) notFound();
 
-  const myMemberId = access.kind === "ok" && access.member?.role === "student" ? access.member.id : null;
+  const myMemberId = access.kind === "ok" && access.active.role === "student" ? access.active.memberId : null;
 
   return (
     <main className="mx-auto flex max-w-2xl flex-col gap-6 p-6">

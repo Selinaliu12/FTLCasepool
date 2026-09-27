@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester, asUser, backdatePdfUploadedAt } from "./helpers";
+import { resetDb, seedSemester, asUser, backdatePdfUploadedAt, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 // editProgress／replaceProgressPdf／withdrawProgress 一律先呼叫 getAccess()，跟
@@ -23,23 +23,23 @@ const STALE_WRITE_ERROR = "這份進度剛剛被組員改過，請重新整理";
 const MALFORMED_ID = "not-a-uuid";
 
 function asOfficer(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "off@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "m2", semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 function asPm(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "pm@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "m3", semesterId, email: "pm@g.nccu.edu.tw", name: "專案幹部", role: "pm", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 async function reportRow(lineId: string, periodId: string) {

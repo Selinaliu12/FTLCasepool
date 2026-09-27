@@ -3,7 +3,7 @@ import { Client as PgClient } from "pg";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { env } from "../../src/server/env";
 import { assertLocalSupabaseUrl } from "../../src/server/local-only";
-import type { Access } from "../../src/domain/access";
+import { resolveAccess, type Access, type Identity, type RosterRow } from "../../src/domain/access";
 
 // 本機測試專用密碼；正式環境不會用到（test-login route 只在 ENABLE_TEST_LOGIN=true 時開放）。
 export const TEST_PASSWORD = "local-test-password-only!";
@@ -222,7 +222,7 @@ export async function queryAsForgedJwt<T = Record<string, unknown>>(
 // import 拿到的就是同一顆被 mock 過的 getAccess，把它的回傳值換成這個 email 在資料庫裡的
 // 真實 access，再同步（不在中間 await）呼叫 fn()，讓 fn() 內第一次呼叫 getAccess() 讀到的
 // 一定是剛剛設好的這份身分，即使兩個 asUser 是用 Promise.all 同時發動的也不會互相覆蓋。
-export async function asUser<T>(email: string, fn: () => Promise<T>): Promise<T> {
+export async function asUser<T>(email: string, fn: () => Promise<T>, opts: { memberId?: string } = {}): Promise<T> {
   const db = service();
   const { data: semester, error: semError } = await db
     .from("semesters")
@@ -232,28 +232,34 @@ export async function asUser<T>(email: string, fn: () => Promise<T>): Promise<T>
   if (semError) throw semError;
   const semesterId = semester.id as string;
 
-  const { data: row, error: mError } = await db
+  // Adjustments Task 3：同一個 email 可以有好幾列名單（多重身份），不能再用 .single()。
+  // 走跟正式 getAccess() 一樣的 resolveAccess()：沒指定 memberId 時目前身份是「第一個合法身份」，
+  // 多重身份的測試用 opts.memberId 指定目前身份（等同 cookie ftl_identity）。
+  const { data: rows, error: mError } = await db
     .from("members")
-    .select("id, semester_id, email, name, role, group_id")
+    .select("id, semester_id, email, name, role, group_id, groups!members_group_id_fkey(name)")
     .eq("semester_id", semesterId)
-    .eq("email", email)
-    .single();
+    .eq("email", email);
   if (mError) throw mError;
+  if (!rows || rows.length === 0) throw new Error(`asUser：${email} 不在本學期名單上`);
+  if (opts.memberId && !rows.some((r) => r.id === opts.memberId)) {
+    throw new Error(`asUser：${opts.memberId} 不是 ${email} 的身份`);
+  }
 
-  const access: Access = {
-    kind: "ok",
-    email: row.email,
-    isAdmin: false,
-    member: {
-      id: row.id,
-      semesterId: row.semester_id,
-      email: row.email,
-      name: row.name,
-      role: row.role,
-      groupId: row.group_id,
-    },
+  const access = resolveAccess(email, {
+    adminEmails: [],
     semesterId,
-  };
+    rows: rows.map((row) => ({
+      id: row.id as string,
+      semesterId: row.semester_id as string,
+      email: row.email as string,
+      name: row.name as string,
+      role: row.role as RosterRow["role"],
+      groupId: (row.group_id as string | null) ?? null,
+      groupName: (row.groups as unknown as { name: string } | null)?.name ?? null,
+    })),
+    preferred: opts.memberId ?? null,
+  });
 
   // 動態 import「vitest」而不是放在檔案最上面：這個檔案也被 playwright 的 global-setup.ts
   // 用到（resetDb／seedSemester），那裡不是 vitest 執行環境，頂層 import "vitest" 會直接爛掉。
@@ -332,24 +338,61 @@ export async function uploadTestPdf(key: string, bytes: Uint8Array): Promise<voi
 // { mockResolvedValue } 描述呼叫端傳進來的、已經 vi.mock 過的 getAccess。
 type AccessMock = { mockResolvedValue: (value: Access) => unknown };
 
+// Adjustments Task 3：Access 的 ok 形狀從 { isAdmin, member } 改成 { name, identities, active }。
+// 批次 1、2 的測試大多用「單一身份」的舊寫法描述呼叫者，這裡把舊寫法轉成新形狀，語意照舊：
+// isAdmin＝多一個「管理員」身份且它是目前身份（fallback 順序管理員優先，跟以前 isAdmin 優先於
+// member 角色一致）；member＝那一列身份。斷言本身完全不動。
+type LegacyMember = {
+  id: string;
+  semesterId: string;
+  email: string;
+  name: string;
+  role: "pm" | "officer" | "student";
+  groupId: string | null;
+};
+export function okAccess(legacy: {
+  kind: "ok";
+  email: string;
+  isAdmin: boolean;
+  member: LegacyMember | null;
+  semesterId: string;
+}): Access {
+  const identities: Identity[] = [];
+  if (legacy.isAdmin) identities.push({ memberId: null, role: "admin", groupId: null, label: "管理員" });
+  if (legacy.member) {
+    const m = legacy.member;
+    const label = m.role === "student" ? "專案生" : m.role === "pm" ? "專案幹部" : "其他幹部";
+    identities.push({ memberId: m.id, role: m.role, groupId: m.groupId, label });
+  }
+  if (identities.length === 0) throw new Error("okAccess：至少要有一個身份");
+  return {
+    kind: "ok",
+    email: legacy.email,
+    name: legacy.member?.name ?? null,
+    identities,
+    active: identities[0],
+    semesterId: legacy.semesterId,
+  };
+}
+
 export function asPm(mockGetAccess: AccessMock, semesterId: string): void {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "pm@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "pm-id", semesterId, email: "pm@g.nccu.edu.tw", name: "專案幹部", role: "pm", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 export function asOfficer(mockGetAccess: AccessMock, semesterId: string): void {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "off@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "off-id", semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 export function asStudent(
@@ -359,23 +402,23 @@ export function asStudent(
   email = "a1@g.nccu.edu.tw",
   name = "甲一"
 ): void {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email,
     isAdmin: false,
     member: { id: "s-id", semesterId, email, name, role: "student", groupId },
     semesterId,
-  });
+  }));
 }
 
 export function asAdminNoMember(mockGetAccess: AccessMock, semesterId: string): void {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "admin@g.nccu.edu.tw",
     isAdmin: true,
     member: null,
     semesterId,
-  });
+  }));
 }
 
 // Controller ruling 3（Task 14 fix round 1）：管理員即使在名單上也掛了一個非學生角色（這裡用
@@ -383,13 +426,13 @@ export function asAdminNoMember(mockGetAccess: AccessMock, semesterId: string): 
 // client 把這筆 member 塞進 members 表（email 必須等於 ADMIN_EMAILS 裡的那個信箱，這裡固定用
 // "admin@g.nccu.edu.tw"，跟 .env.local 的設定一致）。
 export function asAdminOfficer(mockGetAccess: AccessMock, semesterId: string, memberId: string): void {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "admin@g.nccu.edu.tw",
     isAdmin: true,
     member: { id: memberId, semesterId, email: "admin@g.nccu.edu.tw", name: "管理員兼其他幹部", role: "officer", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 export async function clientAs(email: string): Promise<SupabaseClient> {

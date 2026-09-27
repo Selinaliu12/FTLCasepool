@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester, clientAs } from "./helpers";
+import { resetDb, seedSemester, clientAs, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 // loadDashboard() 只能用使用者身分連線讀 groups／lines／periods／line_light_events／
@@ -19,33 +19,33 @@ vi.mock("@/server/supabase", async () => {
 import { loadDashboard } from "@/server/queries/dashboard";
 
 function asOfficer(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "off@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "off-id", semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 function asPm(semesterId: string, pmMemberId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "pm@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: pmMemberId, semesterId, email: "pm@g.nccu.edu.tw", name: "專案幹部", role: "pm", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 function asAdminNoMember(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "admin@g.nccu.edu.tw",
     isAdmin: true,
     member: null,
     semesterId,
-  });
+  }));
 }
 
 const CONTENT_KEYS = ["did", "blocked", "next_steps", "pdf_key", "note"];
@@ -137,13 +137,13 @@ describe("loadDashboard", () => {
   });
 
   it("學生呼叫 loadDashboard 被拒絕", async () => {
-    mockGetAccess.mockResolvedValue({
+    mockGetAccess.mockResolvedValue(okAccess({
       kind: "ok",
       email: "a1@g.nccu.edu.tw",
       isAdmin: false,
       member: { id: "a1-id", semesterId: seed.semesterId, email: "a1@g.nccu.edu.tw", name: "甲一", role: "student", groupId: seed.groupA },
       semesterId: seed.semesterId,
-    });
+    }));
 
     await expect(loadDashboard(new Date("2026-10-05T00:00:00Z"))).rejects.toThrow("只有幹部與管理員可以看總覽看板");
   });

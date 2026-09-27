@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester, asUser } from "./helpers";
+import { resetDb, seedSemester, asUser, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 // submitProgress 一律先呼叫 getAccess()；跟 upload.test.ts 一樣用 vi.mock 假造
@@ -23,23 +23,23 @@ const SEMESTER_NAME = "115-1"; // 跟 seedSemester() 建立的學期名稱一致
 const UPLOAD_FAILED = "檔案沒有上傳成功，請重新選擇 PDF";
 
 function asStudent(semesterId: string, groupId: string, email = "a1@g.nccu.edu.tw", name = "甲一") {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email,
     isAdmin: false,
     member: { id: "m1", semesterId, email, name, role: "student", groupId },
     semesterId,
-  });
+  }));
 }
 
 function asOfficer(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "off@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "m2", semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 function asNotInRoster() {
