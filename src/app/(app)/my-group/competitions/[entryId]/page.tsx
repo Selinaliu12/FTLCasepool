@@ -3,7 +3,9 @@ import { getAccess } from "@/server/session";
 import { loadEntryDetail } from "@/server/queries/entries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ENTRY_STATUS_LABEL } from "@/domain/entries";
+import { isLineEnded } from "@/domain/competition-line";
 import { EntryActions } from "./entry-actions";
+import { StageUploads } from "./stage-uploads";
 
 export default async function EntryPage({ params }: { params: Promise<{ entryId: string }> }) {
   const { entryId } = await params;
@@ -38,6 +40,15 @@ export default async function EntryPage({ params }: { params: Promise<{ entryId:
           <EntryActions entry={entry} myMemberId={myMemberId} />
         </CardContent>
       </Card>
+
+      {entry.lineId && (
+        <StageUploads
+          entryId={entry.entryId}
+          stages={entry.stages}
+          submissions={entry.submissions}
+          ended={isLineEnded({ confirmedAt: entry.confirmedAt, withdrawnAt: entry.withdrawnAt, result: entry.result })}
+        />
+      )}
     </main>
   );
 }

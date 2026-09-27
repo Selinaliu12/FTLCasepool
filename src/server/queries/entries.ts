@@ -3,6 +3,13 @@ import { getAccess } from "@/server/session";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
 import { isUuid } from "@/domain/id";
 import { entryStatus, type EntryStatus } from "@/domain/entries";
+import {
+  competitionStages,
+  type Stage,
+  type StageKey,
+  type ReviewStatus,
+  type StageSubmissionInput,
+} from "@/domain/competition-line";
 
 export type MyGroupEntry = {
   entryId: string;
@@ -46,12 +53,27 @@ export type EntryDetail = {
   status: EntryStatus;
   confirmedAt: Date | null;
   withdrawnAt: Date | null;
+  result: "advanced" | "awarded" | "not_selected" | null;
   groupStudents: { id: string; name: string }[];
   selectedMemberIds: string[];
   // controller ruling（fix round 1）：學生確認報名之後如果換組，entry_members 裡那筆紀錄留著
   // （不刪）；顯示的時候要標成「已換組」，不能直接消失——不然看起來像這個人從沒參加過。
   // movedOut = 這個 member 現在的 group_id 已經不是這筆報名的組。
   selectedMembers: { id: string; name: string; movedOut: boolean }[];
+  // lineId：確認報名之後才會有比賽線（見 confirm_entry()），確認前一律 null，這時候也不會有
+  // stages／submissions（沒有線就沒有階段可以上傳）。
+  lineId: string | null;
+  stages: Stage[];
+  submissions: StageSubmission[];
+};
+
+export type StageSubmission = {
+  id: string;
+  stage: StageKey;
+  version: number;
+  reviewStatus: ReviewStatus;
+  pdfUploadedAt: string; // ISO
+  comment: string | null;
 };
 
 // 報名頁（/my-group/competitions/[entryId]）：找不到（不是這組的、id 亂填、根本不存在）一律
@@ -69,14 +91,23 @@ export async function loadEntryDetail(entryId: string): Promise<EntryDetail | nu
   const supabase = await createServerSupabase();
   const { data: entry, error } = await supabase
     .from("competition_entries")
-    .select("id, confirmed_at, withdrawn_at, group_id, competitions(name, url)")
+    .select(
+      "id, confirmed_at, withdrawn_at, group_id, result, competitions(name, url, signup_deadline, submission_deadline, final_date)"
+    )
     .eq("id", entryId)
     .eq("group_id", groupId)
     .maybeSingle();
   if (error) throw error;
   if (!entry) return null;
 
-  const competition = entry.competitions as unknown as { name: string; url: string } | { name: string; url: string }[] | null;
+  type CompetitionRow = {
+    name: string;
+    url: string;
+    signup_deadline: string;
+    submission_deadline: string | null;
+    final_date: string | null;
+  };
+  const competition = entry.competitions as unknown as CompetitionRow | CompetitionRow[] | null;
   const competitionRow = Array.isArray(competition) ? competition[0] : competition;
 
   const { data: students, error: studentsError } = await supabase
@@ -116,18 +147,76 @@ export async function loadEntryDetail(entryId: string): Promise<EntryDetail | nu
     });
   }
 
+  const confirmedAt = entry.confirmed_at ? new Date(entry.confirmed_at as string) : null;
+  const withdrawnAt = entry.withdrawn_at ? new Date(entry.withdrawn_at as string) : null;
+
+  // lineId／stages／submissions：確認報名之後才會有比賽線（confirm_entry() 才會 insert
+  // 一列 kind='competition' 的 lines）——確認前這裡維持空陣列／null，UI 不畫階段上傳區塊。
+  let lineId: string | null = null;
+  let stages: Stage[] = [];
+  let submissions: StageSubmission[] = [];
+
+  if (confirmedAt && competitionRow) {
+    const { data: lineRow, error: lineError } = await supabase
+      .from("lines")
+      .select("id")
+      .eq("entry_id", entryId)
+      .eq("kind", "competition")
+      .maybeSingle();
+    if (lineError) throw lineError;
+    lineId = (lineRow?.id as string | undefined) ?? null;
+
+    if (lineId) {
+      const { data: subRows, error: subError } = await supabase
+        .from("stage_submissions")
+        .select("id, stage, version, review_status, pdf_uploaded_at, comment")
+        .eq("line_id", lineId)
+        .order("stage")
+        .order("version");
+      if (subError) throw subError;
+
+      submissions = (subRows ?? []).map((s) => ({
+        id: s.id as string,
+        stage: s.stage as StageKey,
+        version: s.version as number,
+        reviewStatus: s.review_status as ReviewStatus,
+        pdfUploadedAt: s.pdf_uploaded_at as string,
+        comment: s.comment as string | null,
+      }));
+
+      const submissionInputs: StageSubmissionInput[] = submissions.map((s) => ({
+        stage: s.stage,
+        version: s.version,
+        pdfUploadedAt: new Date(s.pdfUploadedAt),
+        reviewStatus: s.reviewStatus,
+      }));
+
+      stages = competitionStages(
+        {
+          signupDeadline: new Date(competitionRow.signup_deadline),
+          submissionDeadline: competitionRow.submission_deadline ? new Date(competitionRow.submission_deadline) : null,
+          finalDate: competitionRow.final_date ? new Date(competitionRow.final_date) : null,
+        },
+        { confirmedAt, withdrawnAt, result: entry.result as "advanced" | "awarded" | "not_selected" | null },
+        submissionInputs,
+        new Date()
+      );
+    }
+  }
+
   return {
     entryId: entry.id as string,
     competitionName: competitionRow?.name ?? "",
     competitionUrl: competitionRow?.url ?? "",
-    confirmedAt: entry.confirmed_at ? new Date(entry.confirmed_at as string) : null,
-    withdrawnAt: entry.withdrawn_at ? new Date(entry.withdrawn_at as string) : null,
-    status: entryStatus({
-      confirmedAt: entry.confirmed_at ? new Date(entry.confirmed_at as string) : null,
-      withdrawnAt: entry.withdrawn_at ? new Date(entry.withdrawn_at as string) : null,
-    }),
+    confirmedAt,
+    withdrawnAt,
+    result: entry.result as "advanced" | "awarded" | "not_selected" | null,
+    status: entryStatus({ confirmedAt, withdrawnAt }),
     groupStudents: (students ?? []).map((s) => ({ id: s.id as string, name: s.name as string })),
     selectedMemberIds,
     selectedMembers,
+    lineId,
+    stages,
+    submissions,
   };
 }

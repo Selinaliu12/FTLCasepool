@@ -21,6 +21,7 @@ function confirmedEntryWithMovedOutMember(): EntryDetail {
     status: "in_progress",
     confirmedAt: new Date(),
     withdrawnAt: null,
+    result: null,
     groupStudents: [
       { id: "a1", name: "甲一" },
       { id: "a3", name: "甲三" },
@@ -30,6 +31,9 @@ function confirmedEntryWithMovedOutMember(): EntryDetail {
       { id: "a1", name: "甲一", movedOut: false },
       { id: "a2", name: "甲二", movedOut: true },
     ],
+    lineId: null,
+    stages: [],
+    submissions: [],
   };
 }
 
