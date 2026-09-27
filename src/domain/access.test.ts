@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveAccess, parseAdminEmails, isTrustedProvider, identityId, homeFor, type RosterRow } from "./access";
+import { resolveAccess, parseAdminEmails, isTrustedProvider, identityId, homeFor, isStaffIdentity, type RosterRow, type IdentityRole } from "./access";
 
 const student: RosterRow = { id: "m1", semesterId: "s1", email: "a@g.nccu.edu.tw", name: "甲", role: "student", groupId: "g1", groupName: "第1組" };
 const ADMIN_ONLY = { memberId: null, role: "admin", groupId: null, label: "管理員" } as const;
@@ -99,6 +99,17 @@ describe("homeFor", () => {
     expect(homeFor({ memberId: "a", role: "pm", groupId: null, label: "專案幹部" })).toBe("/dashboard");
     expect(homeFor({ memberId: "a", role: "officer", groupId: null, label: "其他幹部" })).toBe("/dashboard");
     expect(homeFor(ADMIN_ONLY)).toBe("/admin");
+  });
+});
+
+describe("isStaffIdentity（新增／編輯競賽的明確白名單：管理員、專案幹部、其他幹部）", () => {
+  it("admin／pm／officer 是；student 不是；白名單以外的值一律不是", () => {
+    const of = (role: IdentityRole) => isStaffIdentity({ memberId: "x", role, groupId: null, label: "" });
+    expect(of("admin")).toBe(true);
+    expect(of("pm")).toBe(true);
+    expect(of("officer")).toBe(true);
+    expect(of("student")).toBe(false);
+    expect(of("future-role" as IdentityRole)).toBe(false);
   });
 });
 

@@ -94,10 +94,14 @@ drop policy if exists read_periods on periods;
 create policy read_periods on periods for select to authenticated using (is_member());
 
 -- 原本是 `email = (me()).email`：自己的所有名單列（不限學期，跟原本一樣只比 email）。
+-- (me()).email 不是 null ⇔ 這個 JWT email 在當前學期有名單列且 provider 合格（is_member()），
+-- 而那時它就等於 lower(JWT email)——所以等價條件是「email = JWT email 且 is_member()」。
+-- 兩邊都包成 (select …)，讓 Postgres 當成 initPlan，每個查詢只算一次，不是每一列都呼叫一次
+-- my_members()（Task 3 fix F4）。
 drop policy if exists read_members on members;
 create policy read_members on members for select to authenticated using (
   is_staff()
-  or exists (select 1 from my_members() mm where mm.email = members.email)
+  or (email = (select lower(auth.jwt() ->> 'email')) and (select is_member()))
   or group_id in (select my_groups())
 );
 

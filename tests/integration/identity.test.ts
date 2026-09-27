@@ -19,6 +19,8 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+
 class RedirectError extends Error {
   constructor(public url: string) {
     super(`NEXT_REDIRECT ${url}`);
@@ -125,10 +127,14 @@ describe("getAccess：多重身份與 cookie", () => {
     }
   });
 
-  it("換組（moveMember）只搬那一列：cookie 指的身份跟著新組走，同一人的其他身份不受影響", async () => {
+  it("換組（moveMember 動作）只搬那一列：cookie 指的身份跟著新組走，同一人的其他身份不受影響", async () => {
+    // 管理員（ADMIN_EMAILS、不在名單上）真的呼叫 moveMember 這個 server action（Task 3 fix F5）。
+    loggedInEmail = "admin@g.nccu.edu.tw";
+    const { moveMember } = await import("@/server/actions/admin");
+    await moveMember(multiA, seed.groupB);
+
     loggedInEmail = "multi@g.nccu.edu.tw";
     jar.set("ftl_identity", { value: multiA });
-    await service().from("members").update({ group_id: seed.groupB }).eq("id", multiA);
     const a = await access();
     expect(a.active).toEqual({ memberId: multiA, role: "student", groupId: seed.groupB, label: "第2組專案生" });
     expect(a.identities.map((i) => i.label)).toEqual(["第2組專案生", "第3組專案生"]);

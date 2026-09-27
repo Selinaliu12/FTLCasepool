@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { toast } from "sonner";
+import { unstable_rethrow } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -26,8 +27,9 @@ export function IdentitySwitcher({ identities, activeId }: { identities: Identit
       try {
         await switchIdentity(id);
       } catch (e) {
-        // redirect() 在 server action 裡是用例外實作的，Next 會自己處理，不是真的錯誤。
-        if (e instanceof Error && e.message.includes("NEXT_REDIRECT")) throw e;
+        // redirect()／notFound() 這類 Next 內部用的例外（用 digest 辨認）要原樣丟回去交給 Next 處理，
+        // 不是真的錯誤；其他才是切換失敗。
+        unstable_rethrow(e);
         toast.error("切換身份失敗，請重試");
       }
     });

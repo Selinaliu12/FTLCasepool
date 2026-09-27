@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getAccess } from "@/server/session";
+import { isStaffIdentity } from "@/domain/access";
 import { CompetitionForm } from "../competition-form";
 import { emptyCompetitionForm } from "../competition-form-defaults";
 
@@ -7,7 +8,7 @@ import { emptyCompetitionForm } from "../competition-form-defaults";
 // 打這條網址一律 404（規格第 3 節；controller ruling #4）。
 export default async function NewCompetitionPage() {
   const access = await getAccess();
-  const isStaff = access.kind === "ok" && access.active.role !== "student";
+  const isStaff = access.kind === "ok" && isStaffIdentity(access.active);
   if (!isStaff) notFound();
 
   return (

@@ -98,6 +98,13 @@ export function homeFor(identity: Identity): "/my-group" | "/dashboard" | "/admi
   return "/dashboard";
 }
 
+// 幹部＝管理員、專案幹部、其他幹部（規格第 3 節：新增、編輯、發布競賽）。明確白名單：之後如果
+// 多了新角色，預設不算幹部（Task 3 fix F6）。新增競賽頁、requireStaff、isStaffOrAdmin 共用。
+const STAFF_ROLES: ReadonlySet<IdentityRole> = new Set<IdentityRole>(["admin", "pm", "officer"]);
+export function isStaffIdentity(identity: Identity): boolean {
+  return STAFF_ROLES.has(identity.role);
+}
+
 // 目前身份是專案生時回傳它的組 id；其他身份回傳 null。所有「專案生才能做」的頁面與動作都用這個
 // 取組別（寫入以目前身份為準，不是所有身份的聯集）。
 export function activeStudentGroup(access: Access): string | null {

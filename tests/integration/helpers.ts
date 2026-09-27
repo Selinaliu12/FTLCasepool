@@ -3,7 +3,7 @@ import { Client as PgClient } from "pg";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { env } from "../../src/server/env";
 import { assertLocalSupabaseUrl } from "../../src/server/local-only";
-import { resolveAccess, type Access, type Identity, type RosterRow } from "../../src/domain/access";
+import { resolveAccess, type Access, type RosterRow } from "../../src/domain/access";
 
 // 本機測試專用密碼；正式環境不會用到（test-login route 只在 ENABLE_TEST_LOGIN=true 時開放）。
 export const TEST_PASSWORD = "local-test-password-only!";
@@ -29,7 +29,12 @@ export async function withRawPg<T>(fn: (client: PgClient) => Promise<T>): Promis
   }
 }
 
+// okAccess() 用：seedSemester() 建立的組 id → 組名（「第1組」「第2組」），讓舊寫法的 mock 也能
+// 產生正式環境的標籤「第N組專案生」。resetDb() 清空。
+const knownGroupNames = new Map<string, string>();
+
 export async function resetDb(): Promise<void> {
+  knownGroupNames.clear();
   const db = service();
   const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
   // 依外鍵相依順序刪除（子表先刪）。semesters 上的 cascade 理論上會連動刪掉大部分資料，
@@ -120,6 +125,9 @@ export async function seedSemester(opts: { acknowledged?: boolean } = {}) {
     .select()
     .single();
   if (gbError) throw gbError;
+
+  knownGroupNames.set(groupA.id as string, groupA.name as string);
+  knownGroupNames.set(groupB.id as string, groupB.name as string);
 
   const { data: lineA, error: laError } = await db
     .from("lines")
@@ -354,25 +362,26 @@ export function okAccess(legacy: {
   kind: "ok";
   email: string;
   isAdmin: boolean;
-  member: LegacyMember | null;
+  member: (LegacyMember & { groupName?: string }) | null;
   semesterId: string;
 }): Access {
-  const identities: Identity[] = [];
-  if (legacy.isAdmin) identities.push({ memberId: null, role: "admin", groupId: null, label: "管理員" });
-  if (legacy.member) {
-    const m = legacy.member;
-    const label = m.role === "student" ? "專案生" : m.role === "pm" ? "專案幹部" : "其他幹部";
-    identities.push({ memberId: m.id, role: m.role, groupId: m.groupId, label });
+  // 直接交給正式的 resolveAccess()（F2）：身份形狀、順序、標籤「第N組專案生」都跟正式環境一樣。
+  // 專案生的組名：優先用呼叫端給的 groupName，否則查 seedSemester() 登記過的組名；都沒有就報錯，
+  // 不默默造出一個正式環境不可能出現的標籤。
+  const m = legacy.member;
+  let groupName: string | null = null;
+  if (m && m.role === "student") {
+    groupName = m.groupName ?? (m.groupId ? knownGroupNames.get(m.groupId) ?? null : null);
+    if (!groupName) throw new Error(`okAccess：不認得組 ${m.groupId} 的組名，請在 member 加上 groupName`);
   }
-  if (identities.length === 0) throw new Error("okAccess：至少要有一個身份");
-  return {
-    kind: "ok",
-    email: legacy.email,
-    name: legacy.member?.name ?? null,
-    identities,
-    active: identities[0],
+  const access = resolveAccess(legacy.email, {
+    adminEmails: legacy.isAdmin ? [legacy.email.trim().toLowerCase()] : [],
     semesterId: legacy.semesterId,
-  };
+    rows: m ? [{ id: m.id, semesterId: m.semesterId, email: m.email, name: m.name, role: m.role, groupId: m.groupId, groupName }] : [],
+    preferred: null,
+  });
+  if (access.kind !== "ok") throw new Error(`okAccess：舊寫法轉出來不是 ok（${access.kind}）`);
+  return access;
 }
 
 export function asPm(mockGetAccess: AccessMock, semesterId: string): void {

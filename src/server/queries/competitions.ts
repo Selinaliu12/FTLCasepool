@@ -1,6 +1,6 @@
 import "server-only";
 import { getAccess } from "@/server/session";
-import { activeStudentGroup } from "@/domain/access";
+import { activeStudentGroup, isStaffIdentity } from "@/domain/access";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
 import { sortLobby, type CompetitionCard } from "@/domain/competition";
 import { isUuid } from "@/domain/id";
@@ -53,7 +53,7 @@ function toCard(row: CompetitionRow): CompetitionCard {
 
 // 幹部＝專案幹部／其他幹部（規格第 3 節：新增、編輯、發布競賽——管理員、專案幹部、其他幹部）。
 function isStaffOrAdmin(access: Extract<Awaited<ReturnType<typeof getAccess>>, { kind: "ok" }>): boolean {
-  return access.active.role === "admin" || access.active.role === "pm" || access.active.role === "officer";
+  return isStaffIdentity(access.active);
 }
 
 // 大廳：已發布的卡片依報名截止日排序、分成 open／closed；草稿只給幹部與管理員看

@@ -13,7 +13,7 @@ function asStudent(semesterId: string) {
     kind: "ok",
     email: "a1@g.nccu.edu.tw",
     isAdmin: false,
-    member: { id: "m1", semesterId, email: "a1@g.nccu.edu.tw", name: "甲一", role: "student", groupId: "g1" },
+    member: { id: "m1", semesterId, email: "a1@g.nccu.edu.tw", name: "甲一", role: "student", groupId: "g1", groupName: "第1組" },
     semesterId,
   }));
 }

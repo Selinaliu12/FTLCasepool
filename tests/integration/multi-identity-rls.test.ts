@@ -151,3 +151,144 @@ describe("多重身份 RLS：讀取權限取所有身份的聯集", () => {
     });
   });
 });
+
+// Task 3 fix F3：批次 2 的報名／參賽成員／專案幹部指派／階段繳交（內容）／階段狀態（視圖）也要
+// 取所有身份的聯集——每組各建一筆報名＋參賽成員＋一條比賽線＋一份階段繳交＋一筆 PM 指派。
+describe("多重身份 RLS：報名、參賽成員、PM 指派、階段繳交與階段狀態", () => {
+  const entryByGroup = new Map<string, string>();
+  const compLineByGroup = new Map<string, string>();
+
+  beforeAll(async () => {
+    const db = service();
+    const { data: comp, error: cErr } = await db
+      .from("competitions")
+      .insert({
+        semester_id: seed.semesterId,
+        name: "黑客松",
+        url: "https://example.com",
+        signup_deadline: "2099-10-01T15:59:59.999Z",
+        status: "published",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (cErr) throw cErr;
+    const { data: pm } = await db.from("members").select("id").eq("email", "pm@g.nccu.edu.tw").single();
+    const { data: studs } = await db.from("members").select("id, group_id").eq("semester_id", seed.semesterId).eq("role", "student");
+
+    for (const groupId of [seed.groupA, seed.groupB, groupC]) {
+      const { data: entry, error: eErr } = await db
+        .from("competition_entries")
+        .insert({ group_id: groupId, competition_id: comp.id, created_by: "pm@g.nccu.edu.tw", confirmed_at: new Date().toISOString() })
+        .select()
+        .single();
+      if (eErr) throw eErr;
+      entryByGroup.set(groupId, entry.id as string);
+      const memberId = studs!.find((s) => s.group_id === groupId)!.id;
+      const { error: emErr } = await db.from("entry_members").insert({ entry_id: entry.id, member_id: memberId });
+      if (emErr) throw emErr;
+      const { data: line, error: lErr } = await db
+        .from("lines")
+        .insert({ group_id: groupId, kind: "competition", entry_id: entry.id })
+        .select()
+        .single();
+      if (lErr) throw lErr;
+      compLineByGroup.set(groupId, line.id as string);
+      const { error: sErr } = await db.from("stage_submissions").insert({
+        line_id: line.id,
+        stage: "signup",
+        version: 1,
+        pdf_key: `115-1/${groupId}/signup.pdf`,
+        pdf_size: 1024,
+        pdf_uploaded_at: new Date().toISOString(),
+        pdf_uploaded_by: "pm@g.nccu.edu.tw",
+        submitted_by: "pm@g.nccu.edu.tw",
+        review_status: "pending",
+      });
+      if (sErr) throw sErr;
+      const { error: paErr } = await db.from("pm_assignments").insert({ pm_member_id: pm!.id, group_id: groupId });
+      if (paErr) throw paErr;
+    }
+  });
+
+  const allLines = () => [...compLineByGroup.values()];
+
+  it("第1組＋第3組專案生：報名、參賽成員、PM 指派、階段繳交、階段狀態都讀得到兩組的，讀不到第2組", async () => {
+    const db = await clientAs("multi@g.nccu.edu.tw");
+    const mine = new Set([seed.groupA, groupC]);
+
+    const entries = await db.from("competition_entries").select("group_id");
+    expect(entries.error).toBeNull();
+    expect(new Set(entries.data!.map((e) => e.group_id))).toEqual(mine);
+
+    const em = await db.from("entry_members").select("entry_id");
+    expect(em.error).toBeNull();
+    expect(new Set(em.data!.map((e) => e.entry_id))).toEqual(new Set([entryByGroup.get(seed.groupA), entryByGroup.get(groupC)]));
+
+    const pa = await db.from("pm_assignments").select("group_id");
+    expect(pa.error).toBeNull();
+    expect(new Set(pa.data!.map((p) => p.group_id))).toEqual(mine);
+
+    const subs = await db.from("stage_submissions").select("line_id").in("line_id", allLines());
+    expect(subs.error).toBeNull();
+    expect(new Set(subs.data!.map((s) => s.line_id))).toEqual(new Set([compLineByGroup.get(seed.groupA), compLineByGroup.get(groupC)]));
+
+    const status = await db.from("stage_status").select("line_id").in("line_id", allLines());
+    expect(status.error).toBeNull();
+    expect(new Set(status.data!.map((s) => s.line_id))).toEqual(new Set([compLineByGroup.get(seed.groupA), compLineByGroup.get(groupC)]));
+  });
+
+  it("第2組學生（單一身份）：只讀得到第2組的報名、參賽成員、PM 指派、階段繳交與狀態", async () => {
+    const db = await clientAs("b1@g.nccu.edu.tw");
+    expect((await db.from("competition_entries").select("group_id")).data!.map((e) => e.group_id)).toEqual([seed.groupB]);
+    expect((await db.from("entry_members").select("entry_id")).data!.map((e) => e.entry_id)).toEqual([entryByGroup.get(seed.groupB)]);
+    expect((await db.from("pm_assignments").select("group_id")).data!.map((p) => p.group_id)).toEqual([seed.groupB]);
+    expect((await db.from("stage_submissions").select("line_id").in("line_id", allLines())).data!.map((s) => s.line_id)).toEqual([
+      compLineByGroup.get(seed.groupB),
+    ]);
+    expect((await db.from("stage_status").select("line_id").in("line_id", allLines())).data!.map((s) => s.line_id)).toEqual([
+      compLineByGroup.get(seed.groupB),
+    ]);
+  });
+
+  it("其他幹部＋第1組專案生：階段狀態看得到所有組，階段內容（stage_submissions）只看得到自己第1組", async () => {
+    const db = await clientAs("a1@g.nccu.edu.tw");
+    const status = await db.from("stage_status").select("line_id").in("line_id", allLines());
+    expect(new Set(status.data!.map((s) => s.line_id))).toEqual(new Set(allLines()));
+
+    const subs = await db.from("stage_submissions").select("line_id").in("line_id", allLines());
+    expect(subs.error).toBeNull();
+    expect(subs.data!.map((s) => s.line_id)).toEqual([compLineByGroup.get(seed.groupA)]);
+
+    // 報名、參賽成員、PM 指派：其他幹部本來就看得到所有組（is_staff()）。
+    expect((await db.from("competition_entries").select("group_id")).data).toHaveLength(3);
+    expect((await db.from("entry_members").select("entry_id")).data).toHaveLength(3);
+    expect((await db.from("pm_assignments").select("group_id")).data).toHaveLength(3);
+  });
+});
+
+// Task 3 fix F4：read_members 的「自己的列」原本是每一列都跑一次 exists(select … from my_members())；
+// 改成每個查詢只算一次的等價條件（email = JWT email 且 (select is_member())）。行為由上面的
+// 「看得到自己的所有列」與 rls.test.ts「不在名單上的人讀不到 members」釘住。
+describe("read_members：自己的列用每個查詢只算一次的條件", () => {
+  it("policy 不再逐列呼叫 my_members()，改用 JWT email＋(select is_member())", async () => {
+    await withRawPg(async (client) => {
+      const res = await client.query(
+        "select qual from pg_policies where schemaname = 'public' and tablename = 'members' and policyname = 'read_members'"
+      );
+      expect(res.rows).toHaveLength(1);
+      const qual = res.rows[0].qual as string;
+      expect(qual).not.toMatch(/my_members\(\)/);
+      expect(qual).toMatch(/SELECT is_member\(\) AS is_member/);
+      expect(qual).toMatch(/auth\.jwt\(\)/);
+    });
+  });
+
+  it("有多列身份的人讀得到自己所有的列；只在名單外的人讀不到（等價性）", async () => {
+    const multi = await clientAs("multi@g.nccu.edu.tw");
+    const own = await multi.from("members").select("id").eq("email", "multi@g.nccu.edu.tw");
+    expect(own.data).toHaveLength(2);
+    const stranger = await clientAs("stranger2@g.nccu.edu.tw");
+    expect((await stranger.from("members").select("id")).data).toEqual([]);
+  });
+});
