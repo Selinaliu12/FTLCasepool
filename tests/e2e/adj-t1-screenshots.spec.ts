@@ -25,7 +25,7 @@ test.describe.serial(`adj-t1 視覺自我檢查截圖 round${ROUND}`, () => {
     const seed = await seedSemester({ acknowledged: true });
     const db = service();
     await db.from("acknowledgements").insert({ semester_id: seed.semesterId, email: "admin@g.nccu.edu.tw" });
-    await db.from("competitions").insert([
+    const { error } = await db.from("competitions").insert([
       {
         semester_id: seed.semesterId,
         name: "全國大學生黑客松",
@@ -50,6 +50,7 @@ test.describe.serial(`adj-t1 視覺自我檢查截圖 round${ROUND}`, () => {
         created_by: "pm@g.nccu.edu.tw",
       },
     ]);
+    if (error) throw error;
   });
 
   test.afterAll(async () => {
@@ -62,9 +63,16 @@ test.describe.serial(`adj-t1 視覺自我檢查截圖 round${ROUND}`, () => {
       await page.setViewportSize({ width: size.width, height: size.height });
       await loginAndPassWelcome(page, "pm@g.nccu.edu.tw", /\/dashboard$/);
       await page.goto("/competitions");
-      const openDeadline = page.locator("p", { hasText: "報名截止：" }).first();
+      const deadlines = page.locator("p", { hasText: "報名截止：" });
+      await expect(deadlines).toHaveCount(2);
+      // 開放中（全國大學生黑客松）跟已截止（已截止的比賽）兩張卡片都要是 --danger 紅字，不是只有
+      // 開放中那一張（Final review F7：原本只斷言 .first()，題目跟 commit 都寫「兩者都適用」）。
+      const openDeadline = deadlines.first();
+      const closedDeadline = deadlines.last();
       await expect(openDeadline).toBeVisible();
       await expect(openDeadline).toHaveCSS("color", "rgb(179, 38, 30)");
+      await expect(closedDeadline).toBeVisible();
+      await expect(closedDeadline).toHaveCSS("color", "rgb(179, 38, 30)");
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
       expect(overflow).toBe(false);
       await page.screenshot({ path: `.screenshots/round${ROUND}-adj-t1-lobby-${size.name}.png`, fullPage: true });

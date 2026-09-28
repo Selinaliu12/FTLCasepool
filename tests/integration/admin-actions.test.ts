@@ -1,6 +1,7 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { resetDb, seedSemester, okAccess, backdatePdfUploadedAt, uploadTestPdf, ensureLocalStorageBucket } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
+import { resolveAccess } from "@/domain/access";
 
 // admin actions 一律先呼叫 requireAdmin()（建在 getAccess() 上）。這裡整份測試都用
 // vi.mock 假造 @/server/session，讓每個測試自己決定「呼叫者是誰」，不用真的登入。
@@ -48,6 +49,33 @@ function asNotInRoster() {
   mockGetAccess.mockResolvedValue({ kind: "not_in_roster" });
 }
 
+// Final whole-branch review F1：管理員也在名單上（例如兼其他幹部），但目前身份（active identity）
+// 切成了名單上的那個身份，不是「管理員」。跟 asAdminOfficer（helpers.ts）不一樣：那個 helper用
+// okAccess() 的 preferred:null，active 永遠還是排序第一的管理員身份，測不到「已經切走」這個狀態。
+// 這裡直接呼叫真正的 resolveAccess()，把 preferred 指到名單列的 id，讓 active 真的變成其他幹部，
+// 模擬 Task 3「動作依目前選的身份」的規則：requireAdmin() 必須看 active.role，不能只看
+// 「這個人是不是管理員」，否則管理員兼幹部的人切走之後還是做得了管理員動作。
+function asAdminActiveOfficer(semesterId: string, memberId: string) {
+  const access = resolveAccess("admin@g.nccu.edu.tw", {
+    adminEmails: ["admin@g.nccu.edu.tw"],
+    semesterId,
+    rows: [
+      {
+        id: memberId,
+        semesterId,
+        email: "admin@g.nccu.edu.tw",
+        name: "管理員兼其他幹部",
+        role: "officer",
+        groupId: null,
+        groupName: null,
+      },
+    ],
+    preferred: memberId,
+  });
+  if (access.kind !== "ok") throw new Error(`asAdminActiveOfficer：resolveAccess 沒有回 ok（${access.kind}）`);
+  mockGetAccess.mockResolvedValue(access);
+}
+
 describe("requireAdmin", () => {
   beforeEach(async () => {
     await resetDb();
@@ -90,6 +118,26 @@ describe("requireAdmin", () => {
     asNotInRoster();
     const { setRedAfterHours } = await import("@/server/actions/admin");
     await expect(setRedAfterHours(seed.semesterId, 48)).rejects.toThrow("只有系統管理員可以這樣做");
+  });
+
+  // Final whole-branch review F1：管理員也在名單上，但目前身份已經切成名單上的身份（不是
+  // 管理員）→ 一樣被拒。這是 Task 3 的行為（規格 §14 第 3 點：動作依目前選的身份判斷），
+  // 之前沒有測試覆蓋——如果有人把 requireAdmin() 改鬆成「只要這個人的身份裡有一個是管理員
+  // 就放行」，這個測試會抓到。
+  it("管理員也在名單上，但目前身份切成其他幹部 → 一樣被拒", async () => {
+    const seed = await seedSemester();
+    const svc = createServiceSupabase();
+    const { data: officerRow, error } = await svc
+      .from("members")
+      .insert({ semester_id: seed.semesterId, email: "admin@g.nccu.edu.tw", name: "管理員兼其他幹部", role: "officer", group_id: null })
+      .select()
+      .single();
+    if (error) throw error;
+    asAdminActiveOfficer(seed.semesterId, officerRow!.id as string);
+
+    const { savePeriods, previewPeriodDeletion } = await import("@/server/actions/admin");
+    await expect(savePeriods(seed.semesterId, [])).rejects.toThrow("只有系統管理員可以這樣做");
+    await expect(previewPeriodDeletion([])).rejects.toThrow("只有系統管理員可以這樣做");
   });
 });
 

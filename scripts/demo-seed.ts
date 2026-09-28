@@ -11,9 +11,19 @@ import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { env } from "../src/server/env";
-import { assertLocalSupabaseUrl } from "../src/server/local-only";
+import { assertLocalSupabaseUrl, isLocalSupabaseUrl } from "../src/server/local-only";
 
 assertLocalSupabaseUrl(env.supabaseUrl);
+// Final whole-branch review F5：assertLocalSupabaseUrl 只擋 Supabase，沒擋 R2。這支腳本上傳的
+// PDF 一律走 env.r2.endpoint；如果 .env.local 沒設 R2_ENDPOINT（或設成別的網址），uploadTestPdf
+// 會退回組出真正的 R2 端點（https://{accountId}.r2.cloudflarestorage.com），示範用的檔案就會
+// 傳到正式（或別人的測試）R2 桶，而且沒有對應的資料庫列可以清掉——一樣要求它是本機位址才能跑。
+if (!env.r2.endpoint || !isLocalSupabaseUrl(env.r2.endpoint)) {
+  throw new Error(
+    `Refusing to run: R2_ENDPOINT is not set to a local host (got ${env.r2.endpoint ?? "(未設定)"}). ` +
+      "This script uploads PDFs to whatever R2_ENDPOINT points at; set it to your local Supabase Storage S3 endpoint (e.g. http://127.0.0.1:54321/storage/v1/s3) before running."
+  );
+}
 const db = createClient(env.supabaseUrl, env.supabaseServiceKey, { auth: { persistSession: false } });
 const pdf = new Uint8Array(readFileSync(new URL("../tests/fixtures/sample.pdf", import.meta.url)));
 
