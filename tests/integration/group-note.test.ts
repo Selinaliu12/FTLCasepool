@@ -59,6 +59,9 @@ describe("updateGroupNote", () => {
     asStudent(seed.semesterId, seed.groupA, "a1@g.nccu.edu.tw", "甲一");
 
     const { updateGroupNote } = await import("@/server/actions/group-note");
+    // DB 時鐘可能比 Node 快個幾百毫秒（曾實測領先 ~210ms），所以這裡容忍 ±2 秒的時鐘偏移，
+    // 而不是直接比對 before/after，避免測試偶發性失敗。
+    const CLOCK_SKEW_TOLERANCE_MS = 2000;
     const before = new Date();
     const result = await updateGroupNote("智慧記帳系統");
     const after = new Date();
@@ -69,8 +72,8 @@ describe("updateGroupNote", () => {
     expect(row.note).toBe("智慧記帳系統");
     expect(row.note_updated_by).toBe("甲一");
     const at = new Date(row.note_updated_at as string).getTime();
-    expect(at).toBeGreaterThanOrEqual(before.getTime());
-    expect(at).toBeLessThanOrEqual(after.getTime());
+    expect(at).toBeGreaterThanOrEqual(before.getTime() - CLOCK_SKEW_TOLERANCE_MS);
+    expect(at).toBeLessThanOrEqual(after.getTime() + CLOCK_SKEW_TOLERANCE_MS);
   });
 
   it("空白備註存成 null", async () => {
