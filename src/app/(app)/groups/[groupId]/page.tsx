@@ -24,12 +24,12 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
   // 之後 reviewStage() 自己會再檢查一次）。不是 PM 的身分（含管理員、自己組的學生）一律不顯示。
   const access = await getAccess();
   let canReview = false;
-  if (access.kind === "ok" && access.member?.role === "pm") {
+  if (access.kind === "ok" && access.active.role === "pm" && access.active.memberId) {
     const db = createServiceSupabase();
     const { data: assignment } = await db
       .from("pm_assignments")
       .select("group_id")
-      .eq("pm_member_id", access.member.id)
+      .eq("pm_member_id", access.active.memberId)
       .eq("group_id", groupId)
       .maybeSingle();
     canReview = !!assignment;
@@ -41,7 +41,7 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
     <main className="mx-auto flex max-w-2xl flex-col gap-6 p-6">
       <div>
         <h1 className="font-heading text-2xl font-bold text-foreground">{data.group.name}</h1>
-        <p className="text-muted-foreground">{data.group.projectName}</p>
+        {data.group.projectName ? <p className="text-muted-foreground">{data.group.projectName}</p> : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -50,6 +50,33 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
           準時率：{data.onTime === null ? "—" : `${Math.round(data.onTime * 100)}%`}
         </span>
       </div>
+
+      {/* Task 4（規格 §14 第 1、7 點）：組員（姓名、學號、系級）與組別備註。 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-medium">組員</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <ul className="flex flex-col gap-1 text-sm text-foreground">
+            {data.group.members.map((m, i) => (
+              <li key={`${m.name}-${i}`}>
+                {m.name} · {m.studentId ?? "—"} · {m.deptYear ?? "—"}
+              </li>
+            ))}
+          </ul>
+          <div>
+            <p className="text-xs text-muted-foreground">組別備註</p>
+            {/* Fix round 1 F5：break-words（+ whitespace-pre-wrap 保留換行）避免一長串沒有
+                空白的英文字或網址把卡片撐出畫面（尤其是 375px）。 */}
+            <p className="whitespace-pre-wrap text-sm text-foreground break-words">{data.group.note ?? "尚未訂題"}</p>
+            {data.group.noteUpdatedBy && data.group.noteUpdatedAt ? (
+              <p className="text-xs text-muted-foreground">
+                最後由 {data.group.noteUpdatedBy} 於 {formatTaipei(data.group.noteUpdatedAt)} 更新
+              </p>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="flex flex-col gap-3">
         {data.periods.map((p) => {

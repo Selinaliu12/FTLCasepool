@@ -65,10 +65,11 @@ test.describe.serial("b2-t1 視覺自我檢查截圖", () => {
   });
 
   for (const size of SIZES) {
-    test(`管理員期別表（含已凍結、含建議內容）@ ${size.name}`, async ({ page }) => {
+    test(`管理員期別表（含建議內容；已交件期別也可編輯）@ ${size.name}`, async ({ page }) => {
       await page.setViewportSize({ width: size.width, height: size.height });
       await loginAndPassWelcome(page, "admin@g.nccu.edu.tw", /\/admin$/);
-      await expect(page.getByText("已有人交件", { exact: true })).toBeVisible();
+      // Adjustments Task 5：已交件的期別不再唯讀、不再標「已有人交件」，每一期都有日期輸入框。
+      await expect(page.getByLabel("第 1 期日期")).toBeVisible();
       await page.screenshot({ path: `.screenshots/b2-t1-admin-periods-${size.name}.png`, fullPage: true });
     });
 

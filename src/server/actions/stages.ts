@@ -9,7 +9,7 @@ import { isLocked } from "@/domain/lock";
 import { MAX_PDF_BYTES } from "@/domain/pdf";
 import { inspectUploaded, deleteObject } from "@/server/r2";
 import { isLineEnded, STAGE_KEYS, type StageKey } from "@/domain/competition-line";
-import type { Access } from "@/domain/access";
+import type { StudentAccess } from "@/domain/access";
 import { STAGE_ERRORS, mapSubmitStageError, mapReplaceStageError, mapWithdrawStageError } from "@/domain/stage-errors";
 
 const NOT_FOUND = STAGE_ERRORS.notFound;
@@ -23,14 +23,11 @@ const REVIEW_ALREADY_REVIEWED = "這一版已經審核過了";
 const REVIEW_NOT_LATEST = "只能審核最新的一版";
 const REVIEW_ENDED = "這場比賽已經結束";
 
-type OkAccess = Extract<Access, { kind: "ok" }>;
-type StudentAccess = OkAccess & { member: NonNullable<OkAccess["member"]> & { groupId: string } };
-
 // 只有「登入成功且是專案生且有 groupId」的呼叫者才可能通過後面的擁有權檢查；其他任何身分
 // （幹部、PM、沒有組的專案生、根本沒登入）一律回統一的「找不到這筆繳交」，不透露這筆繳交
 // 是不是存在（跟 progress.ts／entries.ts 的 requireStudent／callerContext 同一套模式）。
 function callerContext(access: Awaited<ReturnType<typeof getAccess>>): { access: StudentAccess } | null {
-  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+  if (access.kind !== "ok" || access.active.role !== "student" || !access.active.groupId) {
     return null;
   }
   return { access: access as StudentAccess };
@@ -146,11 +143,11 @@ export async function submitStage(
   if (notAcknowledged) return notAcknowledged;
 
   const db = createServiceSupabase();
-  const line = await loadLineForEntry(db, entryId, caller.access.member.groupId);
+  const line = await loadLineForEntry(db, entryId, caller.access.active.groupId);
   if (!line) return { ok: false, error: NOT_FOUND };
   if (line.ended) return { ok: false, error: ENDED_ERROR };
 
-  const prefix = await expectedPrefix(db, caller.access.semesterId, caller.access.member.groupId);
+  const prefix = await expectedPrefix(db, caller.access.semesterId, caller.access.active.groupId);
   if (!pdfKey.startsWith(prefix)) return { ok: false, error: UPLOAD_FAILED };
 
   const { data: ticket, error: ticketError } = await db
@@ -202,7 +199,7 @@ export async function replaceStagePdf(
   const access = await getAccess();
   const caller = callerContext(access);
   const db = createServiceSupabase();
-  const submission = caller ? await loadOwnedSubmission(db, submissionId, caller.access.member.groupId) : null;
+  const submission = caller ? await loadOwnedSubmission(db, submissionId, caller.access.active.groupId) : null;
   if (!submission || !caller) return { ok: false, error: NOT_FOUND };
 
   const notAcknowledged = await acknowledgementRequired(caller.access.semesterId, caller.access.email);
@@ -210,7 +207,7 @@ export async function replaceStagePdf(
 
   if (submission.ended) return { ok: false, error: ENDED_ERROR };
 
-  const prefix = await expectedPrefix(db, caller.access.semesterId, caller.access.member.groupId);
+  const prefix = await expectedPrefix(db, caller.access.semesterId, caller.access.active.groupId);
   if (!pdfKey.startsWith(prefix)) return { ok: false, error: UPLOAD_FAILED };
 
   const { data: ticket, error: ticketError } = await db
@@ -266,7 +263,7 @@ export async function withdrawStage(submissionId: string): Promise<{ ok: true } 
   const access = await getAccess();
   const caller = callerContext(access);
   const db = createServiceSupabase();
-  const submission = caller ? await loadOwnedSubmission(db, submissionId, caller.access.member.groupId) : null;
+  const submission = caller ? await loadOwnedSubmission(db, submissionId, caller.access.active.groupId) : null;
   if (!submission || !caller) return { ok: false, error: NOT_FOUND };
 
   const notAcknowledged = await acknowledgementRequired(caller.access.semesterId, caller.access.email);
@@ -340,7 +337,7 @@ export async function reviewStage(
   comment: string | null
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || access.member.role !== "pm") {
+  if (access.kind !== "ok" || access.active.role !== "pm" || !access.active.memberId) {
     return { ok: false, error: NOT_FOUND };
   }
 
@@ -349,7 +346,7 @@ export async function reviewStage(
   }
 
   const db = createServiceSupabase();
-  const reviewable = await loadReviewableSubmission(db, submissionId, access.member.id);
+  const reviewable = await loadReviewableSubmission(db, submissionId, access.active.memberId);
   if (!reviewable) return { ok: false, error: NOT_FOUND };
 
   const notAcknowledged = await acknowledgementRequired(access.semesterId, access.email);
@@ -363,7 +360,7 @@ export async function reviewStage(
   const { error: rpcError } = await db.rpc("review_stage", {
     p_submission_id: submissionId,
     p_reviewer: access.email,
-    p_pm_member_id: access.member.id,
+    p_pm_member_id: access.active.memberId,
     p_decision: decision,
     p_comment: comment,
   });

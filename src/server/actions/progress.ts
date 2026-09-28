@@ -22,7 +22,7 @@ export async function submitProgress(
   input: { light: Light; did: string; blocked: string; nextSteps: string; pdfKey: string }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+  if (access.kind !== "ok" || access.active.role !== "student" || !access.active.groupId) {
     return { ok: false, error: "只有專案生可以交進度" };
   }
   const notAcknowledged = await acknowledgementRequired(access.semesterId, access.email);
@@ -43,7 +43,7 @@ export async function submitProgress(
   const { data: line, error: lineError } = await db
     .from("lines")
     .select("id")
-    .eq("group_id", access.member.groupId)
+    .eq("group_id", access.active.groupId)
     .eq("kind", "project")
     .single();
   if (lineError) throw lineError;
@@ -67,7 +67,7 @@ export async function submitProgress(
     .single();
   if (semesterError) throw semesterError;
 
-  const expectedPrefix = `${semester.name}/${access.member.groupId}/`;
+  const expectedPrefix = `${semester.name}/${access.active.groupId}/`;
   if (!input.pdfKey.startsWith(expectedPrefix)) {
     return { ok: false, error: UPLOAD_FAILED };
   }
@@ -187,10 +187,10 @@ async function loadOwnedReport(db: SupabaseClient, reportId: string, groupId: st
 function callerContext(
   access: Awaited<ReturnType<typeof getAccess>>
 ): { groupId: string; email: string; semesterId: string } | null {
-  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+  if (access.kind !== "ok" || access.active.role !== "student" || !access.active.groupId) {
     return null;
   }
-  return { groupId: access.member.groupId, email: access.email, semesterId: access.semesterId };
+  return { groupId: access.active.groupId, email: access.email, semesterId: access.semesterId };
 }
 
 // 交完進度後 2 小時內可以改燈號與三句話，繳交時間（pdf_uploaded_at）不變。伺服器端先用

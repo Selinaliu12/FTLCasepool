@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import { resetDb, seedSemester } from "./helpers";
+import { resetDb, seedSemester, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 // acknowledge() 一律先呼叫 getAccess()，跟 admin-actions.test.ts 一樣用 vi.mock 假造
@@ -11,13 +11,13 @@ vi.mock("@/server/session", () => ({ getAccess: () => mockGetAccess() }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 
 function asStudent(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "a1@g.nccu.edu.tw",
     isAdmin: false,
-    member: { id: "m1", semesterId, email: "a1@g.nccu.edu.tw", name: "甲一", role: "student", groupId: "g1" },
+    member: { id: "m1", semesterId, email: "a1@g.nccu.edu.tw", name: "甲一", role: "student", groupId: "g1", groupName: "第1組" },
     semesterId,
-  });
+  }));
 }
 
 function asWrongDomain() {

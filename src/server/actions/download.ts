@@ -31,8 +31,10 @@ export async function getPdfDownloadUrl(
   if (access.kind !== "ok") return { ok: false, error: NOT_FOUND };
 
   // Controller ruling（Task 14 fix round 1）：跟 loadGroupDetail 一樣，管理員身分本身就該
-  // 看得到內容，不管有沒有 member 列、那筆 member 是不是學生以外的角色。
-  const useService = access.isAdmin && access.member?.role !== "student";
+  // 看得到內容。Adjustments Task 3：改看「目前身份」——目前身份是管理員才走服務身分；其他身份
+  // 走 RLS（所有身份的聯集），再用 contentAllowed() 收斂回目前身份（專案生只能下載目前這組的）。
+  const useService = access.active.role === "admin";
+  if (!useService && access.active.role !== "pm" && access.active.role !== "student") return { ok: false, error: NOT_FOUND };
   const db = useService ? createServiceSupabase() : await createServerSupabase();
 
   const { data: report, error } = await db
@@ -49,6 +51,8 @@ export async function getPdfDownloadUrl(
     .eq("id", report.line_id as string)
     .single();
   if (lineError) throw lineError;
+  // 專案生的讀取權限（RLS）是所有身份的聯集，但下載是「目前身份」的動作：只能下載目前這組的。
+  if (access.active.role === "student" && line.group_id !== access.active.groupId) return { ok: false, error: NOT_FOUND };
 
   const [{ data: group, error: groupError }, { data: period, error: periodError }] = await Promise.all([
     db.from("groups").select("name, semester_id").eq("id", line.group_id as string).single(),
@@ -86,7 +90,8 @@ export async function getStagePdfDownloadUrl(
   const access = await getAccess();
   if (access.kind !== "ok") return { ok: false, error: STAGE_NOT_FOUND };
 
-  const useService = access.isAdmin && access.member?.role !== "student";
+  const useService = access.active.role === "admin";
+  if (!useService && access.active.role !== "pm" && access.active.role !== "student") return { ok: false, error: STAGE_NOT_FOUND };
   const db = useService ? createServiceSupabase() : await createServerSupabase();
 
   const { data: submission, error } = await db
@@ -106,6 +111,7 @@ export async function getStagePdfDownloadUrl(
     .maybeSingle();
   if (lineError) throw lineError;
   if (!line || !line.entry_id) return { ok: false, error: STAGE_NOT_FOUND };
+  if (access.active.role === "student" && line.group_id !== access.active.groupId) return { ok: false, error: STAGE_NOT_FOUND };
 
   const [{ data: group, error: groupError }, { data: entry, error: entryError }] = await Promise.all([
     db.from("groups").select("name, semester_id").eq("id", line.group_id as string).maybeSingle(),

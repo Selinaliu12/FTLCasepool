@@ -22,17 +22,17 @@ export type MyGroupEntry = {
 };
 
 // /my-group 頁的「比賽」區塊：這個組掛過的所有報名（含已退出的，狀態顯示已退出）。用
-// user-scoped client：read_entries 的 RLS（is_staff() or group_id = my_group()）本來就會讓
+// user-scoped client：read_entries 的 RLS（is_staff() or group_id in (select my_groups())）本來就會讓
 // 這個組的學生看到自己組的報名，不需要 service client。
 export async function loadMyGroupEntries(): Promise<MyGroupEntry[]> {
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || !access.member.groupId) return [];
+  if (access.kind !== "ok" || access.active.role !== "student" || !access.active.groupId) return [];
 
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from("competition_entries")
     .select("id, confirmed_at, withdrawn_at, competitions(name)")
-    .eq("group_id", access.member.groupId)
+    .eq("group_id", access.active.groupId)
     .order("created_at", { ascending: false });
   if (error) throw error;
 
@@ -86,11 +86,11 @@ export async function loadEntryDetail(entryId: string): Promise<EntryDetail | nu
   if (!isUuid(entryId)) return null;
 
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+  if (access.kind !== "ok" || access.active.role !== "student" || !access.active.groupId) {
     return null;
   }
 
-  const groupId = access.member.groupId;
+  const groupId = access.active.groupId;
 
   const supabase = await createServerSupabase();
   const { data: entry, error } = await supabase
@@ -130,7 +130,7 @@ export async function loadEntryDetail(entryId: string): Promise<EntryDetail | nu
   const selectedMemberIds = (selected ?? []).map((s) => s.member_id as string);
 
   // 已經選過的成員可能換組了：這組的學生（read_members 的 RLS）看不到別組成員現在的 member
-  // 列（group_id 已經不是 my_group()），所以這裡用 service client 單獨查這幾個 id 的
+  // 列（group_id 已經不在 my_groups() 裡），所以這裡用 service client 單獨查這幾個 id 的
   // 名字／目前的 group_id——只回傳名字跟「有沒有換組」，不會多洩漏其他資訊。
   let selectedMembers: { id: string; name: string; movedOut: boolean }[] = [];
   if (selectedMemberIds.length > 0) {

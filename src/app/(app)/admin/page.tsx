@@ -15,8 +15,9 @@ import { MoveMemberForm } from "./move-member-form";
 export default async function AdminPage() {
   const access = await getAccess();
   // (app)/layout.tsx 的 requireOk() 已經擋掉 wrong_domain／not_in_roster／
-  // no_semester+非管理員；這裡只需要再擋「有學期但不是管理員」這一種漏網之魚。
-  if (access.kind === "ok" && !access.isAdmin) redirect("/");
+  // no_semester+非管理員；這裡只需要再擋「有學期但目前身份不是管理員」這一種漏網之魚
+  // （Adjustments Task 3：管理員兼名單身份的人要切回「管理員」身份才看得到這頁）。
+  if (access.kind === "ok" && access.active.role !== "admin") redirect("/");
 
   const semesterId = access.kind === "ok" ? access.semesterId : null;
 
@@ -42,17 +43,14 @@ export default async function AdminPage() {
   const [semesterRes, groupsRes, membersRes, periodsRes, pmAssignmentsRes] = await Promise.all([
     db.from("semesters").select("id, name, red_after_hours").eq("id", semesterId).single(),
     db.from("groups").select("id, name, project_name").eq("semester_id", semesterId).order("name"),
-    db.from("members").select("id, name, email, role, group_id").eq("semester_id", semesterId).order("name"),
+    db
+      .from("members")
+      .select("id, name, email, role, student_id, group_id")
+      .eq("semester_id", semesterId)
+      .order("name"),
     db.from("periods").select("id, seq, deadline, suggestion").eq("semester_id", semesterId).order("seq"),
     db.from("pm_assignments").select("pm_member_id, group_id"),
   ]);
-
-  // 哪些期別已經有人交件（凍結）：期別表要把它們顯示成唯讀＋「已有人交件」。
-  const periodIds = (periodsRes.data ?? []).map((p) => p.id as string);
-  const reportedRes =
-    periodIds.length > 0
-      ? await db.from("progress_reports").select("period_id").in("period_id", periodIds)
-      : { data: [] as { period_id: string }[], error: null };
 
   const { data: semester, error: semesterError } = semesterRes;
   const { data: groups, error: groupsError } = groupsRes;
@@ -63,7 +61,7 @@ export default async function AdminPage() {
   const sectionErrors: Record<string, boolean> = {
     本學期: !!semesterError,
     名單匯入: !!(groupsError || membersError),
-    期別表: !!(periodsError || reportedRes.error),
+    期別表: !!periodsError,
     專案幹部負責組別: !!(groupsError || membersError || pmAssignmentsError),
     燈號門檻: !!semesterError,
     換組: !!(groupsError || membersError),
@@ -106,15 +104,11 @@ export default async function AdminPage() {
     new Date()
   );
 
-  const reportedPeriodIds = new Set((reportedRes.data ?? []).map((r) => r.period_id as string));
-  // 最後一個已有人交件的期別之前（含）全部唯讀：save_periods() 不允許改動它們（會讓凍結期別的編號位移）。
-  const lastFrozenSeq = Math.max(0, ...periodList.filter((p) => reportedPeriodIds.has(p.id as string)).map((p) => p.seq as number));
+  // 規格 §14 第 8 點：每一期都能改、都能刪（刪除有人交件的期別時，期別表會先跳確認視窗）。
   const initialPeriodRows: PeriodRow[] = periodList.map((p) => ({
     id: p.id as string,
     ...taipeiInputValues(new Date(p.deadline as string)),
     suggestion: (p.suggestion as string | null) ?? "",
-    readOnly: (p.seq as number) <= lastFrozenSeq,
-    hasReports: reportedPeriodIds.has(p.id as string),
   }));
 
   return (
@@ -141,7 +135,7 @@ export default async function AdminPage() {
         <Card>
           <CardHeader>
             <CardTitle>名單匯入</CardTitle>
-            <CardDescription>貼上或上傳 CSV：email、姓名、角色、組別、專案名稱。</CardDescription>
+            <CardDescription>貼上或上傳 CSV：email、姓名、角色、學號、系級、組別、專案名稱（專案名稱選填）。</CardDescription>
           </CardHeader>
           <CardContent>
             <RosterImport semesterId={semesterId} alreadyImported={alreadyImported} />
@@ -155,7 +149,7 @@ export default async function AdminPage() {
         <Card>
           <CardHeader>
             <CardTitle>期別表</CardTitle>
-            <CardDescription>依截止日期排序，自動編為第 1、2、3…期。已有人交件的期別不能修改或刪除，新增的期別要排在它們之後。</CardDescription>
+            <CardDescription>依截止日期排序，自動編為第 1、2、3…期。任何一期都可以修改或刪除；刪除已有人交件的期別會一併刪掉那些進度與檔案。</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             {periodList.length > 0 && (
@@ -234,6 +228,7 @@ export default async function AdminPage() {
               students={studentList.map((s) => ({
                 id: s.id as string,
                 name: s.name as string,
+                studentId: s.student_id as string | null,
                 groupName: s.group_id ? groupNameById.get(s.group_id as string) ?? null : null,
               }))}
               groups={groupList.map((g) => ({ id: g.id as string, name: g.name as string }))}

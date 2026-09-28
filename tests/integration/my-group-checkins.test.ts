@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester, clientAs } from "./helpers";
+import { resetDb, seedSemester, clientAs, okAccess } from "./helpers";
 
 // my-group/page.tsx 要顯示「中間週燈號歷程」（規格 §4.4）：loadMyGroup() 目前只把
 // checkins 併進 latestReport，這裡驗證它同時回傳完整的歷程列表（燈號、誰、何時、
@@ -16,13 +16,13 @@ vi.mock("@/server/supabase", async () => {
 import { loadMyGroup } from "@/server/queries/my-group";
 
 function asStudent(semesterId: string, groupId: string, email: string, name: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email,
     isAdmin: false,
     member: { id: "s-id", semesterId, email, name, role: "student", groupId },
     semesterId,
-  });
+  }));
 }
 
 describe("loadMyGroup：中間週燈號歷程", () => {

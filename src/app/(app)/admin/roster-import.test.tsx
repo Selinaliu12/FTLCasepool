@@ -19,7 +19,7 @@ describe("RosterImport", () => {
     importRoster.mockRejectedValue(new Error("只有系統管理員可以這樣做"));
     render(<RosterImport semesterId="s1" alreadyImported={false} />);
 
-    fireEvent.change(screen.getByLabelText("貼上名單 CSV"), { target: { value: "email,姓名,角色,組別,專案名稱" } });
+    fireEvent.change(screen.getByLabelText("貼上名單 CSV"), { target: { value: "email,姓名,角色,學號,系級,組別,專案名稱" } });
     fireEvent.click(screen.getByRole("button", { name: "匯入名單" }));
 
     await waitFor(() => expect(screen.getByText("只有系統管理員可以這樣做")).toBeTruthy());

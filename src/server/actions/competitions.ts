@@ -6,7 +6,7 @@ import { createServiceSupabase } from "@/server/supabase";
 import { validateCompetition, type CompetitionInput, type CompetitionFieldErrors } from "@/domain/competition";
 import { parseTaipeiDeadline } from "@/domain/time";
 import { isUuid } from "@/domain/id";
-import type { Access } from "@/domain/access";
+import { isStaffIdentity, type Access } from "@/domain/access";
 
 export type CompetitionFormInput = {
   name: string;
@@ -28,7 +28,7 @@ export type CompetitionFormInput = {
 async function requireStaff(): Promise<Extract<Access, { kind: "ok" }>> {
   const access = await getAccess();
   if (access.kind !== "ok") throw new Error("只有幹部可以編輯競賽");
-  const isStaff = access.isAdmin || access.member?.role === "pm" || access.member?.role === "officer";
+  const isStaff = isStaffIdentity(access.active);
   if (!isStaff) throw new Error("只有幹部可以編輯競賽");
   return access;
 }

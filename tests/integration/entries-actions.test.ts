@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import { resetDb, seedSemester, asPm, asOfficer, asStudent, asAdminNoMember } from "./helpers";
+import { resetDb, seedSemester, asPm, asOfficer, asStudent, asAdminNoMember, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 import { NOT_ACKNOWLEDGED_ERROR } from "@/server/queries/acknowledgement";
 
@@ -11,13 +11,13 @@ import { attachCompetition, setEntryMembers, confirmEntry, withdrawEntry } from 
 import { moveMember } from "@/server/actions/admin";
 
 function asAdmin(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "admin@g.nccu.edu.tw",
     isAdmin: true,
     member: null,
     semesterId,
-  });
+  }));
 }
 
 async function createCompetition(

@@ -62,7 +62,7 @@ export function CompetitionCard({
             {card.prize}
           </p>
         )}
-        <p>
+        <p className="text-[var(--danger)]">
           <span className="text-muted-foreground">報名截止：</span>
           <span className="font-mono">{formatTaipei(card.signupDeadline)}</span>{" "}
           <span className="text-muted-foreground">（{deadlineLabel(card.signupDeadline, now)}）</span>

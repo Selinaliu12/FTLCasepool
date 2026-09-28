@@ -12,7 +12,7 @@ export default async function DashboardPage() {
   const access = await getAccess();
   // 學生不該看到這頁：(app)/page.tsx 已經把他們導到 /my-group，這裡再擋一次，
   // 涵蓋「專案生直接打這條網址」的情況（跟 my-group/page.tsx 反過來擋幹部同一個道理）。
-  if (access.kind === "ok" && access.member && access.member.role === "student") {
+  if (access.kind === "ok" && access.active.role === "student") {
     redirect("/my-group");
   }
   // (app)/layout.tsx 的 requireOk() 已經擋掉 wrong_domain／not_in_roster，唯一會漏到這裡的
@@ -27,7 +27,7 @@ export default async function DashboardPage() {
   const myPmGroupIdSet = new Set(myPmGroupIds);
   // 看板每張卡的「看內容」連結：規格第 3 節，只有專案幹部與管理員能看進度內容，
   // 其他幹部沒有這個連結（直接打網址會撞到 /groups/[id] 的 404，見 loadGroupDetail）。
-  const canViewContent = access.member?.role === "pm" || access.isAdmin;
+  const canViewContent = access.active.role === "pm" || access.active.role === "admin";
 
   const counts = { red: 0, yellow: 0, green: 0 };
   for (const card of cards) counts[worstLight(card)]++;
@@ -41,7 +41,7 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {access.member?.role === "pm" && (
+      {access.active.role === "pm" && (
         <Card>
           <CardHeader>
             <CardTitle>待你審核{reviewQueue.length > 0 ? `（${reviewQueue.length}）` : ""}</CardTitle>

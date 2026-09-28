@@ -95,7 +95,7 @@ describe("RLS：進度內容", () => {
 });
 
 describe("RLS：只接受 Google 帳號", () => {
-  it("provider=email 且 local_only_flags 的 allow_email_login 關閉時，me() 找不到人，progress_reports／periods 都是空的", async () => {
+  it("provider=email 且 local_only_flags 的 allow_email_login 關閉時，my_members() 找不到人，progress_reports／periods 都是空的", async () => {
     const claims = {
       email: "a1@g.nccu.edu.tw",
       app_metadata: { provider: "email" },
@@ -194,7 +194,7 @@ describe("RLS：預設權限（alter default privileges，防止未來新表悄�
 
   it("anon 對 RLS 輔助函式沒有 EXECUTE（authenticated 保留，RLS 政策要用）", async () => {
     await withRawPg(async (client) => {
-      for (const fn of ["my_group()", "is_staff()", "is_pm()", "can_read_content(uuid)", "can_read_status(uuid)"]) {
+      for (const fn of ["my_groups()", "my_members()", "is_member()", "is_staff()", "is_pm()", "can_read_content(uuid)", "can_read_status(uuid)"]) {
         const anon = await client.query("select has_function_privilege('anon', $1, 'execute') as ok", [fn]);
         expect(anon.rows[0].ok, `anon ${fn}`).toBe(false);
         const authed = await client.query("select has_function_privilege('authenticated', $1, 'execute') as ok", [fn]);

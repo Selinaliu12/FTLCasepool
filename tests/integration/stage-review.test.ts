@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester, asUser, clientAs } from "./helpers";
+import { resetDb, seedSemester, asUser, clientAs, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 // reviewStage() 一律先呼叫 getAccess()，跟 stage-uploads.test.ts 同一套 mock 模式。
@@ -26,33 +26,33 @@ const NOT_LATEST = "只能審核最新的一版";
 const ENDED = "這場比賽已經結束";
 
 function asPmMember(semesterId: string, memberId: string, email = "pm@g.nccu.edu.tw") {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email,
     isAdmin: false,
     member: { id: memberId, semesterId, email, name: "專案幹部", role: "pm", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 function asOfficer(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "off@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "off-id", semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 function asAdminNoMember(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "admin@g.nccu.edu.tw",
     isAdmin: true,
     member: null,
     semesterId,
-  });
+  }));
 }
 
 async function pmMemberId(): Promise<string> {

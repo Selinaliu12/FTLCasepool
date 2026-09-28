@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { moveMember } from "@/server/actions/admin";
 
-export type SimpleMember = { id: string; name: string; groupName: string | null };
+export type SimpleMember = { id: string; name: string; studentId: string | null; groupName: string | null };
 export type SimpleGroup = { id: string; name: string };
 
 export function MoveMemberForm({ students, groups }: { students: SimpleMember[]; groups: SimpleGroup[] }) {
@@ -45,11 +45,14 @@ export function MoveMemberForm({ students, groups }: { students: SimpleMember[];
         <SelectTrigger aria-label="選擇成員">
           <SelectValue placeholder="選擇成員" />
         </SelectTrigger>
-        <SelectContent>
+        {/* F1 修正：base SelectContent 預設 `w-(--anchor-width)`，寬度鎖死跟觸發按鈕一樣寬，
+            「姓名（學號）· 第N組」這種比按鈕長的文字會被裁掉，多身份的選項因此看起來一樣。
+            這裡改成內容多寬視窗就多寬（w-max），下限維持跟觸發按鈕一樣寬，上限不超過視窗
+            寬度（扣掉一點邊界），避免在 375 窄螢幕把頁面撐出水平捲軸。 */}
+        <SelectContent className="w-max min-w-(--anchor-width) max-w-[calc(100vw-2rem)]">
           {students.map((s) => (
             <SelectItem key={s.id} value={s.id}>
-              {s.name}
-              {s.groupName ? `（目前：${s.groupName}）` : ""}
+              {s.name}（{s.studentId ?? "—"}）· {s.groupName ?? "未分組"}
             </SelectItem>
           ))}
         </SelectContent>

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Client as PgClient } from "pg";
-import { resetDb, seedSemester, asUser, backdateStageSubmissionUploadedAt, withRawPg } from "./helpers";
+import { resetDb, seedSemester, asUser, backdateStageSubmissionUploadedAt, withRawPg, okAccess } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 import { env } from "@/server/env";
 
@@ -27,13 +27,13 @@ const ENDED_ERROR = "這場比賽已經結束，不能再上傳";
 const STAGE_ACTIVE_ERROR = "這個階段已經交了，等審核結果或被退回後再重交";
 
 function asOfficer(semesterId: string) {
-  mockGetAccess.mockResolvedValue({
+  mockGetAccess.mockResolvedValue(okAccess({
     kind: "ok",
     email: "off@g.nccu.edu.tw",
     isAdmin: false,
     member: { id: "m2", semesterId, email: "off@g.nccu.edu.tw", name: "其他幹部", role: "officer", groupId: null },
     semesterId,
-  });
+  }));
 }
 
 async function createCompetition(semesterId: string, overrides: Record<string, unknown> = {}) {

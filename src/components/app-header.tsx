@@ -1,7 +1,8 @@
 import Link from "next/link";
-import type { Access } from "@/domain/access";
+import { identityId, type Access } from "@/domain/access";
 import { AppNav, type NavLink } from "./app-nav";
 import { SignOutButton } from "./sign-out-button";
+import { IdentitySwitcher } from "./identity-switcher";
 
 type HeaderAccess = Extract<Access, { kind: "ok" } | { kind: "no_semester" }>;
 
@@ -10,31 +11,31 @@ type HeaderAccess = Extract<Access, { kind: "ok" } | { kind: "no_semester" }>;
 // 競賽大廳（batch 2 task 2）：所有身分都加這個連結，但前提是已經有學期可看——還沒有任何學期
 // 的管理員（no_semester）沒有 semesterId，大廳沒東西可查，跟總覽看板一樣先不給連結。
 export function navLinksFor(access: HeaderAccess): NavLink[] {
-  if (access.isAdmin) {
-    return access.kind === "ok"
-      ? [
-          { href: "/admin", label: "學期設定" },
-          { href: "/dashboard", label: "總覽看板" },
-          { href: "/competitions", label: "競賽大廳" },
-        ]
-      : [{ href: "/admin", label: "學期設定" }];
+  if (access.kind === "no_semester") return access.isAdmin ? [{ href: "/admin", label: "學期設定" }] : [];
+  // Adjustments Task 3：連結依「目前身份」（規格 §14 第 3 點：畫面依目前選的身份）。
+  switch (access.active.role) {
+    case "admin":
+      return [
+        { href: "/admin", label: "學期設定" },
+        { href: "/dashboard", label: "總覽看板" },
+        { href: "/competitions", label: "競賽大廳" },
+      ];
+    case "student":
+      return [
+        { href: "/my-group", label: "我的組別" },
+        { href: "/competitions", label: "競賽大廳" },
+      ];
+    default:
+      return [
+        { href: "/dashboard", label: "總覽看板" },
+        { href: "/competitions", label: "競賽大廳" },
+      ];
   }
-  if (access.kind !== "ok" || !access.member) return [];
-  if (access.member.role === "student") {
-    return [
-      { href: "/my-group", label: "我的組別" },
-      { href: "/competitions", label: "競賽大廳" },
-    ];
-  }
-  return [
-    { href: "/dashboard", label: "總覽看板" },
-    { href: "/competitions", label: "競賽大廳" },
-  ];
 }
 
 // 頁首顯示名單上的姓名；不在名單上的管理員沒有姓名，顯示登入的 email。
 export function displayNameFor(access: HeaderAccess): string {
-  if (access.kind === "ok") return access.member?.name ?? access.email;
+  if (access.kind === "ok") return access.name ?? access.email;
   return "管理員";
 }
 
@@ -53,6 +54,9 @@ export function AppHeader({ access }: { access: HeaderAccess }) {
           <span className="max-w-[12rem] truncate text-sm text-[var(--ink-2,#3E4F70)]" title={name}>
             {name}
           </span>
+          {access.kind === "ok" && (
+            <IdentitySwitcher identities={access.identities} activeId={identityId(access.active)} />
+          )}
           <SignOutButton />
         </div>
       </div>

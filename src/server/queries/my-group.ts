@@ -6,6 +6,7 @@ import { systemLight, reporterLight, displayLight, periodLabel } from "@/domain/
 import { onTimeRate } from "@/domain/on-time";
 import { lockedAt } from "@/domain/lock";
 import { mapCheckinHistory, type CheckinHistoryEntry } from "@/domain/checkin-history";
+import { sortMembersByName, type GroupCardMember } from "@/domain/dashboard";
 import { loadCompetitionLinesForGroup, type CompetitionLineSummary } from "@/server/queries/competition-lines";
 
 export type PeriodRow = {
@@ -21,7 +22,7 @@ export type MyGroupCompetitionLine = CompetitionLineSummary;
 
 export type MyGroup = {
   groupName: string;
-  projectName: string;
+  projectName: string | null;
   lineId: string;
   periods: PeriodRow[];
   display: { light: Light; source: string };
@@ -29,6 +30,12 @@ export type MyGroup = {
   latestReport: { light: Light; name: string; at: Date } | null;
   checkins: CheckinHistoryEntry[];
   competitionLines: MyGroupCompetitionLine[];
+  // Task 4（規格 §14 第 6、7 點）：組別備註（「訂題後的主題」）與這組的組員（姓名、系級，
+  // 依姓名排序，不含學號——學號只在管理員頁與 /groups/[id]）。
+  note: string | null;
+  noteUpdatedBy: string | null;
+  noteUpdatedAt: Date | null;
+  members: GroupCardMember[];
 };
 
 // 用 USER-scoped client（createServerSupabase）而不是 service client，讓這裡的每一個
@@ -36,20 +43,22 @@ export type MyGroup = {
 // members 都有各自的 read policy）——這個 query 只該讓使用者看到自己有權限看的東西。
 export async function loadMyGroup(): Promise<MyGroup> {
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || !access.member.groupId) {
+  if (access.kind !== "ok" || access.active.role !== "student" || !access.active.groupId) {
     throw new Error("只有專案生能看到自己的組頁");
   }
-  const groupId = access.member.groupId;
+  const groupId = access.active.groupId;
   const semesterId = access.semesterId;
 
   const supabase = await createServerSupabase();
 
-  const [groupRes, lineRes, periodsRes, semesterRes, membersRes] = await Promise.all([
-    supabase.from("groups").select("name, project_name").eq("id", groupId).single(),
+  const [groupRes, lineRes, periodsRes, semesterRes, membersRes, groupMembersRes] = await Promise.all([
+    supabase.from("groups").select("name, project_name, note, note_updated_by, note_updated_at").eq("id", groupId).single(),
     supabase.from("lines").select("id").eq("group_id", groupId).eq("kind", "project").single(),
     supabase.from("periods").select("id, seq, deadline, suggestion").eq("semester_id", semesterId).order("seq"),
     supabase.from("semesters").select("red_after_hours").eq("id", semesterId).single(),
     supabase.from("members").select("email, name").eq("semester_id", semesterId),
+    // 自己組的組員（姓名、系級，不含學號——學號只在管理員頁與 /groups/[id] 顯示）。
+    supabase.from("members").select("name, dept_year").eq("group_id", groupId).eq("role", "student"),
   ]);
 
   if (groupRes.error) throw groupRes.error;
@@ -57,6 +66,7 @@ export async function loadMyGroup(): Promise<MyGroup> {
   if (periodsRes.error) throw periodsRes.error;
   if (semesterRes.error) throw semesterRes.error;
   if (membersRes.error) throw membersRes.error;
+  if (groupMembersRes.error) throw groupMembersRes.error;
 
   const lineId = lineRes.data.id as string;
 
@@ -150,9 +160,13 @@ export async function loadMyGroup(): Promise<MyGroup> {
 
   const competitionLines = await loadCompetitionLinesForGroup(supabase, groupId, semesterRes.data.red_after_hours as number, now);
 
+  const members = sortMembersByName(
+    (groupMembersRes.data ?? []).map((m) => ({ name: m.name as string, deptYear: (m.dept_year as string | null) ?? null }))
+  );
+
   return {
     groupName: groupRes.data.name as string,
-    projectName: groupRes.data.project_name as string,
+    projectName: (groupRes.data.project_name as string | null) ?? null,
     lineId,
     periods,
     display,
@@ -160,5 +174,9 @@ export async function loadMyGroup(): Promise<MyGroup> {
     latestReport,
     checkins: checkinHistory,
     competitionLines,
+    note: (groupRes.data.note as string | null) ?? null,
+    noteUpdatedBy: (groupRes.data.note_updated_by as string | null) ?? null,
+    noteUpdatedAt: groupRes.data.note_updated_at ? new Date(groupRes.data.note_updated_at as string) : null,
+    members,
   };
 }

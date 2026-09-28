@@ -31,7 +31,8 @@ export function GroupCard({
         <CardTitle className="flex items-start justify-between gap-2 text-base font-medium">
           <div className="flex flex-col gap-0.5">
             <span className="font-heading text-lg font-bold text-foreground">{card.groupName}</span>
-            <span className="text-sm font-normal text-muted-foreground">{card.projectName}</span>
+            {/* Adjustments controller ruling：專案名稱選填，只有填了才顯示。 */}
+            {card.projectName ? <span className="text-sm font-normal text-muted-foreground">{card.projectName}</span> : null}
           </div>
           {isMine ? <Badge variant="secondary">你負責</Badge> : null}
         </CardTitle>
@@ -40,6 +41,28 @@ export function GroupCard({
         {projectLine && projectLine.light !== null && projectLine.source !== null ? (
           <LightBadge light={projectLine.light} source={projectLine.source} />
         ) : null}
+        <div>
+          <p className="text-xs text-muted-foreground">組別備註</p>
+          {/* Fix round 1 F5：break-words（+ whitespace-pre-wrap 保留換行）避免一長串沒有空白的
+              英文字或網址把卡片撐出畫面（尤其是 375px）。 */}
+          <p className="whitespace-pre-wrap text-sm text-foreground break-words">{card.note ?? "尚未訂題"}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">組員</p>
+          {/* Fix round 1 F8：組員是空的（名單匯入問題、或組還沒有人）不該整段消失不見——
+              對幹部來說「這組沒有組員」本身就是該被看到的異常，不是不用顯示的空狀態。 */}
+          {card.members.length > 0 ? (
+            <ul className="text-sm text-foreground">
+              {card.members.map((m, i) => (
+                <li key={`${m.name}-${i}`}>
+                  {m.name} · {m.deptYear ?? "—"}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-foreground">尚未有組員</p>
+          )}
+        </div>
         <div>
           <p className="text-xs text-muted-foreground">目前階段</p>
           <p className="text-sm text-foreground">{card.stage}</p>

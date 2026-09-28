@@ -1,5 +1,6 @@
 import "server-only";
 import { getAccess } from "@/server/session";
+import { activeStudentGroup, isStaffIdentity } from "@/domain/access";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
 import { sortLobby, type CompetitionCard } from "@/domain/competition";
 import { isUuid } from "@/domain/id";
@@ -52,11 +53,11 @@ function toCard(row: CompetitionRow): CompetitionCard {
 
 // 幹部＝專案幹部／其他幹部（規格第 3 節：新增、編輯、發布競賽——管理員、專案幹部、其他幹部）。
 function isStaffOrAdmin(access: Extract<Awaited<ReturnType<typeof getAccess>>, { kind: "ok" }>): boolean {
-  return access.isAdmin || access.member?.role === "pm" || access.member?.role === "officer";
+  return isStaffIdentity(access.active);
 }
 
 // 大廳：已發布的卡片依報名截止日排序、分成 open／closed；草稿只給幹部與管理員看
-// （canEdit=true 的人）。管理員一律走服務身分——不管管理員自己在名單上有沒有 member 列、
+// （canEdit=true 的人）。目前身份是管理員時一律走服務身分——不管管理員自己在名單上有沒有 member 列、
 // 掛的是什麼角色，管理員都該看到全部（草稿＋已發布），跟 RLS 是否放行無關。
 export async function loadLobby(now: Date = new Date()): Promise<Lobby> {
   const access = await getAccess();
@@ -65,8 +66,9 @@ export async function loadLobby(now: Date = new Date()): Promise<Lobby> {
   }
 
   const canEdit = isStaffOrAdmin(access);
-  const isStudent = access.member?.role === "student" && !!access.member.groupId;
-  const db = access.isAdmin ? createServiceSupabase() : await createServerSupabase();
+  const studentGroupId = activeStudentGroup(access);
+  const isStudent = !!studentGroupId;
+  const db = access.active.role === "admin" ? createServiceSupabase() : await createServerSupabase();
 
   const { data, error } = await db.from("competitions").select(COLUMNS).eq("semester_id", access.semesterId);
   if (error) throw error;
@@ -82,11 +84,11 @@ export async function loadLobby(now: Date = new Date()): Promise<Lobby> {
   const { open, closed } = sortLobby(published, now);
 
   let myGroupAttached: Record<string, string> = {};
-  if (isStudent && access.member?.groupId) {
+  if (studentGroupId) {
     const { data: entries, error: entriesError } = await db
       .from("competition_entries")
       .select("id, competition_id")
-      .eq("group_id", access.member.groupId)
+      .eq("group_id", studentGroupId)
       .is("withdrawn_at", null);
     if (entriesError) throw entriesError;
     myGroupAttached = Object.fromEntries((entries ?? []).map((e) => [e.competition_id as string, e.id as string]));
@@ -104,7 +106,7 @@ export async function loadCompetition(id: string): Promise<CompetitionCard | nul
   if (access.kind !== "ok") return null;
   if (!isStaffOrAdmin(access)) return null;
 
-  const db = access.isAdmin ? createServiceSupabase() : await createServerSupabase();
+  const db = access.active.role === "admin" ? createServiceSupabase() : await createServerSupabase();
   const { data, error } = await db
     .from("competitions")
     .select(COLUMNS)

@@ -17,6 +17,7 @@ import { overdueLabel } from "@/domain/lights";
 import { SubmittedToast } from "../submitted-toast";
 import { daysLeft } from "../period-status";
 import { CheckinDialog } from "../checkin-dialog";
+import { GroupNoteEditor } from "../group-note-editor";
 import { LIGHT_LABEL } from "@/domain/lights";
 import type { Stage } from "@/domain/competition-line";
 
@@ -35,7 +36,7 @@ export default async function MyGroupPage() {
   const access = await getAccess();
   // 幹部／管理員不該看到這頁：(app)/page.tsx 已經把他們導到別的地方，這裡再擋一次，
   // 涵蓋「幹部直接打這條網址」的情況。
-  if (access.kind !== "ok" || !access.member || access.member.role !== "student" || !access.member.groupId) {
+  if (access.kind !== "ok" || access.active.role !== "student" || !access.active.groupId) {
     redirect("/");
   }
 
@@ -49,7 +50,7 @@ export default async function MyGroupPage() {
 
       <div>
         <h1 className="font-heading text-2xl font-bold text-foreground">{data.groupName}</h1>
-        <p className="text-muted-foreground">{data.projectName}</p>
+        {data.projectName ? <p className="text-muted-foreground">{data.projectName}</p> : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -58,6 +59,23 @@ export default async function MyGroupPage() {
           準時率：{data.onTime === null ? "—" : `${Math.round(data.onTime * 100)}%`}
         </span>
       </div>
+
+      {/* Task 4（規格 §14 第 7 點）：自己組的組員（姓名、系級）與備註編輯欄。 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-medium">組員</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <ul className="flex flex-col gap-1 text-sm text-foreground">
+            {data.members.map((m, i) => (
+              <li key={`${m.name}-${i}`}>
+                {m.name} · {m.deptYear ?? "—"}
+              </li>
+            ))}
+          </ul>
+          <GroupNoteEditor note={data.note} updatedBy={data.noteUpdatedBy} updatedAt={data.noteUpdatedAt} />
+        </CardContent>
+      </Card>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>

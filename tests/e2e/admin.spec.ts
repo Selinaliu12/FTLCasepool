@@ -33,11 +33,11 @@ test.describe.serial("管理員設定", () => {
     await expect(page.getByText("目前學期：115-1")).toBeVisible();
 
     const csv = [
-      "email,姓名,角色,組別,專案名稱",
-      "s1@g.nccu.edu.tw,甲一,專案生,第1組,專案A",
-      "s2@g.nccu.edu.tw,甲二,專案生,第1組,專案A",
-      "s3@g.nccu.edu.tw,乙一,專案生,第2組,專案B",
-      "pm1@g.nccu.edu.tw,幹部,專案幹部,,",
+      "email,姓名,角色,學號,系級,組別,專案名稱",
+      "s1@g.nccu.edu.tw,甲一,專案生,110701001,資科三,第1組,專案A",
+      "s2@g.nccu.edu.tw,甲二,專案生,110701002,資科三,第1組,專案A",
+      "s3@g.nccu.edu.tw,乙一,專案生,110701003,資科三,第2組,專案B",
+      "pm1@g.nccu.edu.tw,幹部,專案幹部,,,,",
     ].join("\n");
     await page.getByLabel("貼上名單 CSV").fill(csv);
     await page.getByRole("button", { name: "匯入名單" }).click();
@@ -55,5 +55,30 @@ test.describe.serial("管理員設定", () => {
 
     await page.reload();
     await expect(page.getByRole("checkbox", { name: "幹部 負責 第1組" })).toBeChecked();
+
+    // §14：換組選單顯示「姓名（學號）· 第N組」。
+    await page.getByLabel("選擇成員").click();
+    await expect(page.getByRole("option", { name: "甲一（110701001）· 第1組" })).toBeVisible();
+    await page.keyboard.press("Escape");
+  });
+
+  // §14：舊資料相容——沒有學號的既有成員，換組選單要顯示「—」而不是壞掉。
+  test("舊成員沒有學號，換組選單顯示「—」", async ({ page }) => {
+    await resetDb();
+    await seedSemester();
+
+    await page.goto("/test-login?email=admin@g.nccu.edu.tw");
+    await Promise.race([
+      page.getByText("目前學期：115-1").waitFor({ state: "visible" }),
+      page.getByRole("button", { name: "我已了解" }).waitFor({ state: "visible" }),
+    ]);
+    if (await page.getByRole("button", { name: "我已了解" }).isVisible()) {
+      await page.getByRole("button", { name: "我已了解" }).click();
+    }
+    await expect(page.getByText("目前學期：115-1")).toBeVisible();
+
+    await page.getByLabel("選擇成員").click();
+    await expect(page.getByRole("option", { name: "甲一（—）· 第1組" })).toBeVisible();
+    await page.keyboard.press("Escape");
   });
 });

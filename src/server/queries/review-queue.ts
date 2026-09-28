@@ -25,14 +25,14 @@ export type ReviewQueueItem = {
 // 非專案幹部（含管理員、其他幹部、學生）一律回空陣列。
 export async function loadReviewQueue(now: Date = new Date()): Promise<ReviewQueueItem[]> {
   const access = await getAccess();
-  if (access.kind !== "ok" || !access.member || access.member.role !== "pm") return [];
+  if (access.kind !== "ok" || access.active.role !== "pm" || !access.active.memberId) return [];
 
   const db = await createServerSupabase();
 
   const { data: assignments, error: assignError } = await db
     .from("pm_assignments")
     .select("group_id")
-    .eq("pm_member_id", access.member.id);
+    .eq("pm_member_id", access.active.memberId);
   if (assignError) throw assignError;
 
   const groupIds = (assignments ?? []).map((a) => a.group_id as string);

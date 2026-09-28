@@ -7,7 +7,11 @@ import { onTimeRate } from "@/domain/on-time";
 import { submissionTiming } from "@/domain/progress";
 import { mapCheckinHistory, type CheckinHistoryEntry } from "@/domain/checkin-history";
 import { isUuid } from "@/domain/id";
+import { sortMembersByName } from "@/domain/dashboard";
 import { loadCompetitionLinesForGroup, type CompetitionLineSummary } from "@/server/queries/competition-lines";
+
+// /groups/[id]：姓名、學號、系級——這裡跟管理員頁是唯二顯示學號的地方（規格 §14 第 1 點）。
+export type GroupDetailMember = { name: string; studentId: string | null; deptYear: string | null };
 
 export type GroupDetailPeriod = {
   seq: number;
@@ -27,7 +31,15 @@ export type GroupDetailPeriod = {
 };
 
 export type GroupDetail = {
-  group: { id: string; name: string; projectName: string };
+  group: {
+    id: string;
+    name: string;
+    projectName: string | null;
+    note: string | null;
+    noteUpdatedBy: string | null;
+    noteUpdatedAt: Date | null;
+    members: GroupDetailMember[];
+  };
   display: { light: Light; source: string };
   onTime: number | null;
   periods: GroupDetailPeriod[];
@@ -51,29 +63,34 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
   const access = await getAccess();
   if (access.kind !== "ok") return null;
 
-  // Controller ruling（Task 14 fix round 1）：規格第 3 節「看進度內容」管理員 ✓，不管
-  // 管理員在名單上有沒有 member 列、那筆 member 是什麼角色（只要不是學生）——管理員身分本身
-  // 就該看得到全部內容。改之前的寫法（isAdmin && !member）會讓「同時是管理員又被匯入成
-  // 其他幹部」的人被下面的 officer 分支擋下來，跟權限表衝突。學生即使同時掛 isAdmin，也走
-  // 學生自己的分支（只看自己組），不因為 isAdmin 而升級成看得到全部組。
-  const useService = access.isAdmin && access.member?.role !== "student";
+  // Controller ruling（Task 14 fix round 1）：規格第 3 節「看進度內容」管理員 ✓——管理員身分
+  // 本身就該看得到全部內容。Adjustments Task 3：一律看「目前身份」（規格 §14 第 3 點）：
+  // 目前身份是管理員才走服務身分；專案生只看目前這組（就算他同時是別組專案生、RLS 聯集讀得到，
+  // 頁面也只依目前身份）；其他幹部看不到內容。
+  const active = access.active;
+  const useService = active.role === "admin";
   if (!useService) {
-    const role = access.member?.role;
-    if (role === "student" && access.member?.groupId !== groupId) return null;
-    // catch-all：只有 pm／student 能走到這裡繼續往下查；officer（以及理論上不會出現的其他
-    // 角色）在這裡就被擋掉，不用再特別為 officer 寫一行——這行本來就涵蓋它。
-    if (role !== "pm" && role !== "student") return null;
+    if (active.role === "student" && active.groupId !== groupId) return null;
+    // catch-all：只有 pm／student 能走到這裡繼續往下查；officer 在這裡就被擋掉。
+    if (active.role !== "pm" && active.role !== "student") return null;
   }
 
   const db = useService ? createServiceSupabase() : await createServerSupabase();
   const semesterId = access.semesterId;
 
-  const [groupRes, lineRes, periodsRes, semesterRes, membersRes] = await Promise.all([
-    db.from("groups").select("id, name, project_name").eq("id", groupId).eq("semester_id", semesterId).maybeSingle(),
+  const [groupRes, lineRes, periodsRes, semesterRes, membersRes, groupMembersRes] = await Promise.all([
+    db
+      .from("groups")
+      .select("id, name, project_name, note, note_updated_by, note_updated_at")
+      .eq("id", groupId)
+      .eq("semester_id", semesterId)
+      .maybeSingle(),
     db.from("lines").select("id").eq("group_id", groupId).eq("kind", "project").maybeSingle(),
     db.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq"),
     db.from("semesters").select("red_after_hours").eq("id", semesterId).single(),
     db.from("members").select("email, name").eq("semester_id", semesterId),
+    // 這組組員的姓名、學號、系級——規格 §14 第 1、7 點，跟看板卡片／my-group 不同，這裡要含學號。
+    db.from("members").select("name, student_id, dept_year").eq("group_id", groupId).eq("role", "student"),
   ]);
 
   if (groupRes.error) throw groupRes.error;
@@ -81,6 +98,7 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
   if (periodsRes.error) throw periodsRes.error;
   if (semesterRes.error) throw semesterRes.error;
   if (membersRes.error) throw membersRes.error;
+  if (groupMembersRes.error) throw groupMembersRes.error;
 
   // 其他幹部、別組學生在 !useService 分支已經被擋掉；這裡的 null 涵蓋「groupId 亂填」或
   // RLS 擋下（理論上不會發生在通過上面檢查的角色，屬於防禦性檢查）兩種情況。
@@ -156,11 +174,23 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
 
   const competitionLines = await loadCompetitionLinesForGroup(db, groupId, semesterRes.data.red_after_hours as number, now);
 
+  const members = sortMembersByName(
+    (groupMembersRes.data ?? []).map((m) => ({
+      name: m.name as string,
+      studentId: (m.student_id as string | null) ?? null,
+      deptYear: (m.dept_year as string | null) ?? null,
+    }))
+  );
+
   return {
     group: {
       id: groupRes.data.id as string,
       name: groupRes.data.name as string,
-      projectName: groupRes.data.project_name as string,
+      projectName: (groupRes.data.project_name as string | null) ?? null,
+      note: (groupRes.data.note as string | null) ?? null,
+      noteUpdatedBy: (groupRes.data.note_updated_by as string | null) ?? null,
+      noteUpdatedAt: groupRes.data.note_updated_at ? new Date(groupRes.data.note_updated_at as string) : null,
+      members,
     },
     display,
     onTime,
