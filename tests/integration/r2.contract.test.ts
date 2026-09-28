@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
-import { presignPdfPut, inspectUploaded, deleteObject } from "@/server/r2";
+import { presignPdfPut, presignPdfGet, inspectUploaded, deleteObject } from "@/server/r2";
 import { ensureLocalStorageBucket } from "./helpers";
 
 // 這組測試打的是真實的 S3 相容端點（本機 R2_ENDPOINT 目前指向本機 Supabase Storage；
@@ -28,6 +28,23 @@ describe.skipIf(!process.env.R2_BUCKET?.endsWith("-test"))("R2 契約", () => {
   // 導致 SigV4 簽章驗證失敗（SignatureDoesNotMatch, 403）而被拒絕——這件事在本機、正式 R2
   // 都成立（簽章驗證是 S3 協定本身的行為，不是 R2 專屬）。已經用手動 PUT 對本機端點實測過
   // 確認會被拒絕，所以這裡不需要 skipIf，也不用另外加第二道大小防線。
+  it("預簽 GET 下載拿到同樣內容，並帶中文下載檔名", async () => {
+    const url = await presignPdfGet(key, "115-1-第1組-第1期.pdf");
+    const res = await fetch(url);
+    expect(res.status).toBe(200);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(pdf);
+    expect(res.headers.get("content-disposition")).toContain("attachment");
+    expect(res.headers.get("content-disposition")).toContain("filename*=UTF-8''");
+  });
+
+  it("deleteObject 之後檔案就不存在", async () => {
+    const tmpKey = `contract-test/${crypto.randomUUID()}.pdf`;
+    const url = await presignPdfPut(tmpKey, pdf.byteLength);
+    expect((await fetch(url, { method: "PUT", body: pdf, headers: { "Content-Type": "application/pdf" } })).status).toBe(200);
+    await deleteObject(tmpKey);
+    expect(await inspectUploaded(tmpKey)).toBeNull();
+  });
+
   it("實際內容比簽的大小大，R2 拒絕", async () => {
     const url = await presignPdfPut(`${key}.big`, 10);
     const res = await fetch(url, { method: "PUT", body: pdf, headers: { "Content-Type": "application/pdf" } });
