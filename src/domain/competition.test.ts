@@ -5,6 +5,8 @@ import {
   normalizeTags,
   blankToNull,
   toMaxPrizeValue,
+  formatPrize,
+  stageSummary,
   type CompetitionInput,
   type CompetitionCard,
 } from "./competition";
@@ -293,5 +295,42 @@ describe("validateCompetition：新欄位", () => {
   it("需準備文件 501 字 → 需準備文件最多 500 字", () => {
     const result = validateCompetition(baseInput({ documents: "字".repeat(501) }));
     expect(result).toEqual({ ok: false, errors: { documents: "需準備文件最多 500 字" } });
+  });
+});
+
+// Task 3：大廳卡片用的兩個純函式——最高獎金顯示格式、賽制摘要（依有填日期的階段串起來）。
+describe("formatPrize", () => {
+  it("100000 → NT$100,000", () => {
+    expect(formatPrize(100000)).toBe("NT$100,000");
+  });
+
+  it("0 → NT$0", () => {
+    expect(formatPrize(0)).toBe("NT$0");
+  });
+
+  it("null → null（沒填最高獎金就不顯示）", () => {
+    expect(formatPrize(null)).toBeNull();
+  });
+});
+
+describe("stageSummary", () => {
+  it("只有報名日 → 報名", () => {
+    expect(stageSummary(new Date("2026-10-01T15:59:59.999Z"), null, null)).toBe("報名");
+  });
+
+  it("報名＋決賽（沒有繳件日） → 報名 → 決賽", () => {
+    expect(
+      stageSummary(new Date("2026-10-01T15:59:59.999Z"), null, new Date("2026-11-01T15:59:59.999Z"))
+    ).toBe("報名 → 決賽");
+  });
+
+  it("報名＋繳件＋決賽 → 報名 → 繳件 → 決賽", () => {
+    expect(
+      stageSummary(
+        new Date("2026-10-01T15:59:59.999Z"),
+        new Date("2026-10-15T15:59:59.999Z"),
+        new Date("2026-11-01T15:59:59.999Z")
+      )
+    ).toBe("報名 → 繳件 → 決賽");
   });
 });

@@ -192,6 +192,28 @@ export type CompetitionCard = {
   staffNote: string | null;
 };
 
+// 大廳卡片顯示用：最高獎金格式化成 NT$100,000；沒填（null）就回 null，呼叫端據此決定要不要
+// 顯示那一格（規格第 15 節：顯示 NT$100,000）。
+export function formatPrize(maxPrize: number | null): string | null {
+  if (maxPrize === null) return null;
+  return `NT$${maxPrize.toLocaleString("en-US")}`;
+}
+
+// 大廳卡片「賽制」＝有填日期的階段依 報名 → 繳件 → 決賽 串起來（規格第 15 節 #4，controller
+// ruling 細節 4：自動產生，不另外填）。signupDeadline 是必填欄位，理論上一定有值，這裡仍接受
+// null 是為了讓函式本身純粹、不用依賴呼叫端保證非 null。
+export function stageSummary(
+  signupDeadline: Date | null,
+  submissionDeadline: Date | null,
+  finalDate: Date | null
+): string {
+  const stages: string[] = [];
+  if (signupDeadline) stages.push("報名");
+  if (submissionDeadline) stages.push("繳件");
+  if (finalDate) stages.push("決賽");
+  return stages.join(" → ");
+}
+
 // 報名截止日由近到遠排在 open；已過報名截止（now 已經超過那一刻）的移到 closed，
 // closed 的排序跟 open 相反：最近截止的（signupDeadline 最大、離現在最近）排在最前面。
 // 剛好等於截止時刻那一瞬間仍算 open（跟 daysUntil 的「今天截止」一致：截止當天結束前都算未過期）。

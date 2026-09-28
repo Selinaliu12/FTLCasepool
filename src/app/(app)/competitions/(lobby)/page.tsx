@@ -43,6 +43,7 @@ export default async function CompetitionsPage() {
                 canEdit={lobby.canEdit}
                 showAttach={lobby.isStudent}
                 attachedEntryId={lobby.myGroupAttached[c.id] ?? null}
+                attachedGroups={lobby.attachedGroups[c.id] ?? []}
               />
             ))}
           </div>
@@ -63,6 +64,7 @@ export default async function CompetitionsPage() {
                 canEdit={lobby.canEdit}
                 showAttach={lobby.isStudent && !!lobby.myGroupAttached[c.id]}
                 attachedEntryId={lobby.myGroupAttached[c.id] ?? null}
+                attachedGroups={lobby.attachedGroups[c.id] ?? []}
               />
             ))}
           </div>
