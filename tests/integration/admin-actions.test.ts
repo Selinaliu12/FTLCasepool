@@ -435,6 +435,7 @@ describe("savePeriods", () => {
     const { savePeriods } = await import("@/server/actions/admin");
     const r = await savePeriods(seed.semesterId, [{ id: seed.periodIds[1], date: "2026-11-01", time: "08:00" }], {
       confirmDeleteWithReports: true,
+      expectedReportCounts: { [seed.periodIds[0]]: 1 },
     });
     expect(r).toEqual({ ok: true });
     expect(await periodsOf(seed.semesterId)).toEqual([
@@ -442,6 +443,53 @@ describe("savePeriods", () => {
     ]);
     expect(await reportCountOf(seed.periodIds[0])).toBe(0);
     expect(await inspectUploaded(report!.pdf_key as string)).toBeNull();
+  });
+
+  // Fix round 1 F2：確認視窗看到的每期交件數跟交易裡實際的數字不一樣（預覽之後又有人交件）→ 拒絕，
+  // 什麼都不刪，畫面要重新預覽。
+  it("確認時帶的交件數跟實際不一樣 → 交件狀況已變動，請重新確認；期別與進度都還在", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const { savePeriods } = await import("@/server/actions/admin");
+    const r = await savePeriods(seed.semesterId, [{ id: seed.periodIds[1], date: "2026-11-01", time: "08:00" }], {
+      confirmDeleteWithReports: true,
+      expectedReportCounts: { [seed.periodIds[0]]: 0 },
+    });
+    expect(r).toEqual({ ok: false, errors: ["交件狀況已變動，請重新確認"] });
+    expect(await periodsOf(seed.semesterId)).toHaveLength(2);
+    expect(await reportCountOf(seed.periodIds[0])).toBe(1);
+  });
+
+  it("確認時沒帶交件數 → 交件狀況已變動，請重新確認", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const { savePeriods } = await import("@/server/actions/admin");
+    const r = await savePeriods(seed.semesterId, [{ id: seed.periodIds[1], date: "2026-11-01", time: "08:00" }], {
+      confirmDeleteWithReports: true,
+    });
+    expect(r).toEqual({ ok: false, errors: ["交件狀況已變動，請重新確認"] });
+    expect(await reportCountOf(seed.periodIds[0])).toBe(1);
+  });
+
+  it("預覽時是 0 份、確認前有人交件（同時刪兩期）→ 交件狀況已變動，請重新確認", async () => {
+    const seed = await seedSemester();
+    const svc = createServiceSupabase();
+    // 預覽當下：第 1 期 1 份、第 2 期 0 份。之後第2組在第 2 期交件。
+    const { data: lineB } = await svc.from("lines").select("id").eq("group_id", seed.groupB).single();
+    const { error: insErr } = await svc.from("progress_reports").insert({
+      line_id: lineB!.id, period_id: seed.periodIds[1], light: "green", did: "d", blocked: "b", next_steps: "n",
+      submitted_by: "b1@g.nccu.edu.tw", pdf_key: "reports/lineB/period2.pdf", pdf_size: 10,
+      pdf_uploaded_at: new Date().toISOString(), pdf_uploaded_by: "b1@g.nccu.edu.tw",
+    });
+    if (insErr) throw insErr;
+    asAdmin(seed.semesterId);
+    const { savePeriods } = await import("@/server/actions/admin");
+    const r = await savePeriods(seed.semesterId, [{ date: "2026-12-01", time: "23:59" }], {
+      confirmDeleteWithReports: true,
+      expectedReportCounts: { [seed.periodIds[0]]: 1, [seed.periodIds[1]]: 0 },
+    });
+    expect(r).toEqual({ ok: false, errors: ["交件狀況已變動，請重新確認"] });
+    expect(await reportCountOf(seed.periodIds[1])).toBe(1);
   });
 
   it("沒人交件的期別可以刪除，不需要確認", async () => {
@@ -522,7 +570,7 @@ describe("savePeriods", () => {
 
   it("save_periods 只開給 service_role", async () => {
     const { withRawPg } = await import("./helpers");
-    const sig = "save_periods(uuid, jsonb, boolean)";
+    const sig = "save_periods(uuid, jsonb, boolean, jsonb)";
     await withRawPg(async (client) => {
       for (const role of ["anon", "authenticated"]) {
         const res = await client.query("select has_function_privilege($1, $2, 'execute') as ok", [role, sig]);
@@ -561,6 +609,16 @@ describe("previewPeriodDeletion", () => {
     asAdmin(seed.semesterId);
     const { previewPeriodDeletion } = await import("@/server/actions/admin");
     expect(await previewPeriodDeletion([])).toEqual([]);
+  });
+
+  // Fix round 1 F3：資料庫錯誤要包成真的 Error，畫面才顯示得出訊息（不是退回「儲存失敗」）。
+  it("資料庫錯誤（格式錯的 id）丟出的是 Error，訊息是資料庫的訊息", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const { previewPeriodDeletion } = await import("@/server/actions/admin");
+    const err = await previewPeriodDeletion(["not-a-uuid"]).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/uuid/);
   });
 
   it("非管理員被拒", async () => {

@@ -82,8 +82,9 @@ export async function previewPeriodDeletion(periodIds: string[]): Promise<Period
     db.from("periods").select("id, seq").in("id", periodIds).order("seq"),
     db.from("progress_reports").select("period_id").in("period_id", periodIds),
   ]);
-  if (periodsRes.error) throw periodsRes.error;
-  if (reportsRes.error) throw reportsRes.error;
+  // PostgrestError 不是 Error 的實例：包成 Error，畫面（err instanceof Error）才顯示得出真正的訊息。
+  if (periodsRes.error) throw new Error(periodsRes.error.message);
+  if (reportsRes.error) throw new Error(reportsRes.error.message);
 
   const counts = new Map<string, number>();
   for (const r of reportsRes.data ?? []) {
@@ -100,7 +101,9 @@ export async function previewPeriodDeletion(periodIds: string[]): Promise<Period
 export async function savePeriods(
   semesterId: string,
   rows: PeriodInput[],
-  opts: { confirmDeleteWithReports?: boolean } = {}
+  // expectedReportCounts：確認視窗顯示給管理員的每期交件數（previewPeriodDeletion 的結果）。資料庫在
+  // 同一個交易裡比對，對不上就回「交件狀況已變動，請重新確認」，畫面重新預覽。
+  opts: { confirmDeleteWithReports?: boolean; expectedReportCounts?: Record<string, number> } = {}
 ): Promise<{ ok: true } | { ok: false; errors: string[] }> {
   await requireAdmin();
   const db = createServiceSupabase();
@@ -150,13 +153,16 @@ export async function savePeriods(
 
   if (errors.length > 0) return { ok: false, errors };
 
-  // save_periods()（見 20260928000005_periods_free_edit.sql）在同一個 RPC（＝同一個交易）裡：鎖住
-  // 這學期的期別、找出被刪的期別底下的進度（有進度又沒帶確認旗標就丟「這期已經有組別交了進度，
-  // 要刪除請先確認」）、刪除進度與期別、修改／新增並依截止時間重新編號，回傳被刪進度的 pdf_key。
+  // save_periods()（見 20260928000005_periods_free_edit.sql 與 …000006_periods_free_edit_fix1.sql）
+  // 在同一個 RPC（＝同一個交易）裡：鎖住這學期的期別、找出被刪的期別底下的進度（有進度又沒帶
+  // 確認旗標就丟「這期已經有組別交了進度，要刪除請先確認」；帶了確認旗標但交件數跟確認視窗看到的
+  // 不一樣就丟「交件狀況已變動，請重新確認」）、刪除進度與期別、修改／新增並依截止時間重新編號，
+  // 回傳被刪進度的 pdf_key。
   const { data: deletedKeys, error } = await db.rpc("save_periods", {
     p_semester_id: semesterId,
     p_rows: parsed.map((p) => ({ id: p.id, deadline: p.deadline.toISOString(), suggestion: p.suggestion ?? null })),
     p_confirm_delete_with_reports: opts.confirmDeleteWithReports === true,
+    p_expected_report_counts: opts.expectedReportCounts ?? null,
   });
   if (error) return { ok: false, errors: [error.message] };
 

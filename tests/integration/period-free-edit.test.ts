@@ -118,6 +118,7 @@ describe("管理員自由修改／刪除期別", () => {
     const { savePeriods } = await import("@/server/actions/admin");
     const r = await savePeriods(seed.semesterId, [{ id: seed.periodIds[1], date: "2026-11-01", time: "08:00" }], {
       confirmDeleteWithReports: true,
+      expectedReportCounts: { [seed.periodIds[0]]: 1 },
     });
 
     expect(r).toEqual({ ok: true });
@@ -193,9 +194,10 @@ describe("鎖定觸發器的放行旗標不是一般使用者的後門", () => {
     const message = await withRawPg(async (client) => {
       await client.query("begin");
       try {
-        await client.query("select save_periods($1, $2::jsonb, true)", [
+        await client.query("select save_periods($1, $2::jsonb, true, $3::jsonb)", [
           seed.semesterId,
           JSON.stringify([{ id: seed.periodIds[1], deadline: "2026-11-01T00:00:00Z", suggestion: null }]),
+          JSON.stringify({ [seed.periodIds[0]]: 1 }),
         ]);
         await client.query("delete from progress_reports where id = $1", [otherId]);
         return "deleted";
@@ -217,6 +219,7 @@ describe("鎖定觸發器的放行旗標不是一般使用者的後門", () => {
     const { savePeriods } = await import("@/server/actions/admin");
     const r = await savePeriods(seed.semesterId, [{ id: seed.periodIds[1], date: "2026-11-01", time: "08:00" }], {
       confirmDeleteWithReports: true,
+      expectedReportCounts: { [seed.periodIds[0]]: 1 },
     });
     expect(r).toEqual({ ok: true });
 
