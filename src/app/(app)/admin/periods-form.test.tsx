@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { PeriodsForm } from "./periods-form";
 
 const savePeriods = vi.fn();
@@ -112,6 +112,8 @@ describe("PeriodsForm", () => {
         ]}
       />
     );
+    // 連按兩次「刪除第 1 期」：第一次刪掉 p1 之後，原本的 p2 往上遞補成「第 1 期」，
+    // 第二次刪掉的是 p2。剩下 p3。
     fireEvent.click(screen.getByRole("button", { name: "刪除第 1 期" }));
     fireEvent.click(screen.getByRole("button", { name: "刪除第 1 期" }));
     fireEvent.click(screen.getByRole("button", { name: "儲存期別" }));
@@ -134,7 +136,7 @@ describe("PeriodsForm", () => {
       expect(savePeriods).toHaveBeenCalledWith(
         "s1",
         [{ id: "p3", date: "2026-12-01", time: "23:59", suggestion: "" }],
-        { confirmDeleteWithReports: true }
+        { confirmDeleteWithReports: true, expectedReportCounts: { p1: 3, p2: 1 } }
       )
     );
   });
@@ -158,6 +160,53 @@ describe("PeriodsForm", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(savePeriods).not.toHaveBeenCalled();
     expect(screen.getAllByLabelText(/期日期/)).toHaveLength(1);
+  });
+
+  // Fix round 1 F1：儲存後 router.refresh() 帶來新的 initialRows（新增的期別有了 id），表單要跟著更新；
+  // 不然第二次儲存會把那一期當成「被刪掉＋再新增一期」，id 換掉、甚至跳出刪除確認視窗。
+  it("儲存後伺服器帶來新的期別資料 → 表單換成新資料；再存一次時新增的期別保留 id、不會被刪", async () => {
+    const { rerender } = render(<PeriodsForm semesterId="s1" initialRows={[]} />);
+    fireEvent.change(screen.getByLabelText("第 1 期日期"), { target: { value: "2026-10-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "儲存期別" }));
+    await waitFor(() => expect(savePeriods).toHaveBeenCalledTimes(1));
+
+    rerender(<PeriodsForm semesterId="s1" initialRows={[{ id: "new1", date: "2026-10-01", time: "23:59", suggestion: "" }]} />);
+    fireEvent.click(screen.getByRole("button", { name: "儲存期別" }));
+
+    await waitFor(() => expect(savePeriods).toHaveBeenCalledTimes(2));
+    expect(savePeriods).toHaveBeenLastCalledWith("s1", [{ id: "new1", date: "2026-10-01", time: "23:59", suggestion: "" }]);
+    expect(previewPeriodDeletion).not.toHaveBeenCalled();
+  });
+
+  // Fix round 1 F2：確認之後資料庫發現交件數跟預覽時不一樣 → 重新預覽，視窗換成最新的數字。
+  it("確認後回「交件狀況已變動，請重新確認」→ 重新預覽，視窗顯示新的交件數，要重新打字確認", async () => {
+    previewPeriodDeletion
+      .mockResolvedValueOnce([{ periodId: "p1", seq: 1, reportCount: 1 }])
+      .mockResolvedValueOnce([{ periodId: "p1", seq: 1, reportCount: 2 }]);
+    savePeriods.mockResolvedValueOnce({ ok: false, errors: ["交件狀況已變動，請重新確認"] });
+    render(
+      <PeriodsForm
+        semesterId="s1"
+        initialRows={[
+          { id: "p1", date: "2026-10-01", time: "23:59" },
+          { id: "p2", date: "2026-11-01", time: "23:59" },
+        ]}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "刪除第 1 期" }));
+    fireEvent.click(screen.getByRole("button", { name: "儲存期別" }));
+    await screen.findByRole("dialog");
+    fireEvent.change(screen.getByLabelText("輸入「刪除」確認"), { target: { value: "刪除" } });
+    fireEvent.click(screen.getByRole("button", { name: "確定刪除" }));
+
+    await waitFor(() => expect(previewPeriodDeletion).toHaveBeenCalledTimes(2));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(dialog.textContent).toContain("第 1 期有 2 組交了進度，刪除會一併刪掉這些進度與檔案")
+    );
+    expect(within(dialog).getByText("交件狀況已變動，請重新確認")).toBeTruthy();
+    expect((screen.getByLabelText("輸入「刪除」確認") as HTMLInputElement).value).toBe("");
+    expect((screen.getByRole("button", { name: "確定刪除" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("savePeriods 丟例外時，錯誤訊息要顯示出來", async () => {

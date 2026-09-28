@@ -29,17 +29,32 @@ export type PeriodRow = {
 
 const DEFAULT_TIME = "23:59";
 const CONFIRM_WORD = "刪除";
+const COUNTS_CHANGED = "交件狀況已變動，請重新確認";
 
 export function PeriodsForm({ semesterId, initialRows }: { semesterId: string; initialRows: PeriodRow[] }) {
   const router = useRouter();
   const [rows, setRows] = useState<PeriodRow[]>(
     initialRows.length > 0 ? initialRows : [{ date: "", time: DEFAULT_TIME }]
   );
+  // Fix round 1 F1：儲存後 router.refresh() 會帶來新的 initialRows（新增的期別有了 id、編號重排）。
+  // 伺服器端的期別資料變了就把表單換成新資料——不然新增的列一直沒有 id，下一次儲存會被當成
+  // 「刪掉那一期＋再新增一期」（id 換掉，若已有人交件還會跳出刪除確認視窗）。
+  // 用「render 中比對上一次的 props」的寫法（React 文件的 adjusting state when a prop changes），
+  // 只有期別資料真的變了才重設；其他區塊觸發的重新整理（期別沒變）不會蓋掉編輯到一半的內容。
+  const initialSignature = JSON.stringify(initialRows);
+  const [syncedSignature, setSyncedSignature] = useState(initialSignature);
+  if (initialSignature !== syncedSignature) {
+    setSyncedSignature(initialSignature);
+    setRows(initialRows.length > 0 ? initialRows : [{ date: "", time: DEFAULT_TIME }]);
+  }
   const [errors, setErrors] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
   const [saved, setSaved] = useState(false);
   // 確認視窗：有人交件、這次要被刪的期別（seq 是刪除前的編號）。null＝視窗關著。
   const [pendingDeletion, setPendingDeletion] = useState<PeriodDeletionPreview[] | null>(null);
+  // 預覽時每一期（被刪的期別，含 0 份的）的交件數；確認時原封不動送給資料庫比對（Fix round 1 F2）。
+  const [confirmedCounts, setConfirmedCounts] = useState<Record<string, number>>({});
+  const [dialogNotice, setDialogNotice] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
 
   function addRow() {
@@ -78,8 +93,14 @@ export function PeriodsForm({ semesterId, initialRows }: { semesterId: string; i
       const result = confirmDeleteWithReports
         ? await savePeriods(semesterId, payload(), {
             confirmDeleteWithReports: true,
+            expectedReportCounts: confirmedCounts,
           })
         : await savePeriods(semesterId, payload());
+      if (!result.ok && result.errors.includes(COUNTS_CHANGED)) {
+        // 預覽之後有人交件或撤回：重新預覽，視窗換成最新的交件數，要重新打字確認。
+        await startDeletionFlow(COUNTS_CHANGED);
+        return;
+      }
       setPendingDeletion(null);
       if (result.ok) {
         setSaved(true);
@@ -95,30 +116,43 @@ export function PeriodsForm({ semesterId, initialRows }: { semesterId: string; i
     }
   }
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  // 有被刪的既有期別：先預覽每期交件數；有人交件就開確認視窗，否則直接儲存。
+  async function startDeletionFlow(notice: string | null) {
     const keptIds = new Set(rows.map((r) => r.id).filter(Boolean));
     const deletedIds = initialRows.map((r) => r.id).filter((id): id is string => !!id && !keptIds.has(id));
-    if (deletedIds.length > 0) {
-      setPending(true);
-      setErrors([]);
-      setSaved(false);
-      let affected: PeriodDeletionPreview[];
-      try {
-        affected = (await previewPeriodDeletion(deletedIds)).filter((p) => p.reportCount > 0);
-      } catch (err) {
-        setErrors([err instanceof Error ? err.message : "儲存失敗"]);
-        setPending(false);
-        return;
-      }
-      setPending(false);
-      if (affected.length > 0) {
-        setTyped("");
-        setPendingDeletion(affected);
-        return;
-      }
+    if (deletedIds.length === 0) {
+      setPendingDeletion(null);
+      await doSave(false);
+      return;
     }
-    await doSave(false);
+    setPending(true);
+    setErrors([]);
+    setSaved(false);
+    let preview: PeriodDeletionPreview[];
+    try {
+      preview = await previewPeriodDeletion(deletedIds);
+    } catch (err) {
+      setPendingDeletion(null);
+      setErrors([err instanceof Error ? err.message : "儲存失敗"]);
+      setPending(false);
+      return;
+    }
+    setPending(false);
+    const affected = preview.filter((p) => p.reportCount > 0);
+    if (affected.length === 0) {
+      setPendingDeletion(null);
+      await doSave(false);
+      return;
+    }
+    setConfirmedCounts(Object.fromEntries(preview.map((p) => [p.periodId, p.reportCount])));
+    setDialogNotice(notice);
+    setTyped("");
+    setPendingDeletion(affected);
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await startDeletionFlow(null);
   }
 
   return (
@@ -203,6 +237,11 @@ export function PeriodsForm({ semesterId, initialRows }: { semesterId: string; i
               ))}
             </DialogDescription>
           </DialogHeader>
+          {dialogNotice && (
+            <p role="alert" className="text-sm font-medium text-destructive">
+              {dialogNotice}
+            </p>
+          )}
           <div className="flex flex-col gap-1.5">
             <label htmlFor="confirm-period-delete" className="text-sm font-medium text-foreground">
               輸入「{CONFIRM_WORD}」確認
