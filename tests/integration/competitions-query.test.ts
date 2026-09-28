@@ -305,4 +305,54 @@ describe("attachedGroups（loadLobby／loadAttachedGroups）", () => {
 
     await expect(loadAttachedGroups("not-a-uuid")).resolves.toEqual([]);
   });
+
+  // Fix round 1（F6）：loadAttachedGroups(id) 應該只回傳「那一場比賽」的組名——用兩場比賽各掛不
+  // 同的組，確認拿 comps.soonId 不會混進 comps.laterId 掛的組（反過來也是）。之前的實作是撈全部
+  // rows 再從 map 挑一個 key，這裡直接驗證窄化查詢本身的正確性，不只是最後結果剛好對。
+  it("loadAttachedGroups(id) 不會把另一場比賽掛的組混進來", async () => {
+    const service = createServiceSupabase();
+    const { error: laterEntryError } = await service.from("competition_entries").insert({
+      group_id: group3,
+      competition_id: comps.laterId,
+      created_by: "c1@g.nccu.edu.tw",
+    });
+    if (laterEntryError) throw laterEntryError;
+
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+
+    await expect(loadAttachedGroups(comps.soonId)).resolves.toEqual(["第1組", "第3組"]);
+    await expect(loadAttachedGroups(comps.laterId)).resolves.toEqual(["第3組"]);
+  });
+
+  // Fix round 1（F3）：自然排序的斷言之前只用第1組／第3組，跟純字典序（單一數字比較）結果一樣，
+  // 沒有真的驗證到「數字感知」這個規則。第10組跟第2組在字典序下會是「第10組」排在「第2組」前面
+  // （'1' < '2'），只有數字感知排序才會把第2組排在第10組前面。
+  it("自然排序：第2組在第10組前面（不是字典序）", async () => {
+    const service = createServiceSupabase();
+    const { data: group10, error: group10Error } = await service
+      .from("groups")
+      .insert({ semester_id: seed.semesterId, name: "第10組", project_name: "專案J" })
+      .select()
+      .single();
+    if (group10Error) throw group10Error;
+
+    const { error: g2EntryError } = await service.from("competition_entries").insert({
+      group_id: seed.groupB, // 第2組，這裡不退出（跟共用 beforeEach 裡對 comps.soonId 的退出是不同筆報名）
+      competition_id: comps.laterId,
+      created_by: "b1@g.nccu.edu.tw",
+    });
+    if (g2EntryError) throw g2EntryError;
+    const { error: g10EntryError } = await service.from("competition_entries").insert({
+      group_id: group10.id,
+      competition_id: comps.laterId,
+      created_by: "j1@g.nccu.edu.tw",
+    });
+    if (g10EntryError) throw g10EntryError;
+
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+
+    await expect(loadAttachedGroups(comps.laterId)).resolves.toEqual(["第2組", "第10組"]);
+  });
 });

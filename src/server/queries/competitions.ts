@@ -5,6 +5,7 @@ import { activeStudentGroup, isStaffIdentity } from "@/domain/access";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
 import { sortLobby, normalizeTags, type CompetitionCard } from "@/domain/competition";
 import { isUuid } from "@/domain/id";
+import { sortNatural } from "@/domain/natural-sort";
 
 export type Lobby = {
   open: CompetitionCard[];
@@ -84,12 +85,6 @@ function toCard(row: CompetitionRow): CompetitionCard {
   };
 }
 
-// 依組名為數字感知排序（第2組在第10組前面），跟 dashboard.ts 的 sortMembersByName／
-// sortGroupCards 用同一套規則（localeCompare + numeric），這裡直接對字串排序。
-function sortGroupNames(names: string[]): string[] {
-  return [...names].sort((a, b) => a.localeCompare(b, "zh-Hant", { numeric: true }));
-}
-
 function groupRowsByCompetition(rows: { competition_id: string; group_name: string }[]): Record<string, string[]> {
   const byId = new Map<string, Set<string>>();
   for (const row of rows) {
@@ -99,31 +94,40 @@ function groupRowsByCompetition(rows: { competition_id: string; group_name: stri
   }
   const result: Record<string, string[]> = {};
   for (const [id, names] of byId) {
-    result[id] = sortGroupNames([...names]);
+    result[id] = sortNatural([...names]);
   }
   return result;
 }
 
-// 已掛上的組別：管理員（沒有名單列、走服務身分）用跟 loadLobby 其他查詢一樣的欄位做等價查詢
-// （service client 略過 RLS，直接用同樣的篩選條件——已發布、本學期、未退出）；其他人一律呼叫
-// competition_attached_groups()（SECURITY DEFINER，呼叫者必須在本學期名單上，見
+// 已掛上的組別：管理員（沒有名單列、走服務身分）用跟 SQL 版 competition_attached_groups()
+// 完全一樣的篩選條件做等價查詢（service client 略過 RLS，不能只靠 RLS 擋，得自己重現：已發布、
+// 本學期、group 也要是本學期的、未退出）；其他人一律呼叫 competition_attached_groups()
+// （SECURITY DEFINER，呼叫者必須在本學期名單上，見
 // supabase/migrations/20260929000002_attached_groups.sql）。
+//
+// fix round 1（F2）：groups 查詢加回 semester_id 篩選（跟 SQL 版的 g.semester_id =
+// c.semester_id 對齊）；找不到組名的 entry 直接丟掉（SQL 版是 inner join，找不到就整列不存
+// 在），不再用 "" 頂替——正常資料不會走到這裡，但等價查詢就該完全等價。
+//
+// fix round 1（F6）：多一個 competitionId 參數，兩條路徑都在查詢階段就narrow到單一比賽，不是
+// 撈全部再篩選（RPC 沒有參數化篩選比賽的入口，改成拿到全部 rows 後在這裡 filter；admin 路徑
+// 直接在 SQL 查詢上加 .eq("id", competitionId) 窄化）。
 async function fetchAttachedGroupsRows(
   db: SupabaseClient,
   isAdmin: boolean,
-  semesterId: string
+  semesterId: string,
+  competitionId?: string
 ): Promise<{ competition_id: string; group_name: string }[]> {
   if (!isAdmin) {
     const { data, error } = await db.rpc("competition_attached_groups");
     if (error) throw error;
-    return (data ?? []) as { competition_id: string; group_name: string }[];
+    const rows = (data ?? []) as { competition_id: string; group_name: string }[];
+    return competitionId ? rows.filter((r) => r.competition_id === competitionId) : rows;
   }
 
-  const { data: comps, error: compsError } = await db
-    .from("competitions")
-    .select("id")
-    .eq("semester_id", semesterId)
-    .eq("status", "published");
+  let compsQuery = db.from("competitions").select("id").eq("semester_id", semesterId).eq("status", "published");
+  compsQuery = competitionId ? compsQuery.eq("id", competitionId) : compsQuery;
+  const { data: comps, error: compsError } = await compsQuery;
   if (compsError) throw compsError;
   const competitionIds = (comps ?? []).map((c) => c.id as string);
   if (competitionIds.length === 0) return [];
@@ -137,14 +141,21 @@ async function fetchAttachedGroupsRows(
   if (!entries || entries.length === 0) return [];
 
   const groupIds = [...new Set(entries.map((e) => e.group_id as string))];
-  const { data: groups, error: groupsError } = await db.from("groups").select("id, name").in("id", groupIds);
+  const { data: groups, error: groupsError } = await db
+    .from("groups")
+    .select("id, name")
+    .eq("semester_id", semesterId)
+    .in("id", groupIds);
   if (groupsError) throw groupsError;
   const nameById = new Map((groups ?? []).map((g) => [g.id as string, g.name as string]));
 
-  return entries.map((e) => ({
-    competition_id: e.competition_id as string,
-    group_name: nameById.get(e.group_id as string) ?? "",
-  }));
+  const rows: { competition_id: string; group_name: string }[] = [];
+  for (const e of entries) {
+    const groupName = nameById.get(e.group_id as string);
+    if (groupName === undefined) continue; // 等價於 SQL 版的 inner join：找不到就整列不存在。
+    rows.push({ competition_id: e.competition_id as string, group_name: groupName });
+  }
+  return rows;
 }
 
 // 幹部＝專案幹部／其他幹部（規格第 3 節：新增、編輯、發布競賽——管理員、專案幹部、其他幹部）。
@@ -208,7 +219,7 @@ export async function loadAttachedGroups(competitionId: string): Promise<string[
 
   const isAdmin = access.active.role === "admin";
   const db = isAdmin ? createServiceSupabase() : await createServerSupabase();
-  const rows = await fetchAttachedGroupsRows(db, isAdmin, access.semesterId);
+  const rows = await fetchAttachedGroupsRows(db, isAdmin, access.semesterId, competitionId);
   return groupRowsByCompetition(rows)[competitionId] ?? [];
 }
 

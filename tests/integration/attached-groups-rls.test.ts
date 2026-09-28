@@ -72,6 +72,43 @@ async function seedEntry(groupId: string, competitionId: string, opts: { withdra
   return data.id as string;
 }
 
+// Fix round 1（F1）：在第1組的報名上真的建一筆 entry_members（確認參賽成員）與一筆
+// stage_submissions（上傳一版報名階段的 PDF），讓「第5組直接查這兩張表仍拿不到別組資料」這個
+// 斷言真的有東西可以漏——原本兩張表整輪測試都是空的，toEqual([]) 不管 RLS 擋不擋都會過。
+async function seedRealEntryContent(semesterId: string, group1: string, entryId: string): Promise<void> {
+  const db = createServiceSupabase();
+
+  const { data: a1, error: a1Error } = await db
+    .from("members")
+    .select("id")
+    .eq("semester_id", semesterId)
+    .eq("email", "a1@g.nccu.edu.tw")
+    .single();
+  if (a1Error) throw a1Error;
+
+  const { error: entryMemberError } = await db.from("entry_members").insert({ entry_id: entryId, member_id: a1.id });
+  if (entryMemberError) throw entryMemberError;
+
+  const { data: line, error: lineError } = await db
+    .from("lines")
+    .insert({ group_id: group1, kind: "competition", entry_id: entryId })
+    .select()
+    .single();
+  if (lineError) throw lineError;
+
+  const { error: submissionError } = await db.from("stage_submissions").insert({
+    line_id: line.id,
+    stage: "signup",
+    version: 1,
+    pdf_key: `attached-groups-rls-test/${entryId}/signup-v1.pdf`,
+    pdf_size: 1024,
+    pdf_uploaded_at: new Date().toISOString(),
+    pdf_uploaded_by: "a1@g.nccu.edu.tw",
+    submitted_by: "a1@g.nccu.edu.tw",
+  });
+  if (submissionError) throw submissionError;
+}
+
 describe("competition_attached_groups()", () => {
   let semesterId: string;
   let group1: string;
@@ -79,6 +116,7 @@ describe("competition_attached_groups()", () => {
   let group3: string;
   let group5: string;
   let competitionA: string;
+  let entry1Id: string;
 
   beforeEach(async () => {
     await resetDb();
@@ -94,11 +132,15 @@ describe("competition_attached_groups()", () => {
     competitionA = await seedCompetition(semesterId, "比賽 A", "published");
 
     // 第1組掛 A（未退出）
-    await seedEntry(group1, competitionA);
+    entry1Id = await seedEntry(group1, competitionA);
     // 第2組掛 A 後退出
     await seedEntry(group2, competitionA, { withdrawn: true });
     // 第3組掛 A 得獎（仍算掛上）
     await seedEntry(group3, competitionA, { result: "awarded" });
+
+    // Fix round 1（F1）：讓「第5組直接查 entry_members／stage_submissions 仍拿不到別組資料」
+    // 這個斷言不再是空集合對空集合的假陽性——真的給第1組的報名確認成員、上傳一版階段檔案。
+    await seedRealEntryContent(semesterId, group1, entry1Id);
   });
 
   // 函式本身沒有 order by（自然排序在呼叫端的 TS 層做，見 src/server/queries/competitions.ts
@@ -185,6 +227,9 @@ describe("competition_attached_groups()", () => {
     expect(data).toEqual([]);
   });
 
+  // Fix round 1（F1）：beforeEach 已經在第1組的報名上真的塞了一筆 entry_members（a1）與一筆
+  // stage_submissions（報名階段 v1），所以下面三個 toEqual([]) 不再是空集合對空集合——真的有
+  // 別組的資料在那裡，斷言的是「RLS 擋下來，第5組查不到」。
   it("第5組學生直接查 competition_entries／entry_members／stage_submissions 仍拿不到別組資料", async () => {
     const db = await clientAs("e1@g.nccu.edu.tw");
 
@@ -192,7 +237,7 @@ describe("competition_attached_groups()", () => {
     expect(entries.error).toBeNull();
     expect(entries.data).toEqual([]);
 
-    const entryMembers = await db.from("entry_members").select("entry_id");
+    const entryMembers = await db.from("entry_members").select("entry_id").eq("entry_id", entry1Id);
     expect(entryMembers.error).toBeNull();
     expect(entryMembers.data).toEqual([]);
 
