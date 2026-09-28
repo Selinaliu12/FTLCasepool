@@ -461,4 +461,20 @@ describe("competitions：新欄位（Task 1）", () => {
     });
     expect(error).not.toBeNull();
   });
+
+  // 說明會日期時間跟其他三個日期欄位共用同一個 parseField，但目前沒有任何測試走過它回傳
+  // error 的分支——只填了日期、時間格式亂填，回傳欄位錯誤 key 是 infoSessionAt，不寫入資料庫。
+  it("說明會時間格式錯誤（parseField 的 error 分支）→ infoSessionAt 欄位錯誤，不寫入資料庫", async () => {
+    asPm(seed.semesterId);
+    const result = await createCompetition({
+      ...validForm,
+      infoSessionDate: "2026-11-01",
+      infoSessionTime: "不是時間",
+    });
+    expect(result).toEqual({ ok: false, errors: { infoSessionAt: "日期或時間格式錯誤" } });
+
+    const db = createServiceSupabase();
+    const { data } = await db.from("competitions").select("id").eq("semester_id", seed.semesterId);
+    expect(data).toEqual([]);
+  });
 });

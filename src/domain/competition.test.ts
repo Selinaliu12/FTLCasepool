@@ -210,6 +210,12 @@ describe("toMaxPrizeValue", () => {
   it("合法整數字串 → 數字", () => {
     expect(toMaxPrizeValue("100000")).toBe(100000);
   });
+
+  // Fix round（controller ruling）：千分位逗號（半形／全形）在存進 DB 前先去掉。
+  it("千分位逗號（半形、全形）→ 去掉逗號後的數字", () => {
+    expect(toMaxPrizeValue("100,000")).toBe(100000);
+    expect(toMaxPrizeValue("1，000，000")).toBe(1000000);
+  });
 });
 
 describe("validateCompetition：新欄位", () => {
@@ -235,6 +241,32 @@ describe("validateCompetition：新欄位", () => {
 
   it("最高獎金超過 1 億 → 最高獎金請填整數金額", () => {
     const result = validateCompetition(baseInput({ maxPrize: "100000001" }));
+    expect(result).toEqual({ ok: false, errors: { maxPrize: "最高獎金請填整數金額" } });
+  });
+
+  // Fix round（controller ruling）：千分位逗號（半形 , 或全形 ，）要接受，驗證前先去掉再判斷。
+  it("最高獎金 100,000（千分位逗號）→ 通過", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "100,000" }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("最高獎金 1，000，000（全形千分位逗號）→ 通過", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "1，000，000" }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("最高獎金 1e5（科學記號）→ 最高獎金請填整數金額", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "1e5" }));
+    expect(result).toEqual({ ok: false, errors: { maxPrize: "最高獎金請填整數金額" } });
+  });
+
+  it("最高獎金 1.5 有千分位逗號的小數 1,000.5 → 最高獎金請填整數金額（逗號不能讓小數合法）", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "1,000.5" }));
+    expect(result).toEqual({ ok: false, errors: { maxPrize: "最高獎金請填整數金額" } });
+  });
+
+  it("最高獎金 -1,000（逗號不能讓負數合法）→ 最高獎金請填整數金額", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "-1,000" }));
     expect(result).toEqual({ ok: false, errors: { maxPrize: "最高獎金請填整數金額" } });
   });
 

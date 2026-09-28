@@ -22,10 +22,18 @@ export function blankToNull(s: string): string | null {
   return t === "" ? null : t;
 }
 
+// 千分位逗號（半形 , 或全形 ，）是排版用的，不是數字的一部分——驗證與轉換前都先去掉，讓
+// "100,000"／"1，000，000" 這種輸入等同 "100000"／"1000000"。
+function stripThousandsSeparators(raw: string): string {
+  return raw.trim().replace(/[,，]/g, "");
+}
+
 // 假設呼叫端已經先用 validateCompetition 確認過格式（非整數、超出範圍都已經擋掉），這裡只負責
-// 把驗證過的字串轉成要存進 DB 的值。
+// 把驗證過的字串轉成要存進 DB 的值。如果傳進來的字串沒通過 validateCompetition 的整數格式檢查
+// （例如 "abc"、"1e5"、有小數點），Number() 會回傳 NaN——寫進 DB 會被 max_prize 的
+// check constraint 擋下來，不會是無聲的資料錯誤，但呼叫端還是應該先驗證過，這裡不重複擋。
 export function toMaxPrizeValue(raw: string): number | null {
-  const t = raw.trim();
+  const t = stripThousandsSeparators(raw);
   return t === "" ? null : Number(t);
 }
 
@@ -140,8 +148,10 @@ export function validateCompetition(
   const validTags: readonly string[] = COMPETITION_TAGS;
   if (input.tags.some((t) => !validTags.includes(t))) errors.tags = "比賽類型標籤不合法";
 
-  const trimmedMaxPrize = input.maxPrize.trim();
-  if (trimmedMaxPrize !== "" && (!/^\d+$/.test(trimmedMaxPrize) || Number(trimmedMaxPrize) > 100_000_000)) {
+  // 千分位逗號（半形／全形）先去掉再判斷格式，"1,000.5"／"-1,000" 這種逗號＋小數點／負號混用的
+  // 輸入，去掉逗號後還是不合法（"1000.5"／"-1000"），一樣被下面的整數格式檢查擋下來。
+  const strippedMaxPrize = stripThousandsSeparators(input.maxPrize);
+  if (strippedMaxPrize !== "" && (!/^\d+$/.test(strippedMaxPrize) || Number(strippedMaxPrize) > 100_000_000)) {
     errors.maxPrize = "最高獎金請填整數金額";
   }
 
