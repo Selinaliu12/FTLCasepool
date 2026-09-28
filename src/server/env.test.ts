@@ -84,3 +84,27 @@ describe("env.r2 endpoint/region", () => {
     expect(env.r2.region).toBe("auto");
   });
 });
+
+describe("env.r2 空字串視同沒設", () => {
+  const keys = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET", "R2_ENDPOINT", "R2_REGION"] as const;
+  const original = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+
+  afterEach(() => {
+    for (const k of keys) {
+      if (original[k] === undefined) delete process.env[k];
+      else process.env[k] = original[k];
+    }
+  });
+
+  it("R2_ENDPOINT、R2_REGION 是空字串時，endpoint 為 undefined（走真 R2）、region 為 auto", async () => {
+    process.env.R2_ACCOUNT_ID = "a";
+    process.env.R2_ACCESS_KEY_ID = "b";
+    process.env.R2_SECRET_ACCESS_KEY = "c";
+    process.env.R2_BUCKET = "x-test";
+    process.env.R2_ENDPOINT = "";
+    process.env.R2_REGION = "";
+    const { env } = await import("./env");
+    expect(env.r2.endpoint).toBeUndefined();
+    expect(env.r2.region).toBe("auto");
+  });
+});
