@@ -153,6 +153,12 @@ describe("GroupCard", () => {
     expect(screen.getByText("甲二 · —")).toBeTruthy();
   });
 
+  // Fix round 1 F8：組員是空的時顯示「尚未有組員」，不是整段消失（讓幹部看得到名單異常）。
+  it("組員是空陣列時顯示『尚未有組員』", () => {
+    render(<GroupCard card={card({ members: [] })} isMine={false} />);
+    expect(screen.getByText("尚未有組員")).toBeTruthy();
+  });
+
   it("有備註時顯示備註內容", () => {
     render(<GroupCard card={card({ note: "智慧記帳系統" })} isMine={false} />);
     expect(screen.getByText("智慧記帳系統")).toBeTruthy();

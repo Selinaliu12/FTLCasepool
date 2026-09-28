@@ -26,7 +26,14 @@ export async function updateGroupNote(note: string): Promise<{ ok: true } | { ok
     p_note: validation.note,
     p_updated_by: access.name ?? access.email,
   });
-  if (error) throw error;
+  // Fix round 1 F6：update_group_note() 現在在 0 列被改到時 raise "group_not_found"（例如身份
+  // 在寫入當下剛好失效、換組，或指到一個不存在的組）——跟「非專案生」用同一句既有的拒絕文案，
+  // 不額外透露「這個組本來存在」，跟 entries.ts／download.ts 那種「一律回統一的找不到」是同一個
+  // 模式。
+  if (error) {
+    if (error.message === "group_not_found") return { ok: false, error: REJECTED };
+    throw error;
+  }
 
   revalidatePath("/dashboard");
   revalidatePath("/my-group");

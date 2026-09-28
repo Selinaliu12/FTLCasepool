@@ -48,29 +48,55 @@ function asAdminNoMember(semesterId: string) {
   }));
 }
 
-// Task 4：GroupCard 現在合法帶有 note 欄位（組別備註，規格 §14 第 5、6 點——幹部本來就看得到），
-// 不再是「不該出現在看板的內容欄位」，拿掉它避免跟合法欄位撞名；did／blocked／next_steps／
-// pdf_key（三句話、PDF key）仍然是 loadDashboard() 絕對不該碰的內容欄位。
-const CONTENT_KEYS = ["did", "blocked", "next_steps", "pdf_key"];
+// Fix round 1 F1（controller ruling）："note" 一樣是禁止外洩的內容欄位（checkins.note，紅燈
+// 補充說明）——除了唯一合法的例外路徑 `cards[i].note`（GroupCard 的組別備註，規格 §14 第 5、
+// 6 點，幹部本來就看得到）。用 path（例如 "cards.0.note"）而不是單純的 key 名稱判斷是不是那個
+// 例外，這樣如果 loadDashboard() 哪天不小心把 checkins 或任何內容表的 note 併進其他欄位（不是
+// cards[i].note 這條路徑），這裡還是會抓到。did／blocked／next_steps／pdf_key（三句話、PDF
+// key）沒有任何合法例外。
+const CONTENT_KEYS = ["did", "blocked", "next_steps", "pdf_key", "note"];
+const EXEMPT_PATHS = new Set(["cards.note"]); // 陣列 index 正規化成 "cards.note"，見下面 visit()。
 
 function deepScanForContentKeys(value: unknown): string[] {
   const found: string[] = [];
-  const visit = (v: unknown) => {
+  const visit = (v: unknown, path: string) => {
     if (v === null || v === undefined) return;
     if (Array.isArray(v)) {
-      v.forEach(visit);
+      v.forEach((item) => visit(item, path));
       return;
     }
     if (typeof v === "object") {
       for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-        if (CONTENT_KEYS.includes(k)) found.push(k);
-        visit(val);
+        const childPath = path ? `${path}.${k}` : k;
+        if (CONTENT_KEYS.includes(k) && !EXEMPT_PATHS.has(childPath)) found.push(k);
+        visit(val, childPath);
       }
     }
   };
-  visit(value);
+  visit(value, "");
   return found;
 }
+
+// Fix round 1 F1：deepScanForContentKeys 本身的行為要單獨釘住，不能只靠「目前 loadDashboard()
+// 剛好沒有洩漏」這個事實去信任它——這裡直接餵合成資料，證明：(1) cards[i].note 這個唯一合法
+// 例外路徑不會被抓；(2) 出現在任何其他路徑的 "note"（例如不小心把 checkins 併進別的欄位）還是
+// 會被抓到，不會因為同名而被誤放行。
+describe("deepScanForContentKeys（F1 guard 本身的行為）", () => {
+  it("cards[i].note（合法的組別備註）不算外洩", () => {
+    const fixture = { cards: [{ groupId: "g1", note: "智慧記帳系統" }], myPmGroupIds: [] };
+    expect(deepScanForContentKeys(fixture)).toEqual([]);
+  });
+
+  it("其他路徑上的 note（例如意外併進 checkins）仍然被抓到", () => {
+    const fixture = { cards: [{ groupId: "g1", note: "智慧記帳系統", leakedCheckin: { note: "卡在資料串接" } }] };
+    expect(deepScanForContentKeys(fixture)).toEqual(["note"]);
+  });
+
+  it("did／blocked／next_steps／pdf_key 沒有任何合法例外，出現在任何路徑都算外洩", () => {
+    const fixture = { cards: [{ groupId: "g1", report: { did: "x", blocked: "y", next_steps: "z", pdf_key: "k" } }] };
+    expect(deepScanForContentKeys(fixture).sort()).toEqual(["blocked", "did", "next_steps", "pdf_key"]);
+  });
+});
 
 describe("loadDashboard", () => {
   let seed: Awaited<ReturnType<typeof seedSemester>>;
@@ -97,6 +123,11 @@ describe("loadDashboard", () => {
       expect(card.lines[0].onTime === null || typeof card.lines[0].onTime === "number").toBe(true);
     }
     expect(deepScanForContentKeys(result)).toEqual([]);
+    // Fix round 1 F1：seedSemester() 種了一筆 checkins.note = "卡在資料串接"（第1組的紅燈
+    // 補充說明）——這句字串本身絕對不能出現在其他幹部看到的看板資料裡，不只是「note 這個
+    // key 不該有內容表的值」，用字串內容再釘一次，就算未來有人把這句話塞進某個看起來合法
+    // 的欄位（例如意外把 checkins 併進 card.stage 之類的文字欄位）也會抓到。
+    expect(JSON.stringify(result)).not.toContain("卡在資料串接");
     expect(result.myPmGroupIds).toEqual([]);
   });
 
@@ -430,5 +461,8 @@ describe("loadDashboard", () => {
 
     // Review Focus 5：學號不出現在看板卡片（只在管理員頁與 /groups/[id]），且沒有內容欄位外洩。
     expect(deepScanForContentKeys(result)).toEqual([]);
+    // Fix round 1 F1：這張卡自己合法帶了 note（組別備註「智慧記帳系統」），但種子的
+    // checkins 紅燈補充說明「卡在資料串接」仍然不該出現在任何地方。
+    expect(JSON.stringify(result)).not.toContain("卡在資料串接");
   });
 });

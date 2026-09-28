@@ -43,11 +43,15 @@ export function GroupCard({
         ) : null}
         <div>
           <p className="text-xs text-muted-foreground">組別備註</p>
-          <p className="text-sm text-foreground">{card.note ?? "尚未訂題"}</p>
+          {/* Fix round 1 F5：break-words（+ whitespace-pre-wrap 保留換行）避免一長串沒有空白的
+              英文字或網址把卡片撐出畫面（尤其是 375px）。 */}
+          <p className="whitespace-pre-wrap text-sm text-foreground break-words">{card.note ?? "尚未訂題"}</p>
         </div>
-        {card.members.length > 0 ? (
-          <div>
-            <p className="text-xs text-muted-foreground">組員</p>
+        <div>
+          <p className="text-xs text-muted-foreground">組員</p>
+          {/* Fix round 1 F8：組員是空的（名單匯入問題、或組還沒有人）不該整段消失不見——
+              對幹部來說「這組沒有組員」本身就是該被看到的異常，不是不用顯示的空狀態。 */}
+          {card.members.length > 0 ? (
             <ul className="text-sm text-foreground">
               {card.members.map((m, i) => (
                 <li key={`${m.name}-${i}`}>
@@ -55,8 +59,10 @@ export function GroupCard({
                 </li>
               ))}
             </ul>
-          </div>
-        ) : null}
+          ) : (
+            <p className="text-sm text-foreground">尚未有組員</p>
+          )}
+        </div>
         <div>
           <p className="text-xs text-muted-foreground">目前階段</p>
           <p className="text-sm text-foreground">{card.stage}</p>

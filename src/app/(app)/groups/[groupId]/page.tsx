@@ -66,7 +66,9 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
           </ul>
           <div>
             <p className="text-xs text-muted-foreground">組別備註</p>
-            <p className="text-sm text-foreground">{data.group.note ?? "尚未訂題"}</p>
+            {/* Fix round 1 F5：break-words（+ whitespace-pre-wrap 保留換行）避免一長串沒有
+                空白的英文字或網址把卡片撐出畫面（尤其是 375px）。 */}
+            <p className="whitespace-pre-wrap text-sm text-foreground break-words">{data.group.note ?? "尚未訂題"}</p>
             {data.group.noteUpdatedBy && data.group.noteUpdatedAt ? (
               <p className="text-xs text-muted-foreground">
                 最後由 {data.group.noteUpdatedBy} 於 {formatTaipei(data.group.noteUpdatedAt)} 更新

@@ -1,6 +1,7 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import { resetDb, seedSemester, service } from "../integration/helpers";
+import { loginAndPassWelcome } from "./helpers";
 
 // Adjustments Task 3 視覺自我檢查用的截圖腳本：頁首「身份：{label} ▾」切換（關閉／打開）。
 // 跟 adj-t2-screenshots.spec.ts 同一套規矩：預設跳過，明確帶 CAPTURE_SCREENSHOTS=1 才會執行。
@@ -13,18 +14,6 @@ const SIZES = [
   { name: "1280", width: 1280, height: 800 },
   { name: "375", width: 375, height: 812 },
 ];
-
-async function loginAndPassWelcome(page: Page, email: string, waitForUrl: RegExp) {
-  await page.goto(`/test-login?email=${email}`);
-  await Promise.race([
-    page.waitForURL(waitForUrl),
-    page.getByRole("button", { name: "我已了解" }).waitFor({ state: "visible" }),
-  ]);
-  if (await page.getByRole("button", { name: "我已了解" }).isVisible().catch(() => false)) {
-    await page.getByRole("button", { name: "我已了解" }).click();
-  }
-  await expect(page).toHaveURL(waitForUrl);
-}
 
 test.describe.serial(`adj-t3 視覺自我檢查截圖 round${ROUND}`, () => {
   test.skip(!CAPTURE, "手動截圖用；預設跳過。執行方式見檔案開頭註解（CAPTURE_SCREENSHOTS=1）。");

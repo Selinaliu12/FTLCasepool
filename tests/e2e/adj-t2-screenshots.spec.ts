@@ -1,6 +1,7 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import { resetDb, seedSemester, service } from "../integration/helpers";
+import { loginAndPassWelcome } from "./helpers";
 
 // Adjustments Task 2 視覺自我檢查用的截圖腳本：名單匯入區（新欄位說明／placeholder）與換組選單
 // （「姓名（學號）· 第N組」，null 學號顯示「—」）。跟 Task 14 的 manual-screenshots.spec.ts
@@ -14,18 +15,6 @@ const SIZES = [
   { name: "1280", width: 1280, height: 800 },
   { name: "375", width: 375, height: 812 },
 ];
-
-async function loginAndPassWelcome(page: Page, email: string, waitForUrl: RegExp) {
-  await page.goto(`/test-login?email=${email}`);
-  await Promise.race([
-    page.waitForURL(waitForUrl),
-    page.getByRole("button", { name: "我已了解" }).waitFor({ state: "visible" }),
-  ]);
-  if (await page.getByRole("button", { name: "我已了解" }).isVisible().catch(() => false)) {
-    await page.getByRole("button", { name: "我已了解" }).click();
-  }
-  await expect(page).toHaveURL(waitForUrl);
-}
 
 test.describe.serial(`adj-t2 視覺自我檢查截圖 round${ROUND}`, () => {
   test.skip(!CAPTURE, "手動截圖用；預設跳過。執行方式見檔案開頭註解（CAPTURE_SCREENSHOTS=1）。");

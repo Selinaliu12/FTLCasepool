@@ -127,6 +127,34 @@ describe("updateGroupNote", () => {
     expect(result).toEqual({ ok: false, error: REJECTED });
   });
 
+  // Fix round 1 F6：active identity 指到一個不存在的組（理論上不該發生，例如身份在寫入當下
+  // 剛好失效）——update_group_note() 現在在 0 列被改到時 raise "group_not_found"，action 把它
+  // 映成既有的拒絕文案，不透露「這個組存在與否」，也不會默默回傳假的成功。
+  it("active identity 的 groupId 不存在時 → 回同一句拒絕文案，不是假的成功", async () => {
+    const seed = await seedSemester();
+    mockGetAccess.mockResolvedValue(
+      okAccess({
+        kind: "ok",
+        email: "a1@g.nccu.edu.tw",
+        isAdmin: false,
+        member: {
+          id: "m1",
+          semesterId: seed.semesterId,
+          email: "a1@g.nccu.edu.tw",
+          name: "甲一",
+          role: "student",
+          groupId: "00000000-0000-0000-0000-000000000000",
+          groupName: "不存在的組",
+        },
+        semesterId: seed.semesterId,
+      })
+    );
+
+    const { updateGroupNote } = await import("@/server/actions/group-note");
+    const result = await updateGroupNote("換個主題");
+    expect(result).toEqual({ ok: false, error: REJECTED });
+  });
+
   it("第2組學生只能改第2組的備註，不會動到第1組", async () => {
     const seed = await seedSemester();
     asStudent(seed.semesterId, seed.groupB, "b1@g.nccu.edu.tw", "乙一");
