@@ -1,5 +1,6 @@
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import Link from "next/link";
 import { LoginButton } from "./login-button";
 
 // /auth/callback 與 requireOk() 失敗時會帶 ?error= 導回這裡；沒有這段文案時，使用者只會看到登入頁
@@ -29,6 +30,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             </Alert>
           )}
           <LoginButton />
+          <Link href="/privacy" className="text-center text-sm text-muted-foreground underline underline-offset-4">
+            隱私權說明
+          </Link>
         </CardContent>
       </Card>
     </main>
