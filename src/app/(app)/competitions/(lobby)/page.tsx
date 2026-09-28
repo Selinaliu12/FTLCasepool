@@ -2,6 +2,7 @@ import Link from "next/link";
 import { loadLobby } from "@/server/queries/competitions";
 import { CompetitionCard } from "@/components/competition-card";
 import { buttonVariants } from "@/components/ui/button";
+import { canShowAttach } from "@/domain/competition";
 
 export default async function CompetitionsPage() {
   const now = new Date();
@@ -41,7 +42,7 @@ export default async function CompetitionsPage() {
                 card={c}
                 now={now}
                 canEdit={lobby.canEdit}
-                showAttach={lobby.isStudent}
+                showAttach={lobby.isStudent && canShowAttach(c, now, lobby.myGroupAttached[c.id] ?? null)}
                 attachedEntryId={lobby.myGroupAttached[c.id] ?? null}
                 attachedGroups={lobby.attachedGroups[c.id] ?? []}
               />
@@ -55,14 +56,15 @@ export default async function CompetitionsPage() {
           <h2 className="text-lg font-semibold text-foreground">已截止</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             {/* Final review minor 13：已截止的卡片不能再掛，但這組已經掛了的，仍然顯示「已掛到你們組」
-                連到報名頁（AttachCompetitionButton 有 entryId 時只畫連結，不畫掛的按鈕）。 */}
+                連到報名頁（AttachCompetitionButton 有 entryId 時只畫連結，不畫掛的按鈕）——canShowAttach
+                跟開放中區塊用同一個判斷（Task 4 fix round 1 F1）。 */}
             {lobby.closed.map((c) => (
               <CompetitionCard
                 key={c.id}
                 card={c}
                 now={now}
                 canEdit={lobby.canEdit}
-                showAttach={lobby.isStudent && !!lobby.myGroupAttached[c.id]}
+                showAttach={lobby.isStudent && canShowAttach(c, now, lobby.myGroupAttached[c.id] ?? null)}
                 attachedEntryId={lobby.myGroupAttached[c.id] ?? null}
                 attachedGroups={lobby.attachedGroups[c.id] ?? []}
               />

@@ -231,3 +231,12 @@ export function sortLobby(cards: CompetitionCard[], now: Date): { open: Competit
 
   return { open, closed };
 }
+
+// 掛到我們組按鈕該不該顯示：報名截止日還沒過（跟 sortLobby 判斷 open／closed 用同一個條件）就
+//一律可以掛；已經過了報名截止日，只有這組已經掛過（attachedEntryId 有值）才顯示——這時候按鈕
+// 顯示的是「已掛到你們組」連結，不是真的可以再掛一次。大廳卡片（CompetitionCard）與詳細頁共用
+// 這個判斷，不各自重寫一份（Task 4 fix round 1 F1）。
+export function canShowAttach(card: CompetitionCard, now: Date, attachedEntryId: string | null): boolean {
+  const closed = card.signupDeadline.getTime() < now.getTime();
+  return !closed || !!attachedEntryId;
+}

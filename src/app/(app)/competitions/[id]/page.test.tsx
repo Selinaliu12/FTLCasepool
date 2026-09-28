@@ -224,4 +224,35 @@ describe("CompetitionDetailPage：學生看到掛到我們組，幹部看到編�
     expect(link.getAttribute("href")).toBe("/competitions/c1/edit");
     expect(screen.queryByRole("button", { name: "掛到我們組" })).toBeNull();
   });
+
+  // Task 4 fix round 1（F1）：跟大廳卡片同一套規則——已過報名截止日（closed）且這組還沒掛過時，
+  // 不顯示掛到我們組按鈕（不是一個按下去只會被 DEADLINE_PASSED 擋掉的假動作）；已經掛過的話，
+  // closed 也要顯示「已掛到你們組」連結。
+  it("已截止且沒掛過：不顯示掛到我們組按鈕", async () => {
+    loadCompetitionDetail.mockResolvedValue({
+      card: card({ signupDeadline: new Date("2000-01-01T09:00:00.000Z") }),
+      canEdit: false,
+      isStudent: true,
+      attachedEntryId: null,
+      attachedGroups: [],
+    });
+
+    await renderPage();
+    expect(screen.queryByRole("button", { name: "掛到我們組" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "已掛到你們組" })).toBeNull();
+  });
+
+  it("已截止但這組已經掛過：仍顯示已掛到你們組連結", async () => {
+    loadCompetitionDetail.mockResolvedValue({
+      card: card({ signupDeadline: new Date("2000-01-01T09:00:00.000Z") }),
+      canEdit: false,
+      isStudent: true,
+      attachedEntryId: "entry-1",
+      attachedGroups: [],
+    });
+
+    await renderPage();
+    const link = screen.getByRole("link", { name: "已掛到你們組" });
+    expect(link.getAttribute("href")).toBe("/my-group/competitions/entry-1");
+  });
 });

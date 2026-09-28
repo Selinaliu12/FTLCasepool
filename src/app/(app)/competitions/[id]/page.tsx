@@ -8,7 +8,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { AttachCompetitionButton } from "@/components/attach-competition-button";
 import { formatTaipei } from "@/domain/time";
 import { deadlineLabel } from "@/domain/competition-label";
-import { formatPrize } from "@/domain/competition";
+import { formatPrize, canShowAttach } from "@/domain/competition";
 import type { CompetitionCard as CompetitionCardData } from "@/domain/competition";
 
 // 詳細頁（Task 4，規格第 15 節、樣張 B）：loadCompetitionDetail 已經把「不是幹部／管理員看草稿」
@@ -25,10 +25,11 @@ export default async function CompetitionDetailPage({ params }: { params: Promis
   if (!detail) notFound();
 
   const { card, canEdit, isStudent, attachedEntryId, attachedGroups } = detail;
+  const now = new Date();
 
   return (
     <main className="mx-auto flex max-w-2xl flex-col gap-6 p-6">
-      <Header card={card} canEdit={canEdit} isStudent={isStudent} attachedEntryId={attachedEntryId} />
+      <Header card={card} canEdit={canEdit} isStudent={isStudent} attachedEntryId={attachedEntryId} now={now} />
 
       {card.summary && <p className="whitespace-pre-wrap break-words text-base text-foreground">{card.summary}</p>}
 
@@ -38,7 +39,7 @@ export default async function CompetitionDetailPage({ params }: { params: Promis
         </Section>
       )}
 
-      <ScheduleSection card={card} />
+      <ScheduleSection card={card} now={now} />
       <RewardsSection card={card} />
       <TeamSection card={card} />
       <SignupSection card={card} />
@@ -63,12 +64,17 @@ function Header({
   canEdit,
   isStudent,
   attachedEntryId,
+  now,
 }: {
   card: CompetitionCardData;
   canEdit: boolean;
   isStudent: boolean;
   attachedEntryId: string | null;
+  now: Date;
 }) {
+  // Task 4 fix round 1（F1）：跟大廳卡片同一套規則（canShowAttach，見 domain/competition.ts）——
+  // 已過報名截止日且這組還沒掛過時不顯示按鈕，不是一個按下去只會被 DEADLINE_PASSED 擋掉的假動作。
+  const showAttach = isStudent && canShowAttach(card, now, attachedEntryId);
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
@@ -95,7 +101,7 @@ function Header({
             編輯
           </Link>
         ) : (
-          isStudent && <AttachCompetitionButton competitionId={card.id} entryId={attachedEntryId} />
+          showAttach && <AttachCompetitionButton competitionId={card.id} entryId={attachedEntryId} />
         )}
       </div>
     </div>
@@ -158,7 +164,7 @@ function ScheduleRow({
 
 // 賽程與繳交：說明會、報名、繳件、決賽——只有真的有日期或備註才出現那一列；報名截止日一定有值
 // （必填欄位），一定會出現。
-function ScheduleSection({ card, now = new Date() }: { card: CompetitionCardData; now?: Date }) {
+function ScheduleSection({ card, now }: { card: CompetitionCardData; now: Date }) {
   const showInfoSession = !!card.infoSessionAt;
   const showSubmission = !!card.submissionDeadline || !!card.submissionNote;
   const showFinal = !!card.finalDate || !!card.finalNote || !!card.finalFormat;

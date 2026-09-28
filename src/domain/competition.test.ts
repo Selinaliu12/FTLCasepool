@@ -7,6 +7,7 @@ import {
   toMaxPrizeValue,
   formatPrize,
   stageSummary,
+  canShowAttach,
   type CompetitionInput,
   type CompetitionCard,
 } from "./competition";
@@ -332,5 +333,29 @@ describe("stageSummary", () => {
         new Date("2026-11-01T15:59:59.999Z")
       )
     ).toBe("報名 → 繳件 → 決賽");
+  });
+});
+
+// Task 4 fix round 1（F1）：詳細頁的掛到我們組按鈕要跟大廳卡片同一套規則——open（還沒過報名
+// 截止）一律可以掛；closed（已過報名截止）只有已經掛過的組看得到（顯示「已掛到你們組」），
+// 沒掛過的組看不到按鈕。抽成一個純函式讓大廳卡片與詳細頁共用同一套判斷，不要各自重寫一份。
+describe("canShowAttach", () => {
+  it("報名截止日還沒過：不管有沒有掛過都顯示", () => {
+    const now = new Date("2026-09-01T00:00:00Z");
+    const c = card({ signupDeadline: new Date("2026-10-01T15:59:59.999Z") });
+    expect(canShowAttach(c, now, null)).toBe(true);
+    expect(canShowAttach(c, now, "entry-1")).toBe(true);
+  });
+
+  it("報名截止日已過、沒掛過：不顯示", () => {
+    const now = new Date("2026-10-15T00:00:00Z");
+    const c = card({ signupDeadline: new Date("2026-10-01T15:59:59.999Z") });
+    expect(canShowAttach(c, now, null)).toBe(false);
+  });
+
+  it("報名截止日已過、已經掛過：仍然顯示（連到已掛到你們組）", () => {
+    const now = new Date("2026-10-15T00:00:00Z");
+    const c = card({ signupDeadline: new Date("2026-10-01T15:59:59.999Z") });
+    expect(canShowAttach(c, now, "entry-1")).toBe(true);
   });
 });

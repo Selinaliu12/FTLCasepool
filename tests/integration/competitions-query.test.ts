@@ -460,4 +460,45 @@ describe("loadCompetitionDetail", () => {
     expect(result!.isStudent).toBe(false);
     expect(result!.attachedEntryId).toBeNull();
   });
+
+  // Task 4 fix round 1（F2）：管理員（沒有 member 列，走服務身分）的分支之前只間接被
+  // loadCompetition／loadLobby 的測試覆蓋到，這裡直接測 loadCompetitionDetail 本身。
+  it("管理員（沒有 member 列，走服務身分）讀草稿，回傳資料", async () => {
+    asAdminNoMember(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockRejectedValue(new Error("user client must not be used for admin without member"));
+
+    const result = await loadCompetitionDetail(comps.draftId);
+    expect(result).not.toBeNull();
+    expect(result!.card.name).toBe("草稿賽");
+    expect(result!.canEdit).toBe(true);
+  });
+
+  it("管理員讀別學期的比賽，回傳 null", async () => {
+    const service = createServiceSupabase();
+    const { data: otherSemester, error: otherSemesterError } = await service
+      .from("semesters")
+      .insert({ name: "別的學期", is_current: false })
+      .select()
+      .single();
+    if (otherSemesterError) throw otherSemesterError;
+
+    const { data: otherComp, error: otherCompError } = await service
+      .from("competitions")
+      .insert({
+        semester_id: otherSemester.id,
+        name: "別學期的比賽（管理員）",
+        url: "https://example.com/other-semester-admin",
+        signup_deadline: "2026-12-01T15:59:59.999Z",
+        status: "published",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (otherCompError) throw otherCompError;
+
+    asAdminNoMember(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockRejectedValue(new Error("user client must not be used for admin without member"));
+
+    await expect(loadCompetitionDetail(otherComp.id as string)).resolves.toBeNull();
+  });
 });
