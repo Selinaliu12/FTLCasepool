@@ -12,7 +12,7 @@ vi.mock("@/server/supabase", async () => {
   return { ...actual, createServerSupabase: () => mockCreateServerSupabase() };
 });
 
-import { loadLobby, loadCompetition, loadAttachedGroups } from "@/server/queries/competitions";
+import { loadLobby, loadCompetition, loadAttachedGroups, loadCompetitionDetail } from "@/server/queries/competitions";
 
 async function seedCompetitions(semesterId: string) {
   const db = createServiceSupabase();
@@ -354,5 +354,110 @@ describe("attachedGroups（loadLobby／loadAttachedGroups）", () => {
     mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
 
     await expect(loadAttachedGroups(comps.laterId)).resolves.toEqual(["第2組", "第10組"]);
+  });
+});
+
+// Task 4：詳細頁 /competitions/[id] 用的 loader。可見性跟 loadCompetition（編輯頁）不一樣——
+// 已發布的比賽所有人都看得到，草稿只有幹部／管理員看得到；其餘情況（別學期、亂填 id）一律 null。
+describe("loadCompetitionDetail", () => {
+  let seed: Awaited<ReturnType<typeof seedSemester>>;
+  let comps: Awaited<ReturnType<typeof seedCompetitions>>;
+
+  beforeEach(async () => {
+    mockCreateServerSupabase.mockReset();
+    await resetDb();
+    seed = await seedSemester();
+    comps = await seedCompetitions(seed.semesterId);
+  });
+
+  it("學生讀已發布的比賽，回傳資料", async () => {
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+
+    const result = await loadCompetitionDetail(comps.soonId);
+    expect(result).not.toBeNull();
+    expect(result!.card.name).toBe("近期截止");
+    expect(result!.canEdit).toBe(false);
+    expect(result!.isStudent).toBe(true);
+  });
+
+  it("學生讀草稿，回傳 null", async () => {
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+
+    await expect(loadCompetitionDetail(comps.draftId)).resolves.toBeNull();
+  });
+
+  it("其他幹部讀草稿，回傳資料", async () => {
+    asOfficer(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("off@g.nccu.edu.tw"));
+
+    const result = await loadCompetitionDetail(comps.draftId);
+    expect(result).not.toBeNull();
+    expect(result!.card.name).toBe("草稿賽");
+    expect(result!.canEdit).toBe(true);
+  });
+
+  it("上學期的比賽，回傳 null", async () => {
+    const service = createServiceSupabase();
+    const { data: otherSemester, error: otherSemesterError } = await service
+      .from("semesters")
+      .insert({ name: "別的學期", is_current: false })
+      .select()
+      .single();
+    if (otherSemesterError) throw otherSemesterError;
+
+    const { data: otherComp, error: otherCompError } = await service
+      .from("competitions")
+      .insert({
+        semester_id: otherSemester.id,
+        name: "別學期的比賽",
+        url: "https://example.com/other-semester",
+        signup_deadline: "2026-12-01T15:59:59.999Z",
+        status: "published",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (otherCompError) throw otherCompError;
+
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+
+    await expect(loadCompetitionDetail(otherComp.id as string)).resolves.toBeNull();
+  });
+
+  it("亂填的 id 回傳 null", async () => {
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+
+    await expect(loadCompetitionDetail("not-a-uuid")).resolves.toBeNull();
+  });
+
+  it("學生已掛過的比賽，attachedEntryId 有值；attachedGroups 帶出組名", async () => {
+    const service = createServiceSupabase();
+    const { error: entryError } = await service.from("competition_entries").insert({
+      group_id: seed.groupA,
+      competition_id: comps.soonId,
+      created_by: "a1@g.nccu.edu.tw",
+    });
+    if (entryError) throw entryError;
+
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+
+    const result = await loadCompetitionDetail(comps.soonId);
+    expect(result!.attachedEntryId).not.toBeNull();
+    expect(result!.attachedGroups).toEqual(["第1組"]);
+  });
+
+  it("幹部讀已發布的比賽，canEdit 為 true，isStudent 為 false", async () => {
+    asPm(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
+
+    const result = await loadCompetitionDetail(comps.soonId);
+    expect(result!.canEdit).toBe(true);
+    expect(result!.isStudent).toBe(false);
+    expect(result!.attachedEntryId).toBeNull();
   });
 });

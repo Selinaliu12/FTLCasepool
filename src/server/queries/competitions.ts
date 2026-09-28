@@ -244,3 +244,62 @@ export async function loadCompetition(id: string): Promise<CompetitionCard | nul
 
   return toCard(data as CompetitionRow);
 }
+
+export type CompetitionDetail = {
+  card: CompetitionCard;
+  // 幹部／管理員看得到「編輯」；只有這個角色才能看草稿（跟 loadCompetition 的規則一致）。
+  canEdit: boolean;
+  // 學生（有組）才會顯示掛到我們組／已掛到你們組的按鈕。
+  isStudent: boolean;
+  attachedEntryId: string | null;
+  // 已掛上的組別（規格第 15 節）：只有組名，依組名自然排序，已退出不列。
+  attachedGroups: string[];
+};
+
+// 詳細頁（Task 4，/competitions/[id]）用：可見性跟 loadCompetition（編輯頁）不同——已發布的比賽
+// 所有人（在本學期名單上）都看得到，草稿只有幹部／管理員看得到；其餘情況（不在名單上、id 亂填、
+// 別學期、找不到）一律回傳 null，呼叫端轉 404，不透露「這場比賽存在，只是你沒權限看」。
+export async function loadCompetitionDetail(id: string): Promise<CompetitionDetail | null> {
+  if (!isUuid(id)) return null;
+
+  const access = await getAccess();
+  if (access.kind !== "ok") return null;
+
+  const canEdit = isStaffOrAdmin(access);
+  const db = access.active.role === "admin" ? createServiceSupabase() : await createServerSupabase();
+  const { data, error } = await db
+    .from("competitions")
+    .select(COLUMNS)
+    .eq("id", id)
+    .eq("semester_id", access.semesterId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+
+  const card = toCard(data as CompetitionRow);
+  // 草稿只有幹部／管理員看得到——RLS 本來就該擋掉非幹部對草稿列的 select，這裡是第二層防呆，
+  // 跟 loadCompetition 的寫法一致。
+  if (card.status === "draft" && !canEdit) return null;
+
+  const studentGroupId = activeStudentGroup(access);
+  const isStudent = !!studentGroupId;
+
+  let attachedEntryId: string | null = null;
+  if (studentGroupId) {
+    const { data: entry, error: entryError } = await db
+      .from("competition_entries")
+      .select("id")
+      .eq("group_id", studentGroupId)
+      .eq("competition_id", id)
+      .is("withdrawn_at", null)
+      .maybeSingle();
+    if (entryError) throw entryError;
+    attachedEntryId = (entry?.id as string | undefined) ?? null;
+  }
+
+  const isAdmin = access.active.role === "admin";
+  const attachedRows = await fetchAttachedGroupsRows(db, isAdmin, access.semesterId, id);
+  const attachedGroups = groupRowsByCompetition(attachedRows)[id] ?? [];
+
+  return { card, canEdit, isStudent, attachedEntryId, attachedGroups };
+}

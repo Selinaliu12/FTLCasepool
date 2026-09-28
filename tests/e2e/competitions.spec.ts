@@ -124,3 +124,73 @@ test.describe.serial("競賽大廳", () => {
     await expect(page).toHaveURL(/\/competitions\/new$/);
   });
 });
+
+// Task 4：詳細頁 /competitions/[id]。
+test.describe.serial("競賽詳細頁", () => {
+  let seed: Awaited<ReturnType<typeof seedSemester>>;
+  let publishedId: string;
+  let draftId: string;
+
+  test.beforeAll(async () => {
+    await resetDb();
+    seed = await seedSemester();
+
+    const { data: published, error: publishedError } = await serviceSupabase()
+      .from("competitions")
+      .insert({
+        semester_id: seed.semesterId,
+        name: "資料視覺化競賽",
+        url: "https://example.com/dataviz",
+        signup_deadline: "2026-12-01T15:59:59.999Z",
+        status: "published",
+        summary: "用資料說故事",
+        submission_deadline: "2026-12-15T15:59:59.999Z",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (publishedError) throw publishedError;
+    publishedId = published.id as string;
+
+    const { data: draft, error: draftError } = await serviceSupabase()
+      .from("competitions")
+      .insert({
+        semester_id: seed.semesterId,
+        name: "只有幹部看得到的草稿",
+        url: "https://example.com/hidden-draft-detail",
+        signup_deadline: "2026-12-01T15:59:59.999Z",
+        status: "draft",
+        created_by: "pm@g.nccu.edu.tw",
+      })
+      .select()
+      .single();
+    if (draftError) throw draftError;
+    draftId = draft.id as string;
+  });
+
+  test.afterAll(async () => {
+    await resetDb();
+    await seedSemester();
+  });
+
+  test("學生從大廳點卡片進詳細頁，看到一句話介紹與賽程", async ({ page }) => {
+    await loginAndPassWelcome(page, "a1@g.nccu.edu.tw", /\/my-group$/);
+
+    await page.goto("/competitions");
+    await page.getByRole("link", { name: /查看「資料視覺化競賽」詳細資料/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/competitions/${publishedId}$`));
+
+    await expect(page.getByText("資料視覺化競賽")).toBeVisible();
+    await expect(page.getByText("用資料說故事")).toBeVisible();
+    await expect(page.getByText("賽程與繳交")).toBeVisible();
+    await expect(page.getByText(/剩 \d+ 天|今天截止/)).toBeVisible();
+  });
+
+  test("學生打草稿的詳細頁網址看到找不到頁面", async ({ page }) => {
+    await loginAndPassWelcome(page, "a1@g.nccu.edu.tw", /\/my-group$/);
+
+    const response = await page.goto(`/competitions/${draftId}`);
+    expect(response?.status()).toBe(404);
+    await expect(page.getByText("This page could not be found.")).toBeVisible();
+  });
+});
