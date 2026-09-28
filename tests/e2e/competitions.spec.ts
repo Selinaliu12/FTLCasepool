@@ -79,7 +79,7 @@ test.describe.serial("競賽大廳", () => {
     // 草稿階段：回到大廳看得到「草稿」卡片。
     await page.goto("/competitions");
     await expect(page.getByText("草稿").first()).toBeVisible();
-    await expect(page.getByText("全國黑客松")).toBeVisible();
+    await expect(page.getByText("全國黑客松", { exact: true })).toBeVisible();
 
     // 回到編輯頁按發布。
     await page.goto(editUrl);
@@ -89,7 +89,7 @@ test.describe.serial("競賽大廳", () => {
     // 學生登入後在大廳看得到這張已發布的卡片。
     await loginAndPassWelcome(page, "a1@g.nccu.edu.tw", /\/my-group$/);
     await page.goto("/competitions");
-    await expect(page.getByText("全國黑客松")).toBeVisible();
+    await expect(page.getByText("全國黑客松", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "新增競賽" })).toHaveCount(0);
     await expect(page.getByText(/剩 \d+ 天|今天截止/)).toBeVisible();
     await expect(page.getByRole("link", { name: "官方連結" })).toHaveAttribute("href", "https://example.com/hackathon");

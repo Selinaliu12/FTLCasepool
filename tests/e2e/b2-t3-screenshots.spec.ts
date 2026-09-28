@@ -121,7 +121,7 @@ test.describe(`b2-t3 視覺自我檢查截圖 ${ROUND}`, () => {
       await loginAndPassWelcome(page, "b1@g.nccu.edu.tw", /\/my-group$/);
       await page.goto("/my-group");
       await expect(page.getByRole("heading", { name: "比賽" })).toBeVisible();
-      await expect(page.getByText("全國大學生黑客松")).toBeVisible();
+      await expect(page.getByText("全國大學生黑客松", { exact: true })).toBeVisible();
       await page.screenshot({ path: `.screenshots/${ROUND}-b2-t3-my-group-section-${size.name}.png`, fullPage: true });
     });
   }

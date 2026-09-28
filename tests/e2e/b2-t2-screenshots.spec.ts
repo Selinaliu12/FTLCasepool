@@ -94,9 +94,9 @@ test.describe.serial("b2-t2 視覺自我檢查截圖 round2（fix round 1 之後
       await loginAndPassWelcome(page, "pm@g.nccu.edu.tw", /\/dashboard$/);
       await page.goto("/competitions");
       await expect(page.getByRole("heading", { name: "報名中" })).toBeVisible();
-      await expect(page.getByText("全國大學生黑客松")).toBeVisible();
-      await expect(page.getByText("已截止的比賽")).toBeVisible();
-      await expect(page.getByText("還沒發布的草稿")).toBeVisible();
+      await expect(page.getByText("全國大學生黑客松", { exact: true })).toBeVisible();
+      await expect(page.getByText("已截止的比賽", { exact: true })).toBeVisible();
+      await expect(page.getByText("還沒發布的草稿", { exact: true })).toBeVisible();
       await page.screenshot({ path: `.screenshots/round2-b2-t2-lobby-staff-${size.name}.png`, fullPage: true });
     });
 
@@ -104,8 +104,8 @@ test.describe.serial("b2-t2 視覺自我檢查截圖 round2（fix round 1 之後
       await page.setViewportSize({ width: size.width, height: size.height });
       await loginAndPassWelcome(page, "a1@g.nccu.edu.tw", /\/my-group$/);
       await page.goto("/competitions");
-      await expect(page.getByText("全國大學生黑客松")).toBeVisible();
-      await expect(page.getByText("還沒發布的草稿")).toHaveCount(0);
+      await expect(page.getByText("全國大學生黑客松", { exact: true })).toBeVisible();
+      await expect(page.getByText("還沒發布的草稿", { exact: true })).toHaveCount(0);
       await page.screenshot({ path: `.screenshots/round2-b2-t2-lobby-student-${size.name}.png`, fullPage: true });
     });
 
