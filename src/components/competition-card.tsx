@@ -64,7 +64,10 @@ export function CompetitionCard({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+        {/* 卡片本身在大廳頁的網格裡並不寬（page.tsx 用 sm:grid-cols-2 排兩欄），就算在 1280
+            寬的桌機也只有約 350-450px；固定兩欄（2x2）讓「報名截止」這種比較長的值有足夠寬度，
+            不會逼出誇張的逐字換行，同時在手機 375 寬一樣是兩欄自然換行、不會橫向溢出。 */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
           <div>
             <p className="text-xs text-muted-foreground">報名截止</p>
             <p className="text-[var(--danger)]">
