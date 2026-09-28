@@ -247,7 +247,8 @@ export async function asUser<T>(email: string, fn: () => Promise<T>, opts: { mem
     .from("members")
     .select("id, semester_id, email, name, role, group_id, groups!members_group_id_fkey(name)")
     .eq("semester_id", semesterId)
-    .eq("email", email);
+    .eq("email", email)
+    .is("left_at", null); // 跟 getAccess() 一樣：已離開的身份不算（Task 5）
   if (mError) throw mError;
   if (!rows || rows.length === 0) throw new Error(`asUser：${email} 不在本學期名單上`);
   if (opts.memberId && !rows.some((r) => r.id === opts.memberId)) {

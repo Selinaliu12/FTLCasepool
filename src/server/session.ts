@@ -67,7 +67,7 @@ export async function requireOk(): Promise<Extract<Access, { kind: "ok" } | { ki
   return access;
 }
 
-// 這個 email 在這學期的所有名單列（多重身份，規格 §14 第 2 點），連同組名（身份標籤「第N組專案生」
+// 這個 email 在這學期所有「還沒離開」的名單列（多重身份，規格 §14 第 2 點），連同組名（身份標籤「第N組專案生」
 // 與排序要用）。用 service client：這時候還沒決定使用者是誰，不能靠 RLS。
 export async function loadRosterRows(
   service: ReturnType<typeof createServiceSupabase>,
@@ -78,7 +78,9 @@ export async function loadRosterRows(
     .from("members")
     .select("id, semester_id, email, name, role, group_id, groups!members_group_id_fkey(name)")
     .eq("semester_id", semesterId)
-    .eq("email", email);
+    .eq("email", email)
+    // Task 5：已離開（left_at 有值）的身份不能再登入使用；全部離開 → 沒有列 → not_in_roster。
+    .is("left_at", null);
   if (error) throw error;
   return (data ?? []).map((row) => {
     const group = row.groups as unknown as { name: string } | null;
