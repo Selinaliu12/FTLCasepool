@@ -26,3 +26,82 @@ language sql stable security definer set search_path = public as $$
       )
     )
 $$;
+
+-- (3) admin_add_member()：管理員新增一個人，或替已在名單上的人加一個身份（規格 §16 第 2、6 點）。
+--     欄位格式（學校信箱、角色、專案生要有組別、幹部不能有組別）已經由應用程式的 validateMemberRow()
+--     檢查過（跟名單 CSV 共用）；這裡在同一個交易裡做需要看資料庫的檢查與寫入：
+--       - 組別必須屬於這個學期，而且這個學期是當前學期 → 否則「組別不屬於本學期」
+--       - 同一信箱「還在」（left_at is null）的身份，姓名／學號／系級要一致（已離開的列不比）
+--       - 同一個身份（email＋role＋組）已存在且沒離開 → 「這個人已經有這個身份」
+--       - 同一個身份已存在但已離開 → 恢復那一列（清掉 left_at、更新姓名／學號／系級，id 不變）
+--       - 都沒有 → 插入新的一列
+--     同一個學期＋信箱用 advisory lock 排隊，兩個管理員同時新增同一個人不會繞過一致性檢查。
+--     回傳 {id, restored}。只給 service_role（server action 先確認目前身份是管理員才呼叫）。
+create or replace function admin_add_member(
+  p_semester_id uuid,
+  p_email text,
+  p_name text,
+  p_role role,
+  p_student_id text,
+  p_dept_year text,
+  p_group_id uuid
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_existing members%rowtype;
+  v_id uuid;
+begin
+  if not exists (select 1 from semesters where id = p_semester_id and is_current) then
+    raise exception '只能在本學期新增成員';
+  end if;
+  if (p_role = 'student') <> (p_group_id is not null) then
+    raise exception '%', case when p_role = 'student' then '專案生要選組別' else '幹部不能填組別' end;
+  end if;
+  if p_group_id is not null
+     and not exists (select 1 from groups where id = p_group_id and semester_id = p_semester_id) then
+    raise exception '組別不屬於本學期';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('admin_add_member:' || p_semester_id::text || ':' || p_email));
+
+  if exists (
+    select 1 from members
+    where semester_id = p_semester_id and email = p_email and left_at is null
+      and (name is distinct from p_name
+           or student_id is distinct from p_student_id
+           or dept_year is distinct from p_dept_year)
+  ) then
+    raise exception '同一個信箱的姓名／學號／系級要一致';
+  end if;
+
+  select * into v_existing from members
+  where semester_id = p_semester_id and email = p_email and role = p_role
+    and coalesce(group_id, '00000000-0000-0000-0000-000000000000'::uuid)
+      = coalesce(p_group_id, '00000000-0000-0000-0000-000000000000'::uuid)
+  for update;
+
+  if found then
+    if v_existing.left_at is null then
+      raise exception '這個人已經有這個身份';
+    end if;
+    update members
+      set left_at = null, name = p_name, student_id = p_student_id, dept_year = p_dept_year
+      where id = v_existing.id;
+    return jsonb_build_object('id', v_existing.id, 'restored', true);
+  end if;
+
+  insert into members (semester_id, email, name, role, student_id, dept_year, group_id)
+  values (p_semester_id, p_email, p_name, p_role, p_student_id, p_dept_year, p_group_id)
+  returning id into v_id;
+  return jsonb_build_object('id', v_id, 'restored', false);
+exception
+  when unique_violation then
+    raise exception '這個人已經有這個身份';
+end;
+$$;
+
+revoke all on function admin_add_member(uuid, text, text, role, text, text, uuid) from public, anon, authenticated;
+grant execute on function admin_add_member(uuid, text, text, role, text, text, uuid) to service_role;

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getAccess } from "@/server/session";
 import { createServiceSupabase } from "@/server/supabase";
-import { parseRosterCsv } from "@/domain/roster-csv";
+import { parseRosterCsv, validateMemberRow, memberFormError } from "@/domain/roster-csv";
 import { parseTaipeiDeadline, taipeiInputValues } from "@/domain/time";
 import { deleteObject } from "@/server/r2";
 
@@ -256,4 +256,51 @@ export async function moveMember(memberId: string, toGroupId: string): Promise<v
   }
 
   revalidatePath("/admin");
+}
+
+export type AddMemberInput = {
+  email: string;
+  name: string;
+  // 中文角色名稱：專案幹部／其他幹部／專案生（跟名單 CSV 一樣）
+  role: string;
+  studentId: string;
+  deptYear: string;
+  // 專案生的組 id；幹部留空字串
+  groupId: string;
+};
+export type AddMemberResult = { ok: true; memberId: string; restored: boolean } | { ok: false; error: string };
+
+// 規格 §16 第 2、6 點：新增一個人（或替已在名單上的人加一個身份）；對已離開的身份再新增一次＝恢復
+// 原本那一列。只有目前身份是管理員才能做（requireAdmin 丟例外，跟其他管理員動作一致）；欄位規則跟
+// 名單 CSV 共用 validateMemberRow()，需要看資料庫的檢查（組別屬於本學期、同一信箱還在的身份姓名／
+// 學號／系級一致、身份重複／恢復）在 admin_add_member() 同一個交易裡做（見
+// 20260929000003_member_admin.sql）。可以預期的錯誤回 { ok: false, error }，畫面直接顯示。
+export async function addMember(input: AddMemberInput): Promise<AddMemberResult> {
+  await requireAdmin();
+  const access = await getAccess();
+  if (access.kind !== "ok") return { ok: false, error: "還沒有本學期，請先建立學期" };
+
+  const checked = validateMemberRow({ ...input, group: input.groupId });
+  if (!checked.ok) return { ok: false, error: memberFormError(checked.error) };
+  const v = checked.value;
+
+  const db = createServiceSupabase();
+  const { data, error } = await db.rpc("admin_add_member", {
+    p_semester_id: access.semesterId,
+    p_email: v.email,
+    p_name: v.name,
+    p_role: v.role,
+    p_student_id: v.studentId,
+    p_dept_year: v.deptYear,
+    p_group_id: v.group,
+  });
+  if (error) {
+    // P0001＝函式裡 raise exception 的業務規則訊息（中文，直接給使用者看）；其他是非預期錯誤。
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/admin");
+  const result = data as { id: string; restored: boolean };
+  return { ok: true, memberId: result.id, restored: result.restored };
 }
