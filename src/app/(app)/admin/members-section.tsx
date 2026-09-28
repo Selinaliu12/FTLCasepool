@@ -58,32 +58,39 @@ export function MembersSection({ rows, groups }: { rows: MemberListRow[]; groups
       ) : shown.length === 0 ? (
         <p className="text-sm text-muted-foreground">找不到符合的成員</p>
       ) : (
-        <Table>
+        // 三欄都可以換行（信箱 break-all、身份徽章 flex-wrap）；手機寬把「學號／系級」收進第一欄
+        // （合成一行），只剩兩欄，375 寬也不用橫向捲動就看得到身份。
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead>姓名</TableHead>
-              <TableHead>信箱</TableHead>
-              <TableHead>學號</TableHead>
-              <TableHead>系級</TableHead>
+              <TableHead className="w-[55%] sm:w-[42%]">姓名／信箱</TableHead>
+              <TableHead className="hidden w-[24%] sm:table-cell">學號／系級</TableHead>
               <TableHead>身份</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {shown.map((p) => (
-              <TableRow key={p.email}>
-                <TableCell className="font-medium">{p.name}</TableCell>
-                <TableCell className="text-[var(--ink-2,#3E4F70)]">{p.email}</TableCell>
-                <TableCell className="font-mono">{p.studentId ?? "—"}</TableCell>
-                <TableCell>{p.deptYear ?? "—"}</TableCell>
-                <TableCell>
+              <TableRow key={p.email} className="align-top">
+                <TableCell className="whitespace-normal">
+                  <div className="font-medium text-foreground">{p.name}</div>
+                  <div className="text-xs break-all text-[var(--ink-2,#3E4F70)]">{p.email}</div>
+                  <div className="text-xs break-words text-[var(--ink-2,#3E4F70)] sm:hidden">
+                    <span className="font-mono">{p.studentId ?? "—"}</span> · {p.deptYear ?? "—"}
+                  </div>
+                </TableCell>
+                <TableCell className="hidden whitespace-normal sm:table-cell">
+                  <div className="font-mono text-xs break-all">{p.studentId ?? "—"}</div>
+                  <div className="text-xs break-words text-[var(--ink-2,#3E4F70)]">{p.deptYear ?? "—"}</div>
+                </TableCell>
+                <TableCell className="whitespace-normal">
                   <div className="flex flex-wrap gap-1">
                     {p.identities.map((i) =>
                       i.left ? (
-                        <Badge key={i.memberId} variant="outline" className="text-muted-foreground">
+                        <Badge key={i.memberId} variant="outline" className="h-auto whitespace-normal text-muted-foreground">
                           {i.label}（已離開）
                         </Badge>
                       ) : (
-                        <Badge key={i.memberId} variant="secondary">
+                        <Badge key={i.memberId} variant="secondary" className="h-auto whitespace-normal">
                           {i.label}
                         </Badge>
                       )

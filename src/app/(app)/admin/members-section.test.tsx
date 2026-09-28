@@ -39,7 +39,8 @@ describe("MembersSection（管理員頁成員區塊）", () => {
     expect(bodyRows()).toHaveLength(2);
     const wang = screen.getByText("王小明").closest("tr")!;
     expect(within(wang).getByText("wang@g.nccu.edu.tw")).toBeTruthy();
-    expect(within(wang).getByText("110701001")).toBeTruthy();
+    // 學號在桌機欄與手機行各出現一次（CSS 決定顯示哪個）
+    expect(within(wang).getAllByText("110701001").length).toBeGreaterThan(0);
     expect(within(wang).getByText("資科三")).toBeTruthy();
     expect(within(wang).getByText("其他幹部")).toBeTruthy();
     expect(within(wang).getByText("第1組專案生")).toBeTruthy();
