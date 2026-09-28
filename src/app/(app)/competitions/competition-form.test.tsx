@@ -97,4 +97,54 @@ describe("CompetitionForm", () => {
     await waitFor(() => expect(unpublishCompetition).toHaveBeenCalledWith("existing-id"));
     expect(updateCompetition).not.toHaveBeenCalled();
   });
+
+  it("7 個標籤可多選：勾選後儲存時帶著選到的標籤", async () => {
+    createCompetition.mockResolvedValue({ ok: true, id: "new-id" });
+    render(<CompetitionForm initial={filledForm()} />);
+
+    for (const tag of ["企業出題", "企劃提案", "創業", "金融科技", "ESG", "行銷", "數據分析"]) {
+      expect(screen.getByRole("checkbox", { name: tag })).toBeTruthy();
+    }
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "ESG" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "創業" }));
+    fireEvent.click(screen.getByRole("button", { name: "存草稿" }));
+
+    await waitFor(() => expect(createCompetition).toHaveBeenCalled());
+    const sentInput = createCompetition.mock.calls[0][0];
+    expect(sentInput.tags).toEqual(expect.arrayContaining(["ESG", "創業"]));
+    expect(sentInput.tags).toHaveLength(2);
+  });
+
+  it("幹部推薦是開關：切換後儲存時帶著 true", async () => {
+    createCompetition.mockResolvedValue({ ok: true, id: "new-id" });
+    render(<CompetitionForm initial={filledForm()} />);
+
+    const toggle = screen.getByRole("switch", { name: "幹部推薦" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "存草稿" }));
+    await waitFor(() => expect(createCompetition).toHaveBeenCalled());
+    expect(createCompetition.mock.calls[0][0].recommended).toBe(true);
+  });
+
+  it("說明會有日期＋時間兩格", () => {
+    render(<CompetitionForm initial={filledForm()} />);
+    expect(screen.getByLabelText("說明會日期")).toBeTruthy();
+    expect(screen.getByLabelText("說明會時間")).toBeTruthy();
+  });
+
+  it("字數超過時錯誤訊息出現在該欄下方（幹部備註 501 字）", async () => {
+    createCompetition.mockResolvedValue({
+      ok: false,
+      errors: { staffNote: "幹部備註最多 500 字" },
+    });
+    render(<CompetitionForm initial={filledForm()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "存草稿" }));
+
+    await waitFor(() => expect(screen.getByText("幹部備註最多 500 字")).toBeTruthy());
+  });
 });

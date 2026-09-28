@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { validateCompetition, sortLobby, type CompetitionInput, type CompetitionCard } from "./competition";
+import {
+  validateCompetition,
+  sortLobby,
+  normalizeTags,
+  blankToNull,
+  toMaxPrizeValue,
+  type CompetitionInput,
+  type CompetitionCard,
+} from "./competition";
 
 function baseInput(overrides: Partial<CompetitionInput> = {}): CompetitionInput {
   return {
@@ -13,6 +21,20 @@ function baseInput(overrides: Partial<CompetitionInput> = {}): CompetitionInput 
     signupDeadline: new Date("2026-10-01T15:59:59.999Z"),
     submissionDeadline: null,
     finalDate: null,
+    summary: "",
+    tags: [],
+    maxPrize: "",
+    perks: "",
+    infoSessionAt: null,
+    signupNote: "",
+    submissionNote: "",
+    finalNote: "",
+    finalFormat: "",
+    fee: "",
+    documents: "",
+    skills: "",
+    recommended: false,
+    staffNote: "",
     ...overrides,
   };
 }
@@ -113,6 +135,20 @@ function card(overrides: Partial<CompetitionCard> = {}): CompetitionCard {
     submissionDeadline: null,
     finalDate: null,
     status: "published",
+    summary: null,
+    tags: [],
+    maxPrize: null,
+    perks: null,
+    infoSessionAt: null,
+    signupNote: null,
+    submissionNote: null,
+    finalNote: null,
+    finalFormat: null,
+    fee: null,
+    documents: null,
+    skills: null,
+    recommended: false,
+    staffNote: null,
     ...overrides,
   };
 }
@@ -141,5 +177,89 @@ describe("sortLobby", () => {
     const c = card({ id: "a", signupDeadline: deadline });
     expect(sortLobby([c], deadline).open.map((x) => x.id)).toEqual(["a"]);
     expect(sortLobby([c], new Date(deadline.getTime() + 1)).closed.map((x) => x.id)).toEqual(["a"]);
+  });
+});
+
+describe("normalizeTags", () => {
+  it("重複標籤去重並依清單排序", () => {
+    expect(normalizeTags(["ESG", "企業出題", "ESG", "創業"])).toEqual(["企業出題", "創業", "ESG"]);
+  });
+
+  it("空陣列回傳空陣列", () => {
+    expect(normalizeTags([])).toEqual([]);
+  });
+});
+
+describe("blankToNull", () => {
+  it("空白字串一律變 null", () => {
+    expect(blankToNull("")).toBeNull();
+    expect(blankToNull("   ")).toBeNull();
+  });
+
+  it("有內容則去頭尾空白後回傳", () => {
+    expect(blankToNull("  你好  ")).toBe("你好");
+  });
+});
+
+describe("toMaxPrizeValue", () => {
+  it("空白 → null", () => {
+    expect(toMaxPrizeValue("")).toBeNull();
+    expect(toMaxPrizeValue("  ")).toBeNull();
+  });
+
+  it("合法整數字串 → 數字", () => {
+    expect(toMaxPrizeValue("100000")).toBe(100000);
+  });
+});
+
+describe("validateCompetition：新欄位", () => {
+  it("標籤不在清單內 → 拒絕", () => {
+    const result = validateCompetition(baseInput({ tags: ["其他"] }));
+    expect(result).toEqual({ ok: false, errors: { tags: "比賽類型標籤不合法" } });
+  });
+
+  it("標籤都在清單內 → 通過", () => {
+    const result = validateCompetition(baseInput({ tags: ["ESG", "創業"] }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it.each(["1.5", "-1", "abc"])("最高獎金 %s → 最高獎金請填整數金額", (raw) => {
+    const result = validateCompetition(baseInput({ maxPrize: raw }));
+    expect(result).toEqual({ ok: false, errors: { maxPrize: "最高獎金請填整數金額" } });
+  });
+
+  it("最高獎金空白 → 合法", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "  " }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("最高獎金超過 1 億 → 最高獎金請填整數金額", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "100000001" }));
+    expect(result).toEqual({ ok: false, errors: { maxPrize: "最高獎金請填整數金額" } });
+  });
+
+  it("一句話介紹 81 字 → 一句話介紹最多 80 字", () => {
+    const result = validateCompetition(baseInput({ summary: "字".repeat(81) }));
+    expect(result).toEqual({ ok: false, errors: { summary: "一句話介紹最多 80 字" } });
+  });
+
+  it("一句話介紹 80 字 → 通過", () => {
+    const result = validateCompetition(baseInput({ summary: "字".repeat(80) }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("幹部備註 501 字 → 幹部備註最多 500 字", () => {
+    const result = validateCompetition(baseInput({ staffNote: "字".repeat(501) }));
+    expect(result).toEqual({ ok: false, errors: { staffNote: "幹部備註最多 500 字" } });
+  });
+
+  it("幹部備註 500 字 → 通過", () => {
+    const result = validateCompetition(baseInput({ staffNote: "字".repeat(500) }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("需準備文件 501 字 → 需準備文件最多 500 字", () => {
+    const result = validateCompetition(baseInput({ documents: "字".repeat(501) }));
+    expect(result).toEqual({ ok: false, errors: { documents: "需準備文件最多 500 字" } });
   });
 });

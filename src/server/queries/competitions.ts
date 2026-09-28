@@ -2,7 +2,7 @@ import "server-only";
 import { getAccess } from "@/server/session";
 import { activeStudentGroup, isStaffIdentity } from "@/domain/access";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
-import { sortLobby, type CompetitionCard } from "@/domain/competition";
+import { sortLobby, normalizeTags, type CompetitionCard } from "@/domain/competition";
 import { isUuid } from "@/domain/id";
 
 export type Lobby = {
@@ -17,7 +17,7 @@ export type Lobby = {
 };
 
 const COLUMNS =
-  "id, name, organizer, theme, eligibility, team_size, prize, url, signup_deadline, submission_deadline, final_date, status";
+  "id, name, organizer, theme, eligibility, team_size, prize, url, signup_deadline, submission_deadline, final_date, status, summary, tags, max_prize, perks, info_session_at, signup_note, submission_note, final_note, final_format, fee, documents, skills, recommended, staff_note" as const;
 
 type CompetitionRow = {
   id: string;
@@ -32,6 +32,20 @@ type CompetitionRow = {
   submission_deadline: string | null;
   final_date: string | null;
   status: "draft" | "published";
+  summary: string | null;
+  tags: string[];
+  max_prize: number | null;
+  perks: string | null;
+  info_session_at: string | null;
+  signup_note: string | null;
+  submission_note: string | null;
+  final_note: string | null;
+  final_format: string | null;
+  fee: string | null;
+  documents: string | null;
+  skills: string | null;
+  recommended: boolean;
+  staff_note: string | null;
 };
 
 function toCard(row: CompetitionRow): CompetitionCard {
@@ -48,6 +62,20 @@ function toCard(row: CompetitionRow): CompetitionCard {
     submissionDeadline: row.submission_deadline ? new Date(row.submission_deadline) : null,
     finalDate: row.final_date ? new Date(row.final_date) : null,
     status: row.status,
+    summary: row.summary,
+    tags: normalizeTags(row.tags ?? []),
+    maxPrize: row.max_prize,
+    perks: row.perks,
+    infoSessionAt: row.info_session_at ? new Date(row.info_session_at) : null,
+    signupNote: row.signup_note,
+    submissionNote: row.submission_note,
+    finalNote: row.final_note,
+    finalFormat: row.final_format,
+    fee: row.fee,
+    documents: row.documents,
+    skills: row.skills,
+    recommended: row.recommended,
+    staffNote: row.staff_note,
   };
 }
 

@@ -23,6 +23,20 @@ function card(id: string, name: string, signupDeadline: string): CompetitionCard
     submissionDeadline: null,
     finalDate: null,
     status: "published",
+    summary: null,
+    tags: [],
+    maxPrize: null,
+    perks: null,
+    infoSessionAt: null,
+    signupNote: null,
+    submissionNote: null,
+    finalNote: null,
+    finalFormat: null,
+    fee: null,
+    documents: null,
+    skills: null,
+    recommended: false,
+    staffNote: null,
   };
 }
 
