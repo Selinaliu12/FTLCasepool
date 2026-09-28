@@ -1,4 +1,5 @@
 import "server-only";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAccess } from "@/server/session";
 import { activeStudentGroup, isStaffIdentity } from "@/domain/access";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
@@ -14,6 +15,10 @@ export type Lobby = {
   // 掛過（未退出）這場比賽。key 是 competitionId，value 是那筆報名的 entryId。
   isStudent: boolean;
   myGroupAttached: Record<string, string>;
+  // Task 2（規格第 15 節 #7）：每組都看得到別組掛了哪些比賽——只有組名。key 是
+  // competitionId，value 是依組名自然排序（第2組在第10組前）的組名清單，退出的組不列，
+  // 同一組不會出現兩次。
+  attachedGroups: Record<string, string[]>;
 };
 
 const COLUMNS =
@@ -79,6 +84,69 @@ function toCard(row: CompetitionRow): CompetitionCard {
   };
 }
 
+// 依組名為數字感知排序（第2組在第10組前面），跟 dashboard.ts 的 sortMembersByName／
+// sortGroupCards 用同一套規則（localeCompare + numeric），這裡直接對字串排序。
+function sortGroupNames(names: string[]): string[] {
+  return [...names].sort((a, b) => a.localeCompare(b, "zh-Hant", { numeric: true }));
+}
+
+function groupRowsByCompetition(rows: { competition_id: string; group_name: string }[]): Record<string, string[]> {
+  const byId = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const set = byId.get(row.competition_id) ?? new Set<string>();
+    set.add(row.group_name);
+    byId.set(row.competition_id, set);
+  }
+  const result: Record<string, string[]> = {};
+  for (const [id, names] of byId) {
+    result[id] = sortGroupNames([...names]);
+  }
+  return result;
+}
+
+// 已掛上的組別：管理員（沒有名單列、走服務身分）用跟 loadLobby 其他查詢一樣的欄位做等價查詢
+// （service client 略過 RLS，直接用同樣的篩選條件——已發布、本學期、未退出）；其他人一律呼叫
+// competition_attached_groups()（SECURITY DEFINER，呼叫者必須在本學期名單上，見
+// supabase/migrations/20260929000002_attached_groups.sql）。
+async function fetchAttachedGroupsRows(
+  db: SupabaseClient,
+  isAdmin: boolean,
+  semesterId: string
+): Promise<{ competition_id: string; group_name: string }[]> {
+  if (!isAdmin) {
+    const { data, error } = await db.rpc("competition_attached_groups");
+    if (error) throw error;
+    return (data ?? []) as { competition_id: string; group_name: string }[];
+  }
+
+  const { data: comps, error: compsError } = await db
+    .from("competitions")
+    .select("id")
+    .eq("semester_id", semesterId)
+    .eq("status", "published");
+  if (compsError) throw compsError;
+  const competitionIds = (comps ?? []).map((c) => c.id as string);
+  if (competitionIds.length === 0) return [];
+
+  const { data: entries, error: entriesError } = await db
+    .from("competition_entries")
+    .select("competition_id, group_id")
+    .in("competition_id", competitionIds)
+    .is("withdrawn_at", null);
+  if (entriesError) throw entriesError;
+  if (!entries || entries.length === 0) return [];
+
+  const groupIds = [...new Set(entries.map((e) => e.group_id as string))];
+  const { data: groups, error: groupsError } = await db.from("groups").select("id, name").in("id", groupIds);
+  if (groupsError) throw groupsError;
+  const nameById = new Map((groups ?? []).map((g) => [g.id as string, g.name as string]));
+
+  return entries.map((e) => ({
+    competition_id: e.competition_id as string,
+    group_name: nameById.get(e.group_id as string) ?? "",
+  }));
+}
+
 // 幹部＝專案幹部／其他幹部（規格第 3 節：新增、編輯、發布競賽——管理員、專案幹部、其他幹部）。
 function isStaffOrAdmin(access: Extract<Awaited<ReturnType<typeof getAccess>>, { kind: "ok" }>): boolean {
   return isStaffIdentity(access.active);
@@ -90,7 +158,7 @@ function isStaffOrAdmin(access: Extract<Awaited<ReturnType<typeof getAccess>>, {
 export async function loadLobby(now: Date = new Date()): Promise<Lobby> {
   const access = await getAccess();
   if (access.kind !== "ok") {
-    return { open: [], closed: [], drafts: [], canEdit: false, isStudent: false, myGroupAttached: {} };
+    return { open: [], closed: [], drafts: [], canEdit: false, isStudent: false, myGroupAttached: {}, attachedGroups: {} };
   }
 
   const canEdit = isStaffOrAdmin(access);
@@ -122,7 +190,26 @@ export async function loadLobby(now: Date = new Date()): Promise<Lobby> {
     myGroupAttached = Object.fromEntries((entries ?? []).map((e) => [e.competition_id as string, e.id as string]));
   }
 
-  return { open, closed, drafts: draftCards, canEdit, isStudent, myGroupAttached };
+  const isAdmin = access.active.role === "admin";
+  const attachedRows = await fetchAttachedGroupsRows(db, isAdmin, access.semesterId);
+  const attachedGroups = groupRowsByCompetition(attachedRows);
+
+  return { open, closed, drafts: draftCards, canEdit, isStudent, myGroupAttached, attachedGroups };
+}
+
+// 詳細頁（Task 4）用：單一比賽的「已掛上的組別」，跟 loadLobby 的 attachedGroups 走同一套
+// 規則與資料來源，只是只回傳一場比賽的組名清單。看不到（未登入、不在名單上）一律回傳空陣列，
+// 不報錯——詳細頁本身的可見性判斷（草稿 404）不是這個函式的責任。
+export async function loadAttachedGroups(competitionId: string): Promise<string[]> {
+  if (!isUuid(competitionId)) return [];
+
+  const access = await getAccess();
+  if (access.kind !== "ok") return [];
+
+  const isAdmin = access.active.role === "admin";
+  const db = isAdmin ? createServiceSupabase() : await createServerSupabase();
+  const rows = await fetchAttachedGroupsRows(db, isAdmin, access.semesterId);
+  return groupRowsByCompetition(rows)[competitionId] ?? [];
 }
 
 // 編輯頁用：看不到（不是幹部／管理員、或這場比賽不屬於本學期、或 id 亂填）一律回傳 null，

@@ -12,7 +12,7 @@ vi.mock("@/server/supabase", async () => {
   return { ...actual, createServerSupabase: () => mockCreateServerSupabase() };
 });
 
-import { loadLobby, loadCompetition } from "@/server/queries/competitions";
+import { loadLobby, loadCompetition, loadAttachedGroups } from "@/server/queries/competitions";
 
 async function seedCompetitions(semesterId: string) {
   const db = createServiceSupabase();
@@ -224,5 +224,85 @@ describe("loadCompetition", () => {
     mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
 
     await expect(loadCompetition(otherComp.id as string)).resolves.toBeNull();
+  });
+});
+
+// Task 2（規格第 15 節 #7）：loadLobby 的 attachedGroups 與 loadAttachedGroups() helper——
+// 每組都看得到別組掛了哪些比賽的組名，管理員（沒有 member 列、走服務身分）走等價的
+// service-side 查詢，兩邊結果要一致。
+describe("attachedGroups（loadLobby／loadAttachedGroups）", () => {
+  let seed: Awaited<ReturnType<typeof seedSemester>>;
+  let comps: Awaited<ReturnType<typeof seedCompetitions>>;
+  let group3: string;
+
+  beforeEach(async () => {
+    mockCreateServerSupabase.mockReset();
+    await resetDb();
+    seed = await seedSemester();
+    comps = await seedCompetitions(seed.semesterId);
+
+    const service = createServiceSupabase();
+    const { data: g3, error: g3Error } = await service
+      .from("groups")
+      .insert({ semester_id: seed.semesterId, name: "第3組", project_name: "專案C" })
+      .select()
+      .single();
+    if (g3Error) throw g3Error;
+    group3 = g3.id as string;
+
+    // 第1組掛「近期截止」；第2組掛「近期截止」後退出；第3組掛「近期截止」得獎（仍算掛上）。
+    const { error: e1Error } = await service.from("competition_entries").insert({
+      group_id: seed.groupA,
+      competition_id: comps.soonId,
+      created_by: "a1@g.nccu.edu.tw",
+    });
+    if (e1Error) throw e1Error;
+    const { error: e2Error } = await service.from("competition_entries").insert({
+      group_id: seed.groupB,
+      competition_id: comps.soonId,
+      created_by: "b1@g.nccu.edu.tw",
+      withdrawn_at: new Date().toISOString(),
+    });
+    if (e2Error) throw e2Error;
+    const { error: e3Error } = await service.from("competition_entries").insert({
+      group_id: group3,
+      competition_id: comps.soonId,
+      created_by: "c1@g.nccu.edu.tw",
+      result: "awarded",
+    });
+    if (e3Error) throw e3Error;
+  });
+
+  it("學生看得到大廳卡片的 attachedGroups：第1組、第3組（自然排序，退出的第2組不出現）", async () => {
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+
+    const lobby = await loadLobby(NOW);
+    expect(lobby.attachedGroups[comps.soonId]).toEqual(["第1組", "第3組"]);
+    // 沒有人掛過的比賽：key 不存在（不是空陣列，元件層自行判斷 undefined／空陣列都不顯示）。
+    expect(lobby.attachedGroups[comps.laterId]).toBeUndefined();
+  });
+
+  it("管理員（沒有 member 列，走服務身分）的 attachedGroups 跟學生看到的一致", async () => {
+    asAdminNoMember(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockRejectedValue(new Error("user client must not be used for admin without member"));
+
+    const lobby = await loadLobby(NOW);
+    expect(lobby.attachedGroups[comps.soonId]).toEqual(["第1組", "第3組"]);
+  });
+
+  it("loadAttachedGroups(id) 回傳單一比賽的組名清單", async () => {
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+
+    await expect(loadAttachedGroups(comps.soonId)).resolves.toEqual(["第1組", "第3組"]);
+    await expect(loadAttachedGroups(comps.laterId)).resolves.toEqual([]);
+  });
+
+  it("loadAttachedGroups：亂填的 id 回傳空陣列", async () => {
+    asStudent(mockGetAccess, seed.semesterId, seed.groupA);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
+
+    await expect(loadAttachedGroups("not-a-uuid")).resolves.toEqual([]);
   });
 });
