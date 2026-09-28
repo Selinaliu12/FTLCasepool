@@ -5,6 +5,7 @@ import { getAccess } from "@/server/session";
 import { createServiceSupabase } from "@/server/supabase";
 import { parseRosterCsv } from "@/domain/roster-csv";
 import { parseTaipeiDeadline, taipeiInputValues } from "@/domain/time";
+import { deleteObject } from "@/server/r2";
 
 async function requireAdmin(): Promise<void> {
   const access = await getAccess();
@@ -66,16 +67,48 @@ export async function importRoster(
 
 export type PeriodInput = { id?: string; date: string; time: string; suggestion?: string };
 
+export type PeriodDeletionPreview = { periodId: string; seq: number; reportCount: number };
+
+// 規格 §14 第 8 點：刪除有人交件的期別之前，畫面先用這個動作查出「每一期有幾組交了進度」，
+// 跳確認視窗讓管理員打字確認，確認後才帶 confirmDeleteWithReports: true 呼叫 savePeriods。
+// reportCount 是這一期的 progress_reports 筆數：一組只有一條專案線、同一條線同一期只能交一份
+// （unique (line_id, period_id)），所以筆數＝交了進度的組數。
+export async function previewPeriodDeletion(periodIds: string[]): Promise<PeriodDeletionPreview[]> {
+  await requireAdmin();
+  if (periodIds.length === 0) return [];
+  const db = createServiceSupabase();
+
+  const [periodsRes, reportsRes] = await Promise.all([
+    db.from("periods").select("id, seq").in("id", periodIds).order("seq"),
+    db.from("progress_reports").select("period_id").in("period_id", periodIds),
+  ]);
+  if (periodsRes.error) throw periodsRes.error;
+  if (reportsRes.error) throw reportsRes.error;
+
+  const counts = new Map<string, number>();
+  for (const r of reportsRes.data ?? []) {
+    const id = r.period_id as string;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return (periodsRes.data ?? []).map((p) => ({
+    periodId: p.id as string,
+    seq: p.seq as number,
+    reportCount: counts.get(p.id as string) ?? 0,
+  }));
+}
+
 export async function savePeriods(
   semesterId: string,
-  rows: PeriodInput[]
+  rows: PeriodInput[],
+  opts: { confirmDeleteWithReports?: boolean } = {}
 ): Promise<{ ok: true } | { ok: false; errors: string[] }> {
   await requireAdmin();
   const db = createServiceSupabase();
 
   // 既有期別的截止時間只精確到畫面上的「分」（parseTaipeiDeadline 一律補成 :59.999）。如果既有
   // 期別送回來的日期／時間跟資料庫裡的一樣（到分），就沿用資料庫裡「精確」的截止時間，不要重新
-  // 解析——不然種子資料或舊資料（例如 08:00:00.000）會被當成「被改過」，凍結期別就再也存不了。
+  // 解析——不然種子資料或舊資料（例如 08:00:00.000）只是按了儲存就會被悄悄改掉秒數，準時與否
+  // （依截止日即時計算）也可能跟著變。
   const { data: existing, error: existingError } = await db
     .from("periods")
     .select("id, deadline")
@@ -117,15 +150,27 @@ export async function savePeriods(
 
   if (errors.length > 0) return { ok: false, errors };
 
-  // save_periods()（見 20260927000009_final_fixes.sql）在同一個 RPC（＝同一個交易）裡：鎖住這學期
-  // 的期別、找出已經有人交件的「凍結」期別並確認它們原封不動、確認其他截止時間都晚於最後一個
-  // 凍結期別、再刪除／修改／新增並依截止時間重新編號。規則全部由資料庫判定，這裡只負責把畫面上的
-  // 日期時間轉成時間戳。
-  const { error } = await db.rpc("save_periods", {
+  // save_periods()（見 20260928000005_periods_free_edit.sql）在同一個 RPC（＝同一個交易）裡：鎖住
+  // 這學期的期別、找出被刪的期別底下的進度（有進度又沒帶確認旗標就丟「這期已經有組別交了進度，
+  // 要刪除請先確認」）、刪除進度與期別、修改／新增並依截止時間重新編號，回傳被刪進度的 pdf_key。
+  const { data: deletedKeys, error } = await db.rpc("save_periods", {
     p_semester_id: semesterId,
     p_rows: parsed.map((p) => ({ id: p.id, deadline: p.deadline.toISOString(), suggestion: p.suggestion ?? null })),
+    p_confirm_delete_with_reports: opts.confirmDeleteWithReports === true,
   });
   if (error) return { ok: false, errors: [error.message] };
+
+  // 交易已經 commit，才去刪 R2 物件。刪檔失敗只記 log、動作仍算成功：資料庫裡的進度已經不在，
+  // 留下的孤兒檔案由批次 3 的清掃處理。
+  await Promise.all(
+    ((deletedKeys as string[] | null) ?? []).map(async (key) => {
+      try {
+        await deleteObject(key);
+      } catch (e) {
+        console.error(`savePeriods：刪除期別後刪 R2 物件失敗（${key}）`, e);
+      }
+    })
+  );
 
   revalidatePath("/admin");
   return { ok: true };
