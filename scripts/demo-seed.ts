@@ -172,6 +172,11 @@ async function main() {
       .select("id")
   );
 
+  // Task 8 part B：標一個成員已離開，示範管理員頁「成員」區塊預設隱藏已離開的人、勾選「顯示
+  // 已離開」才看得到，以及紀錄上姓名標「（已離開）」怎麼顯示。s23 沒按過「我已了解」，離開也不
+  // 影響已經跑過的期報告／點燈紀錄。
+  await must(db.from("members").update({ left_at: hoursAgo(200) }).eq("semester_id", sem.id).eq("email", `s23${D}`).select("id"));
+
   const staff = await must(
     db
       .from("members")
@@ -315,6 +320,9 @@ async function main() {
   // ── 批次 2：競賽卡片 ──
   const comp = async (c: Record<string, unknown>) =>
     (await must(db.from("competitions").insert({ semester_id: sem.id, created_by: `pm1${D}`, ...c }).select("id")))[0].id as string;
+  // Task 8 part B：兩場給滿模板新欄位（標籤、一句話介紹、最高獎金、備註、報名費、幹部推薦、
+  // 幹部備註…），示範卡片與詳細頁的完整樣子；一場（compC）只填必填三欄，示範舊資料／極簡資料
+  // 不會壞、不會出現空標題或「null」。
   const compA = await comp({
     name: "2026 金融科技創新競賽",
     organizer: "金融研訓院",
@@ -327,6 +335,20 @@ async function main() {
     submission_deadline: tpe("2026-11-15T23:59:59.999"),
     final_date: tpe("2026-12-10T23:59:59.999"),
     status: "published",
+    summary: "金融科技新創題目，決賽入圍可獲業師輔導",
+    tags: ["金融科技", "企業出題"],
+    max_prize: 100000,
+    perks: "入圍決賽即獲得金融研訓院實習面試機會",
+    info_session_at: tpe("2026-10-01T19:00:00"),
+    signup_note: "報名表需附上一頁題目構想",
+    submission_note: "作品需含商業模式畫布",
+    final_note: "決賽採現場簡報＋問答，每組 10 分鐘",
+    final_format: "現場簡報",
+    fee: "免費",
+    documents: "報名表、商業模式畫布 PDF",
+    skills: "資料分析、簡報製作",
+    recommended: true,
+    staff_note: "去年第2組拿過佳作，題目方向可以參考",
   });
   const compB = await comp({
     name: "全國大專校院創業競賽",
@@ -338,11 +360,20 @@ async function main() {
     signup_deadline: tpe("2026-09-20T23:59:59.999"),
     submission_deadline: tpe("2026-10-05T23:59:59.999"),
     status: "published",
+    summary: "全國性創業提案競賽，鼓勵跨領域組隊",
+    tags: ["創業", "企劃提案"],
+    max_prize: 500000,
+    perks: "總獎金 50 萬元，前三名獲創業基地進駐資格",
+    signup_note: "需檢附學生證正反面掃描檔",
+    submission_note: "簡報檔案限 20 頁以內",
+    fee: "免費",
+    documents: "提案簡報 PDF、學生證掃描檔",
+    recommended: false,
+    staff_note: "報名截止日常常延後，公告前先跟幹部確認",
   });
+  // compC：只填必填三欄（名稱、官方連結、報名截止日時），示範舊資料／極簡資料的卡片與詳細頁。
   const compC = await comp({
     name: "永續金融黑客松",
-    organizer: "綠色金融聯盟",
-    theme: "ESG 與永續金融",
     url: "https://example.com/esg-hack",
     signup_deadline: tpe("2026-10-03T23:59:59.999"),
     status: "published",
