@@ -174,6 +174,12 @@ test.describe.serial("管理員移除成員", () => {
     await card.getByRole("checkbox", { name: "顯示已離開" }).click();
     await expect(card.getByRole("row").filter({ hasText: "乙一" })).toContainText("第2組專案生（已離開）");
 
+    // 換組選單不再列已離開的身份。
+    await page.getByLabel("選擇成員").click();
+    await expect(page.getByRole("option", { name: "甲一（—）· 第1組" })).toBeVisible();
+    await expect(page.getByRole("option", { name: /^乙一/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
     await student.reload();
     await expect(student).toHaveURL(/\/not-in-roster$/);
     await expect(student.getByText("你不在本學期名單中，請聯絡幹部")).toBeVisible();
