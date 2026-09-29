@@ -30,4 +30,13 @@ describe("nameByEmailMap（以信箱找名字）", () => {
   it("不在名單上的信箱查不到（呼叫端退回顯示信箱）", () => {
     expect(nameByEmailMap([]).get("x@g.nccu.edu.tw")).toBeUndefined();
   });
+
+  // Task 7 review minor 3（裁決：接受，改註解＋補這個測試釘住行為）：「已離開」是在呼叫端傳
+  // 進來的範圍內判斷。學生看自己組的組別頁時，只會傳這一組的成員列（src/server/queries/
+  // my-group.ts）；同一個人如果在別組還活躍、只是這一組的身份離開了，組員看到的仍然是
+  // 「（已離開）」——不會因為這個人在別的地方還在，就顯示正常姓名。
+  it("組別範圍（學生視角）：這組的身份離開了就標已離開，就算同一信箱在別組還活躍（那列不在這批 rows 裡）", () => {
+    const groupScopedRows = [{ email: "wang@g.nccu.edu.tw", name: "王小明", left_at: "2026-09-29T00:00:00Z" }];
+    expect(nameByEmailMap(groupScopedRows).get("wang@g.nccu.edu.tw")).toBe("王小明（已離開）");
+  });
 });

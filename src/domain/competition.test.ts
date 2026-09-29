@@ -312,6 +312,12 @@ describe("formatPrize", () => {
   it("null → null（沒填最高獎金就不顯示）", () => {
     expect(formatPrize(null)).toBeNull();
   });
+
+  // Task 3 review parked note（折進 Task 8）：上限值 100,000,000（規格第 15 節：0 到
+  // 100,000,000 的整數）也要能正常格式化，不是只測中間值。
+  it("100000000（上限）→ NT$100,000,000", () => {
+    expect(formatPrize(100000000)).toBe("NT$100,000,000");
+  });
 });
 
 describe("stageSummary", () => {
@@ -333,6 +339,14 @@ describe("stageSummary", () => {
         new Date("2026-11-01T15:59:59.999Z")
       )
     ).toBe("報名 → 繳件 → 決賽");
+  });
+
+  // Task 3 review parked note（折進 Task 8）：只有報名＋繳件（沒有決賽日）也要蓋到，之前只測了
+  // 「報名＋決賽（沒繳件）」跟「三個都有」兩種組合。
+  it("報名＋繳件（沒有決賽日） → 報名 → 繳件", () => {
+    expect(
+      stageSummary(new Date("2026-10-01T15:59:59.999Z"), new Date("2026-10-15T15:59:59.999Z"), null)
+    ).toBe("報名 → 繳件");
   });
 });
 

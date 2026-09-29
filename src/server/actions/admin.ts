@@ -26,6 +26,10 @@ export async function createSemester(name: string): Promise<{ semesterId: string
 
   const trimmed = name.trim();
   if (!trimmed) throw new Error("請輸入學期名稱");
+  // Task 7 review 折進 Task 8：上傳的 storage key 用學期名稱當路徑前綴
+  // （`${semester.name}/...`），名稱裡有 "/" 會多切出一層目錄，member_has_records() 用
+  // `key like (學期名稱 || '/%')` 抓本學期紀錄的範圍就會算錯。直接擋在建學期這一關。
+  if (trimmed.includes("/")) throw new Error("學期名稱不能有「/」");
 
   const db = createServiceSupabase();
 
@@ -215,7 +219,7 @@ export async function moveMember(memberId: string, toGroupId: string): Promise<v
 
   const { data: member, error: memberError } = await db
     .from("members")
-    .select("email, role, semester_id, left_at")
+    .select("email, role, semester_id, left_at, name, student_id, dept_year")
     .eq("id", memberId)
     .single();
   if (memberError) throw memberError;
@@ -228,10 +232,11 @@ export async function moveMember(memberId: string, toGroupId: string): Promise<v
   if (group.semester_id !== member.semester_id) throw new Error("目標組別必須在同一個學期");
 
   // §14：同一個人可以同時有多列專案生身份（多組），moveMember 只搬動這一列，不動這個人在
-  // 其他組別的身份列。如果這個人在目標組已經有一列專案生身份（跟被搬動的這一列是不同的
-  // members 列），搬過去會撞 members_identity_key 唯一索引，先在這裡查出來給一句看得懂的
-  // 錯誤訊息，而不是讓呼叫端收到資料庫的 23505。組名本身就是「第N組」的格式（CSV 匯入時
-  // 直接拿組別欄位當組名），訊息直接套用組名即可，不用另外算序號。
+  // 其他組別的身份列。如果這個人在目標組已經有一列「還在」的專案生身份（跟被搬動的這一列是
+  // 不同的 members 列），搬過去會撞 members_identity_key 唯一索引，先在這裡查出來給一句看得
+  // 懂的錯誤訊息，而不是讓呼叫端收到資料庫的 23505。已離開的列不算——那是 Task 8 折進來的修正
+  // （Task 7 review minor 2），見下面的恢復邏輯。組名本身就是「第N組」的格式（CSV 匯入時直接
+  // 拿組別欄位當組名），訊息直接套用組名即可，不用另外算序號。
   const { data: existing, error: existingError } = await db
     .from("members")
     .select("id")
@@ -239,6 +244,7 @@ export async function moveMember(memberId: string, toGroupId: string): Promise<v
     .eq("email", member.email)
     .eq("role", "student")
     .eq("group_id", toGroupId)
+    .is("left_at", null)
     .neq("id", memberId)
     .maybeSingle();
   if (existingError) throw existingError;
@@ -246,11 +252,43 @@ export async function moveMember(memberId: string, toGroupId: string): Promise<v
     throw new Error(`這位同學已經在${group.name}了`);
   }
 
+  // Task 8 折進來的修正（Task 7 review minor 2）：目標組可能已經有這個人「已離開」的那一列
+  // 身份（同一個 email＋role＋group，只是 left_at 有值）——members_identity_key 唯一索引不分
+  // 已離開／還在，這一列還是佔著那個 identity。挑最簡單但正確的作法：不當成「已經在這組了」
+  // 擋下來，也不讓 update 直接去撞 23505，而是把那一列恢復（清掉 left_at，姓名／學號／系級
+  // 同步成被搬動這一列目前的值），原本被搬動的那一列改標已離開——這個人的「這組專案生」身份
+  // 本來就一直存在資料庫裡，恢復它比讓兩列同時佔用同一個 identity key 更合理，也跟
+  // admin_add_member()「已離開的身份再新增一次＝恢復」的規則一致。
+  const { data: leftRow, error: leftRowError } = await db
+    .from("members")
+    .select("id")
+    .eq("semester_id", member.semester_id)
+    .eq("email", member.email)
+    .eq("role", "student")
+    .eq("group_id", toGroupId)
+    .not("left_at", "is", null)
+    .neq("id", memberId)
+    .maybeSingle();
+  if (leftRowError) throw leftRowError;
+
+  if (leftRow) {
+    const { error: restoreError } = await db
+      .from("members")
+      .update({ left_at: null, name: member.name, student_id: member.student_id, dept_year: member.dept_year })
+      .eq("id", leftRow.id);
+    if (restoreError) throw restoreError;
+    const { error: leaveError } = await db.from("members").update({ left_at: new Date().toISOString() }).eq("id", memberId);
+    if (leaveError) throw leaveError;
+    revalidatePath("/admin");
+    return;
+  }
+
   const { error } = await db.from("members").update({ group_id: toGroupId }).eq("id", memberId);
   if (error) {
     // 上面的預先查詢和這個 update 之間有極小的競速窗口（例如另一個管理員同時把這個人
-    // 搬進同一組）；真的撞上 members_identity_key 唯一索引時，資料庫會回 23505，
-    // 這裡轉成跟預先查詢一樣看得懂的訊息，而不是把 raw error 丟給呼叫端。
+    // 搬進同一組，或同時恢復了目標組那一列已離開的身份）；真的撞上 members_identity_key
+    // 唯一索引時，資料庫會回 23505，這裡轉成跟預先查詢一樣看得懂的訊息，而不是把 raw error
+    // 丟給呼叫端。
     if (error.code === "23505") {
       throw new Error(`這位同學已經在${group.name}了`);
     }

@@ -125,8 +125,10 @@ describe("removeIdentity／removePerson", () => {
     const db = await clientAs("a1@g.nccu.edu.tw");
     const r1 = await db.rpc("admin_remove_identity", { p_member_id: await memberId("b1@g.nccu.edu.tw") });
     expect(r1.error).not.toBeNull();
+    expect(r1.error?.code).toBe("42501");
     const r2 = await db.rpc("admin_remove_person", { p_semester_id: seed.semesterId, p_email: "b1@g.nccu.edu.tw" });
     expect(r2.error).not.toBeNull();
+    expect(r2.error?.code).toBe("42501");
     expect((await rowsOf("b1@g.nccu.edu.tw"))[0].left_at).toBeNull();
   });
 });

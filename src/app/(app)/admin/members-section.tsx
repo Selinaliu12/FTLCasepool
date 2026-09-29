@@ -129,7 +129,7 @@ export function MembersSection({ rows, groups }: { rows: MemberListRow[]; groups
                             onClick={() =>
                               setRemoveTarget({ kind: "identity", memberId: i.memberId, name: p.name, label: i.label, isPm: i.role === "pm" })
                             }
-                            className="-my-0.5 inline-flex size-5 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50"
+                            className="-my-1 inline-flex size-6 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50"
                           >
                             <XIcon className="size-3" />
                           </button>

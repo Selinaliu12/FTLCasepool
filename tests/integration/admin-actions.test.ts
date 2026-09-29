@@ -186,6 +186,15 @@ describe("createSemester", () => {
     const { createSemester } = await import("@/server/actions/admin");
     await expect(createSemester("   ")).rejects.toThrow("請輸入學期名稱");
   });
+
+  // Task 7 review 折進 Task 8：上傳的 storage key 用學期名稱當路徑前綴（`${semester.name}/...`，
+  // 見 src/server/actions/upload.ts），名稱裡有 "/" 會多切出一層目錄，之後用
+  // `key like (學期名稱 || '/%')` 找回本學期的紀錄（member_has_records()）就會算錯範圍。
+  it("學期名稱含「/」回傳錯誤", async () => {
+    asAdminNoSemester();
+    const { createSemester } = await import("@/server/actions/admin");
+    await expect(createSemester("115-1/a")).rejects.toThrow("學期名稱不能有「/」");
+  });
 });
 
 const CSV_OK = [
@@ -927,6 +936,49 @@ describe("moveMember", () => {
       .eq("id", otherRow!.id)
       .single();
     expect(untouchedRow).toEqual(otherRow);
+  });
+
+  // Task 8 folded-in fix（Task 7 review minor 2）：目標組已有這個人「已離開」的那一列身份
+  // （不是還在的）——不該被擋下來說「已經在第2組了」，也不該讓 update 直接撞
+  // members_identity_key 的 23505。挑最簡單但正確的作法：把目標組那筆已離開的列恢復（清掉
+  // left_at，姓名／學號／系級同步成被搬動那列目前的值），原本第1組那一列改標已離開——這個人
+  // 的「第2組專案生」身份本來就一直存在資料庫裡（只是離開過），恢復它比讓兩列同時佔用同一個
+  // identity key 更合理，也跟 admin_add_member() 對「已離開的身份再新增一次＝恢復」的規則一致。
+  it("目標組已有這個人已離開的身份 → 恢復那一列，原本那列改標已離開", async () => {
+    const seed = await seedSemester();
+    asAdmin(seed.semesterId);
+    const svc = createServiceSupabase();
+    const { data: a1 } = await svc
+      .from("members")
+      .select("id, name")
+      .eq("semester_id", seed.semesterId)
+      .eq("email", "a1@g.nccu.edu.tw")
+      .eq("role", "student")
+      .single();
+    // a1 在第2組留了一列已離開的身份（例如之前換組留下的舊列）。
+    const { data: leftRow, error: insertError } = await svc
+      .from("members")
+      .insert({
+        semester_id: seed.semesterId,
+        email: "a1@g.nccu.edu.tw",
+        name: "甲一",
+        role: "student",
+        group_id: seed.groupB,
+        left_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+    expect(insertError).toBeNull();
+
+    const { moveMember } = await import("@/server/actions/admin");
+    await moveMember(a1!.id, seed.groupB);
+
+    const { data: restored } = await svc.from("members").select("group_id, left_at").eq("id", leftRow!.id).single();
+    expect(restored?.group_id).toBe(seed.groupB);
+    expect(restored?.left_at).toBeNull();
+
+    const { data: original } = await svc.from("members").select("left_at").eq("id", a1!.id).single();
+    expect(original?.left_at).not.toBeNull();
   });
 
   // F3：舊資料相容——沒有學號、系級的既有成員（seedSemester() 種子資料本來就是這樣）換組

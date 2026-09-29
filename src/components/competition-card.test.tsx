@@ -139,6 +139,15 @@ describe("CompetitionCard", () => {
     expect(screen.getByText("Test Competition")).toBeTruthy();
   });
 
+  // Task 3 review parked note（折進 Task 8）：organizer 是批次 2 就有的舊欄位，舊比賽也可能
+  // 從沒填過（不是只有模板新欄位會是 null）——上面那個測試預設卡片的 organizer 是 "Test Org"，
+  // 沒有真的蓋到「organizer 也是 null」這個舊資料情境，這裡另外補一個。
+  it("舊比賽（含 organizer 為 null）仍能正常渲染，不出現 null 字樣", () => {
+    const { container } = render(<CompetitionCard card={createTestCard({ organizer: null })} now={NOW} />);
+    expect(container.textContent).not.toMatch(/null/i);
+    expect(screen.getByText("Test Competition")).toBeTruthy();
+  });
+
   it("主辦顯示在名稱下方獨立一行", () => {
     render(<CompetitionCard card={createTestCard({ organizer: "某某系學會" })} now={NOW} />);
     expect(screen.getByText(/某某系學會/)).toBeTruthy();
