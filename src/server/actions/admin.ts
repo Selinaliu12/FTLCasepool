@@ -304,3 +304,67 @@ export async function addMember(input: AddMemberInput): Promise<AddMemberResult>
   const result = data as { id: string; restored: boolean };
   return { ok: true, memberId: result.id, restored: result.restored };
 }
+
+export type UpdatePersonInput = { name: string; studentId: string; deptYear: string };
+export type UpdatePersonResult = { ok: true } | { ok: false; error: string };
+
+// 規格 §16 第 3 點：改姓名／學號／系級，以「人」為單位——同一信箱本學期所有身份列（還在或已離開）
+// 一起改。姓名去空白後不能空白；學號／系級留空存成 null（跟名單 CSV／新增成員共用同一套「空字串
+// 就是沒填」慣例）。實際的一致性交給 admin_update_person()（Task 6，見
+// 20260929000004_member_edit.sql）在同一個交易裡處理，這裡先做能在畫面上直接檢查的部分。
+export async function updatePerson(email: string, fields: UpdatePersonInput): Promise<UpdatePersonResult> {
+  await requireAdmin();
+  const access = await getAccess();
+  if (access.kind !== "ok") return { ok: false, error: "還沒有本學期，請先建立學期" };
+
+  const name = fields.name.trim();
+  if (!name) return { ok: false, error: "姓名不能空白" };
+  const studentId = fields.studentId.trim() || null;
+  const deptYear = fields.deptYear.trim() || null;
+
+  const db = createServiceSupabase();
+  const { error } = await db.rpc("admin_update_person", {
+    p_semester_id: access.semesterId,
+    p_email: email.trim().toLowerCase(),
+    p_name: name,
+    p_student_id: studentId,
+    p_dept_year: deptYear,
+  });
+  if (error) {
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export type ChangeEmailResult = { ok: true } | { ok: false; error: string };
+
+// 規格 §16 第 4 點：改信箱，以「人」為單位——本學期所有身份列一起改。新信箱格式與「是否已在名單
+// 上」在應用程式跟資料庫（admin_change_email()）都各檢查一次（Global Constraints：正規化與網域
+// 檢查兩邊都要做）；舊信箱「是否已有交件、上傳或審核紀錄」只有資料庫看得到全貌（要看
+// progress_reports／checkins／upload_tickets／stage_submissions／competition_entries／
+// competitions 這些表），交給 admin_change_email() 在同一個交易裡檢查並寫入。
+export async function changeEmail(oldEmail: string, newEmail: string): Promise<ChangeEmailResult> {
+  await requireAdmin();
+  const access = await getAccess();
+  if (access.kind !== "ok") return { ok: false, error: "還沒有本學期，請先建立學期" };
+
+  const normalizedNew = newEmail.trim().toLowerCase();
+  if (!normalizedNew.endsWith("@g.nccu.edu.tw")) return { ok: false, error: "email 必須是 @g.nccu.edu.tw" };
+
+  const db = createServiceSupabase();
+  const { error } = await db.rpc("admin_change_email", {
+    p_semester_id: access.semesterId,
+    p_old_email: oldEmail.trim().toLowerCase(),
+    p_new_email: normalizedNew,
+  });
+  if (error) {
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/admin");
+  return { ok: true };
+}

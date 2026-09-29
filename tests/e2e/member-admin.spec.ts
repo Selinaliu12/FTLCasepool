@@ -53,3 +53,67 @@ test.describe.serial("管理員新增成員", () => {
     await ctx.close();
   });
 });
+
+// Task 6（規格 §16 第 3、4 點）：管理員在「成員」區塊按「編輯」改姓名／學號／系級／信箱，
+// 名單上信箱打錯的同學改成正確信箱後就能登入。
+test.describe.serial("管理員編輯成員", () => {
+  test.afterAll(async () => {
+    await resetDb();
+    await seedSemester();
+  });
+
+  test("改信箱後，新信箱能登入、舊信箱不行；同時改姓名／學號／系級", async ({ page, browser }) => {
+    await resetDb();
+    await seedSemester();
+
+    await loginAndPassWelcome(page, "admin@g.nccu.edu.tw", /\/admin$/);
+    const card = page.locator('[data-slot="card"]').filter({ has: page.getByText("成員", { exact: true }) });
+    const row = card.getByRole("row").filter({ hasText: "甲二" });
+    await row.getByRole("button", { name: "編輯" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("學校信箱").fill("a2-fixed@g.nccu.edu.tw");
+    await dialog.getByLabel("姓名").fill("甲二改");
+    await dialog.getByLabel("學號").fill("110701002");
+    await dialog.getByLabel("系級").fill("資科三");
+    await dialog.getByRole("button", { name: "儲存" }).click();
+
+    await expect(page.getByText("已更新甲二改的資料")).toBeVisible();
+    await expect(dialog).toBeHidden();
+    const updatedRow = card.getByRole("row").filter({ hasText: "甲二改" });
+    await expect(updatedRow).toContainText("a2-fixed@g.nccu.edu.tw");
+
+    const ctx = await browser.newContext();
+    const student = await ctx.newPage();
+    await loginAndPassWelcome(student, "a2-fixed@g.nccu.edu.tw", /\/my-group$/);
+    await expect(student.getByText("甲二改").first()).toBeVisible();
+    await ctx.close();
+
+    await page.goto("/test-login?email=a2%40g.nccu.edu.tw");
+    await expect(page).toHaveURL(/\/not-in-roster$/);
+  });
+
+  test("舊信箱已有交件紀錄時改信箱被拒；錯誤顯示在表單裡", async ({ page }) => {
+    await resetDb();
+    await seedSemester({ acknowledged: true });
+    const service = (await import("../integration/helpers")).service();
+    const { data: line } = await service.from("lines").select("id, group_id").limit(1).single();
+    const { data: period } = await service.from("periods").select("id").limit(1).single();
+    await service.from("progress_reports").insert({
+      line_id: line!.id, period_id: period!.id, light: "green", did: "x", blocked: "無", next_steps: "x",
+      submitted_by: "a1@g.nccu.edu.tw", pdf_key: "reports/e2e/period1.pdf", pdf_size: 10,
+      pdf_uploaded_at: new Date().toISOString(), pdf_uploaded_by: "a1@g.nccu.edu.tw",
+    });
+
+    await loginAndPassWelcome(page, "admin@g.nccu.edu.tw", /\/admin$/);
+    const card = page.locator('[data-slot="card"]').filter({ has: page.getByText("成員", { exact: true }) });
+    const row = card.getByRole("row").filter({ hasText: "甲一" }).first();
+    await row.getByRole("button", { name: "編輯" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("學校信箱").fill("a1-new@g.nccu.edu.tw");
+    await dialog.getByRole("button", { name: "儲存" }).click();
+    await expect(dialog.getByRole("alert")).toHaveText("這個人已經有紀錄，不能改信箱；請移除後用新信箱新增");
+    await expect(dialog.getByRole("button", { name: "儲存" })).toBeEnabled();
+  });
+});

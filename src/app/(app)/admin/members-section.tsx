@@ -19,8 +19,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { addMember } from "@/server/actions/admin";
-import { filterPeople, groupPeople, type MemberListRow } from "@/domain/member-list";
+import { addMember, changeEmail, updatePerson } from "@/server/actions/admin";
+import { filterPeople, groupPeople, type MemberListRow, type Person } from "@/domain/member-list";
 
 export type MemberGroupOption = { id: string; name: string };
 
@@ -66,6 +66,7 @@ export function MembersSection({ rows, groups }: { rows: MemberListRow[]; groups
               <TableHead className="w-[55%] sm:w-[42%]">姓名／信箱</TableHead>
               <TableHead className="hidden w-[24%] sm:table-cell">學號／系級</TableHead>
               <TableHead>身份</TableHead>
+              <TableHead className="w-[1%]" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -96,6 +97,9 @@ export function MembersSection({ rows, groups }: { rows: MemberListRow[]; groups
                       )
                     )}
                   </div>
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-right">
+                  <EditPersonDialog person={p} />
                 </TableCell>
               </TableRow>
             ))}
@@ -232,6 +236,134 @@ function AddMemberDialog({ groups }: { groups: MemberGroupOption[] }) {
               <DialogClose render={<Button type="button" variant="outline" disabled={pending} />}>取消</DialogClose>
               <Button type="submit" disabled={pending}>
                 {pending ? "新增中…" : "新增"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+const EMPTY_EDIT = { name: "", studentId: "", deptYear: "", email: "" };
+
+function EditPersonDialog({ person }: { person: Person }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [fields, setFields] = useState(EMPTY_EDIT);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function onOpenChange(next: boolean) {
+    setOpen(next);
+    if (next) {
+      setFields({ name: person.name, studentId: person.studentId ?? "", deptYear: person.deptYear ?? "", email: person.email });
+      setError(null);
+    }
+  }
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setPending(true);
+    setError(null);
+    try {
+      const newEmail = fields.email.trim().toLowerCase();
+      let currentEmail = person.email;
+      if (newEmail !== person.email) {
+        const emailRes = await changeEmail(person.email, newEmail);
+        if (!emailRes.ok) {
+          setError(emailRes.error);
+          return;
+        }
+        currentEmail = newEmail;
+      }
+
+      const personRes = await updatePerson(currentEmail, {
+        name: fields.name,
+        studentId: fields.studentId,
+        deptYear: fields.deptYear,
+      });
+      if (!personRes.ok) {
+        setError(currentEmail !== person.email ? `信箱已改成功，但姓名等資料儲存失敗：${personRes.error}` : personRes.error);
+        return;
+      }
+
+      toast.success(`已更新${fields.name.trim()}的資料`);
+      onOpenChange(false);
+      router.refresh();
+    } catch {
+      setError("儲存失敗，請重試");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <>
+      <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(true)}>
+        編輯
+      </Button>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>編輯成員</DialogTitle>
+            <DialogDescription>修改姓名、學號、系級或信箱；同一個信箱的所有身份會一起更新。</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={onSubmit} className="flex flex-col gap-3" noValidate>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-person-email">學校信箱</Label>
+              <Input
+                id="edit-person-email"
+                type="email"
+                autoComplete="off"
+                value={fields.email}
+                onChange={(e) => setFields((f) => ({ ...f, email: e.target.value }))}
+                disabled={pending}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-person-name">姓名</Label>
+              <Input
+                id="edit-person-name"
+                autoComplete="off"
+                value={fields.name}
+                onChange={(e) => setFields((f) => ({ ...f, name: e.target.value }))}
+                disabled={pending}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="edit-person-student-id">學號</Label>
+                <Input
+                  id="edit-person-student-id"
+                  autoComplete="off"
+                  inputMode="numeric"
+                  value={fields.studentId}
+                  onChange={(e) => setFields((f) => ({ ...f, studentId: e.target.value }))}
+                  disabled={pending}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="edit-person-dept-year">系級</Label>
+                <Input
+                  id="edit-person-dept-year"
+                  autoComplete="off"
+                  placeholder="例：資科三"
+                  value={fields.deptYear}
+                  onChange={(e) => setFields((f) => ({ ...f, deptYear: e.target.value }))}
+                  disabled={pending}
+                />
+              </div>
+            </div>
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            <DialogFooter>
+              <DialogClose render={<Button type="button" variant="outline" disabled={pending} />}>取消</DialogClose>
+              <Button type="submit" disabled={pending}>
+                {pending ? "儲存中…" : "儲存"}
               </Button>
             </DialogFooter>
           </form>
