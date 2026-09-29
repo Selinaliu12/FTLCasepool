@@ -166,7 +166,7 @@ export default async function AdminPage() {
         <Card>
           <CardHeader>
             <CardTitle>成員</CardTitle>
-            <CardDescription>本學期名單上的每個人與他們的身份。學期中要加人，或替已在名單上的人加一個身份，按「新增成員」。</CardDescription>
+            <CardDescription>本學期名單上的每個人與他們的身份。名單匯入之後，學期中要加人，或替已在名單上的人加一個身份，按「新增成員」。</CardDescription>
           </CardHeader>
           <CardContent>
             <MembersSection
