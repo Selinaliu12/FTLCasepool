@@ -14,7 +14,7 @@ export type MemberListRow = {
   leftAt: string | null;
 };
 
-export type PersonIdentity = { memberId: string; label: string; left: boolean };
+export type PersonIdentity = { memberId: string; role: Role; label: string; left: boolean };
 export type Person = {
   email: string;
   name: string;
@@ -37,7 +37,7 @@ export function groupPeople(rows: MemberListRow[]): Person[] {
       name: profile.name,
       studentId: profile.studentId,
       deptYear: profile.deptYear,
-      identities: orderRows(list).map((r) => ({ memberId: r.id, label: identityLabel(r.role, r.groupName), left: !!r.leftAt })),
+      identities: orderRows(list).map((r) => ({ memberId: r.id, role: r.role, label: identityLabel(r.role, r.groupName), left: !!r.leftAt })),
       allLeft: list.every((r) => !!r.leftAt),
     };
   });

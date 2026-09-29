@@ -215,11 +215,13 @@ export async function moveMember(memberId: string, toGroupId: string): Promise<v
 
   const { data: member, error: memberError } = await db
     .from("members")
-    .select("email, role, semester_id")
+    .select("email, role, semester_id, left_at")
     .eq("id", memberId)
     .single();
   if (memberError) throw memberError;
   if (member.role !== "student") throw new Error("只有專案生可以換組");
+  // Task 7：已離開的身份不出現在換組選單；直接呼叫也擋下來。
+  if (member.left_at) throw new Error("這個身份已離開");
 
   const { data: group, error: groupError } = await db.from("groups").select("semester_id, name").eq("id", toGroupId).single();
   if (groupError) throw groupError;
@@ -407,5 +409,44 @@ export async function changeEmail(oldEmail: string, newEmail: string): Promise<C
   }
 
   revalidatePath("/admin");
+  return { ok: true };
+}
+
+export type RemoveResult = { ok: true } | { ok: false; error: string };
+
+// Task 7（規格 §16 第 5 點）：移除一個身份＝把那一列標成已離開（left_at），不刪列——已交的進度、
+// 比賽紀錄照常保留，名字顯示「（已離開）」。專案幹部身份離開時一併移除他負責的組別。已經離開的
+// 再移除一次當成功（no-op）。只能移除本學期的成員。實際的檢查與寫入在 admin_remove_identity()
+// （20260929000006_member_remove.sql）同一個交易裡做。
+export async function removeIdentity(memberId: string): Promise<RemoveResult> {
+  await requireAdmin();
+  const db = createServiceSupabase();
+  const { error } = await db.rpc("admin_remove_identity", { p_member_id: memberId });
+  if (error) {
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    // 亂填的 id（不是 uuid）→ 22P02，當成找不到。
+    if (error.code === "22P02") return { ok: false, error: "找不到這個身份" };
+    throw new Error(error.message);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// 移除整個人＝這個信箱在本學期的所有身份都標成已離開（admin_remove_person()）。
+export async function removePerson(email: string): Promise<RemoveResult> {
+  await requireAdmin();
+  const access = await getAccess();
+  if (access.kind !== "ok") return { ok: false, error: "還沒有本學期，請先建立學期" };
+
+  const db = createServiceSupabase();
+  const { error } = await db.rpc("admin_remove_person", {
+    p_semester_id: access.semesterId,
+    p_email: email.trim().toLowerCase(),
+  });
+  if (error) {
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    throw new Error(error.message);
+  }
+  revalidatePath("/", "layout");
   return { ok: true };
 }

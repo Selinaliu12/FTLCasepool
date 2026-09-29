@@ -88,8 +88,10 @@ export default async function AdminPage() {
   const groupList = groups ?? [];
   const memberList = members ?? [];
   const periodList = periods ?? [];
-  const pmList = memberList.filter((m) => m.role === "pm");
-  const studentList = memberList.filter((m) => m.role === "student");
+  // Task 7：已離開的身份不出現在「專案幹部負責組別」與「換組」選單。
+  const activeMembers = memberList.filter((m) => !m.left_at);
+  const pmList = activeMembers.filter((m) => m.role === "pm");
+  const studentList = activeMembers.filter((m) => m.role === "student");
   const alreadyImported = memberList.length > 0;
 
   const groupNameById = new Map(groupList.map((g) => [g.id as string, g.name as string]));

@@ -146,3 +146,67 @@ describe("addMember", () => {
     expect(await rowsOf("evil@g.nccu.edu.tw")).toHaveLength(0);
   });
 });
+
+// Task 7 folded-in fixes（Task 5／6 review）：(b) 先查「已經有這個身份」再查一致性；(c) 函式自己
+// 正規化並檢查信箱；(d) 恢復／新增時同一信箱所有列的姓名／學號／系級一起更新；(e)
+// member_has_records() 的學期字首用字面比較，學期名稱裡有 % _ / 不會多比到。
+describe("admin_add_member() folded fixes", () => {
+  function rpcAdd(p: { email: string; name: string; role: string; group?: string | null; sid?: string | null; dept?: string | null }) {
+    return service().rpc("admin_add_member", {
+      p_semester_id: seed.semesterId, p_email: p.email, p_name: p.name, p_role: p.role,
+      p_student_id: p.sid ?? null, p_dept_year: p.dept ?? null, p_group_id: p.group ?? null,
+    });
+  }
+
+  it("(b) 已經有這個身份（且沒離開）→ 就算姓名不一致，也回「這個人已經有這個身份」", async () => {
+    expect(await addMember({ email: "a1@g.nccu.edu.tw", name: "別的名字", role: "專案生", groupId: seed.groupA })).toEqual({
+      ok: false,
+      error: "這個人已經有這個身份",
+    });
+  });
+
+  it("(c) 函式自己正規化信箱（去空白、小寫），也自己擋非學校信箱", async () => {
+    const ok = await rpcAdd({ email: "  New9@G.NCCU.edu.tw ", name: "新九", role: "officer" });
+    expect(ok.error).toBeNull();
+    expect(await rowsOf("new9@g.nccu.edu.tw")).toHaveLength(1);
+    const again = await rpcAdd({ email: "NEW9@g.nccu.edu.tw", name: "新九", role: "officer" });
+    expect(again.error?.message).toBe("這個人已經有這個身份");
+    const bad = await rpcAdd({ email: "x@gmail.com", name: "某人", role: "officer" });
+    expect(bad.error?.message).toBe("email 必須是 @g.nccu.edu.tw");
+  });
+
+  it("(d) 重新加回時，同一信箱所有列（含還是已離開的其他身份）的姓名／學號／系級一起更新", async () => {
+    await addMember({ email: "b1@g.nccu.edu.tw", name: "乙一", role: "其他幹部" });
+    await service().from("members").update({ left_at: new Date().toISOString() }).eq("email", "b1@g.nccu.edu.tw");
+    const res = await addMember({
+      email: "b1@g.nccu.edu.tw", name: "乙一新", role: "專案生", studentId: "222", deptYear: "財管三", groupId: seed.groupB,
+    });
+    expect(res).toMatchObject({ ok: true, restored: true });
+    const rows = await rowsOf("b1@g.nccu.edu.tw");
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => [r.name, r.student_id, r.dept_year])).toEqual([
+      ["乙一新", "222", "財管三"],
+      ["乙一新", "222", "財管三"],
+    ]);
+    // 另一個身份仍是已離開（只恢復這一個身份）
+    expect(rows.filter((r) => r.left_at === null).map((r) => r.role)).toEqual(["student"]);
+  });
+});
+
+describe("member_has_records()（e）", () => {
+  it("學期名稱含 % _ 時，只有字首真的相同的上傳票才算本學期的紀錄", async () => {
+    const db = service();
+    await db.from("semesters").update({ name: "1%_" }).eq("id", seed.semesterId);
+    await db.from("upload_tickets").insert({ key: "19x/other/x.pdf", issuer_email: "a2@g.nccu.edu.tw" });
+    expect((await db.rpc("member_has_records", { p_semester_id: seed.semesterId, p_email: "a2@g.nccu.edu.tw" })).data).toBe(false);
+    await db.from("upload_tickets").insert({ key: "1%_/g/y.pdf", issuer_email: "a2@g.nccu.edu.tw" });
+    expect((await db.rpc("member_has_records", { p_semester_id: seed.semesterId, p_email: "a2@g.nccu.edu.tw" })).data).toBe(true);
+  });
+
+  it("學期名稱含 / 時，不會比到名稱只是它字首的別學期", async () => {
+    const db = service();
+    await db.from("semesters").update({ name: "115/1" }).eq("id", seed.semesterId);
+    await db.from("upload_tickets").insert({ key: "115/10/x.pdf", issuer_email: "a2@g.nccu.edu.tw" });
+    expect((await db.rpc("member_has_records", { p_semester_id: seed.semesterId, p_email: "a2@g.nccu.edu.tw" })).data).toBe(false);
+  });
+});

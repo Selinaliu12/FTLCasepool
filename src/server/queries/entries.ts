@@ -63,7 +63,8 @@ export type EntryDetail = {
   // controller ruling（fix round 1）：學生確認報名之後如果換組，entry_members 裡那筆紀錄留著
   // （不刪）；顯示的時候要標成「已換組」，不能直接消失——不然看起來像這個人從沒參加過。
   // movedOut = 這個 member 現在的 group_id 已經不是這筆報名的組。
-  selectedMembers: { id: string; name: string; movedOut: boolean }[];
+  // left = 這個身份已離開（Task 7）：照樣列出，顯示「姓名（已離開）」，但不能再勾。
+  selectedMembers: { id: string; name: string; movedOut: boolean; left: boolean }[];
   // lineId：確認報名之後才會有比賽線（見 confirm_entry()），確認前一律 null，這時候也不會有
   // stages／submissions（沒有線就沒有階段可以上傳）。
   lineId: string | null;
@@ -119,6 +120,8 @@ export async function loadEntryDetail(entryId: string): Promise<EntryDetail | nu
     .select("id, name")
     .eq("group_id", groupId)
     .eq("role", "student")
+    // Task 7：已離開的人不能再被勾成參賽成員。
+    .is("left_at", null)
     .order("name");
   if (studentsError) throw studentsError;
 
@@ -132,12 +135,12 @@ export async function loadEntryDetail(entryId: string): Promise<EntryDetail | nu
   // 已經選過的成員可能換組了：這組的學生（read_members 的 RLS）看不到別組成員現在的 member
   // 列（group_id 已經不在 my_groups() 裡），所以這裡用 service client 單獨查這幾個 id 的
   // 名字／目前的 group_id——只回傳名字跟「有沒有換組」，不會多洩漏其他資訊。
-  let selectedMembers: { id: string; name: string; movedOut: boolean }[] = [];
+  let selectedMembers: { id: string; name: string; movedOut: boolean; left: boolean }[] = [];
   if (selectedMemberIds.length > 0) {
     const service = createServiceSupabase();
     const { data: memberRows, error: memberError } = await service
       .from("members")
-      .select("id, name, group_id")
+      .select("id, name, group_id, left_at")
       .in("id", selectedMemberIds);
     if (memberError) throw memberError;
     const byId = new Map((memberRows ?? []).map((m) => [m.id as string, m]));
@@ -147,6 +150,7 @@ export async function loadEntryDetail(entryId: string): Promise<EntryDetail | nu
         id,
         name: (row?.name as string | undefined) ?? "",
         movedOut: (row?.group_id as string | null | undefined) !== groupId,
+        left: !!row?.left_at,
       };
     });
   }

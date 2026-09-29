@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,7 +20,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { addMember, editPerson } from "@/server/actions/admin";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { addMember, editPerson, removeIdentity, removePerson } from "@/server/actions/admin";
 import { filterPeople, groupPeople, type MemberListRow, type Person } from "@/domain/member-list";
 
 export type MemberGroupOption = { id: string; name: string };
@@ -29,6 +39,7 @@ export type MemberGroupOption = { id: string; name: string };
 export function MembersSection({ rows, groups }: { rows: MemberListRow[]; groups: MemberGroupOption[] }) {
   const [query, setQuery] = useState("");
   const [showLeft, setShowLeft] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<RemoveTarget | null>(null);
   const people = useMemo(() => groupPeople(rows), [rows]);
   const shown = filterPeople(people, query, showLeft);
   const hasAnyone = filterPeople(people, "", showLeft).length > 0;
@@ -53,8 +64,11 @@ export function MembersSection({ rows, groups }: { rows: MemberListRow[]; groups
         </div>
       </div>
 
-      {!hasAnyone ? (
+      {people.length === 0 ? (
         <p className="text-sm text-muted-foreground">名單上還沒有任何人。匯入名單或按「新增成員」加入。</p>
+      ) : !hasAnyone ? (
+        // Task 7 (a)：名單上有人，只是全部都已離開（而且沒勾「顯示已離開」）——不是「還沒匯入」。
+        <p className="text-sm text-muted-foreground">目前沒有在名單上的成員</p>
       ) : shown.length === 0 ? (
         <p className="text-sm text-muted-foreground">找不到符合的成員</p>
       ) : (
@@ -91,22 +105,117 @@ export function MembersSection({ rows, groups }: { rows: MemberListRow[]; groups
                           {i.label}（已離開）
                         </Badge>
                       ) : (
-                        <Badge key={i.memberId} variant="secondary" className="h-auto whitespace-normal">
+                        <Badge key={i.memberId} variant="secondary" className="h-auto gap-0.5 whitespace-normal pr-0.5">
                           {i.label}
+                          <button
+                            type="button"
+                            aria-label={`移除${p.name}的${i.label}身份`}
+                            title="移除這個身份"
+                            onClick={() =>
+                              setRemoveTarget({ kind: "identity", memberId: i.memberId, name: p.name, label: i.label, isPm: i.role === "pm" })
+                            }
+                            className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50"
+                          >
+                            <XIcon className="size-3" />
+                          </button>
                         </Badge>
                       )
                     )}
                   </div>
                 </TableCell>
-                <TableCell className="whitespace-nowrap text-right">
-                  <EditPersonDialog person={p} />
+                <TableCell className="text-right">
+                  <div className="flex flex-col items-end gap-1.5">
+                    <EditPersonDialog person={p} />
+                    {!p.allLeft && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => setRemoveTarget({ kind: "person", email: p.email, name: p.name })}
+                      >
+                        移除整個人
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       )}
+      <RemoveDialog target={removeTarget} onClose={() => setRemoveTarget(null)} />
     </div>
+  );
+}
+
+type RemoveTarget =
+  | { kind: "identity"; memberId: string; name: string; label: string; isPm: boolean }
+  | { kind: "person"; email: string; name: string };
+
+// Task 7（規格 §16 第 5 點；成員管理細節 2）：按「移除」先跳確認視窗、寫出影響，按「確認移除」
+// 才執行，不需要打字。移除＝標成已離開：之前交的進度、比賽紀錄保留，名字標「（已離開）」。
+function removeEffect(t: RemoveTarget): string {
+  if (t.kind === "person") return `${t.name}的所有身份都會標成已離開，之後不能再登入使用；之前交的進度保留`;
+  if (t.isPm) return `${t.name}的${t.label}身份會標成已離開，負責的組別也會一併移除；之前的紀錄保留`;
+  return `${t.name}的${t.label}身份會標成已離開，之前交的進度保留`;
+}
+
+function RemoveDialog({ target, onClose }: { target: RemoveTarget | null; onClose: () => void }) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // 關閉動畫期間 target 已經是 null：留著最後一次的內容，視窗內文字不會在淡出時突然變空。
+  const [shown, setShown] = useState<RemoveTarget | null>(target);
+  if (target && target !== shown) {
+    setShown(target);
+    setError(null);
+  }
+
+  function onOpenChange(next: boolean) {
+    if (!next && !pending) onClose();
+  }
+
+  async function onConfirm() {
+    if (!target) return;
+    setPending(true);
+    setError(null);
+    try {
+      const res = target.kind === "identity" ? await removeIdentity(target.memberId) : await removePerson(target.email);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      toast.success(target.kind === "identity" ? `已移除${target.name}的${target.label}身份` : `已移除${target.name}`);
+      onClose();
+      router.refresh();
+    } catch {
+      setError("移除失敗，請重試");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <AlertDialog open={target !== null} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{shown?.kind === "person" ? `移除${shown.name}` : "移除身份"}</AlertDialogTitle>
+          <AlertDialogDescription>{shown ? removeEffect(shown) : null}</AlertDialogDescription>
+        </AlertDialogHeader>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>取消</AlertDialogCancel>
+          <Button type="button" variant="destructive" onClick={onConfirm} disabled={pending}>
+            {pending ? "移除中…" : "確認移除"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

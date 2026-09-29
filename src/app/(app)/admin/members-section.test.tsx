@@ -5,7 +5,13 @@ import { MembersSection } from "./members-section";
 import type { MemberListRow } from "@/domain/member-list";
 
 const addMember = vi.fn();
-vi.mock("@/server/actions/admin", () => ({ addMember: (...args: unknown[]) => addMember(...args) }));
+const removeIdentity = vi.fn();
+const removePerson = vi.fn();
+vi.mock("@/server/actions/admin", () => ({
+  addMember: (...args: unknown[]) => addMember(...args),
+  removeIdentity: (...args: unknown[]) => removeIdentity(...args),
+  removePerson: (...args: unknown[]) => removePerson(...args),
+}));
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 const toastSuccess = vi.fn();
@@ -29,6 +35,8 @@ function bodyRows() {
 describe("MembersSection（管理員頁成員區塊）", () => {
   beforeEach(() => {
     addMember.mockReset();
+    removeIdentity.mockReset();
+    removePerson.mockReset();
     refresh.mockReset();
     toastSuccess.mockReset();
   });
@@ -129,5 +137,77 @@ describe("MembersSection（管理員頁成員區塊）", () => {
     fireEvent.change(within(dialog).getByLabelText("姓名"), { target: { value: "新幹部" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "新增" }));
     await waitFor(() => expect(addMember).toHaveBeenCalledWith(expect.objectContaining({ role: "其他幹部", groupId: "" })));
+  });
+
+  it("(a) 所有人都已離開、沒勾顯示已離開 → 顯示「目前沒有在名單上的成員」，不是匯入提示", () => {
+    render(<MembersSection rows={[rows[3]]} groups={groups} />);
+    expect(screen.getByText("目前沒有在名單上的成員")).toBeTruthy();
+    expect(screen.queryByText(/名單上還沒有任何人/)).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "顯示已離開" }));
+    expect(screen.getByText("林離開")).toBeTruthy();
+  });
+
+  it("每個還在的身份有移除按鈕；已離開的身份沒有；按下先跳確認視窗寫出影響，確認才呼叫", async () => {
+    removeIdentity.mockResolvedValue({ ok: true });
+    render(<MembersSection rows={rows} groups={groups} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "顯示已離開" }));
+    expect(screen.queryByRole("button", { name: "移除林離開的第2組專案生身份" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "移除王小明的第1組專案生身份" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("王小明的第1組專案生身份會標成已離開，之前交的進度保留")).toBeTruthy();
+    expect(removeIdentity).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "確認移除" }));
+    await waitFor(() => expect(removeIdentity).toHaveBeenCalledWith("m1"));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("已移除王小明的第1組專案生身份"));
+    expect(refresh).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  });
+
+  it("專案幹部身份：確認視窗說明負責組別會一起移除", async () => {
+    render(<MembersSection rows={rows} groups={groups} />);
+    fireEvent.click(screen.getByRole("button", { name: "移除陳幹部的專案幹部身份" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("陳幹部的專案幹部身份會標成已離開，負責的組別也會一併移除；之前的紀錄保留")).toBeTruthy();
+  });
+
+  it("按取消不會移除", async () => {
+    render(<MembersSection rows={rows} groups={groups} />);
+    fireEvent.click(screen.getByRole("button", { name: "移除王小明的第1組專案生身份" }));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(removeIdentity).not.toHaveBeenCalled();
+  });
+
+  it("移除整個人：確認視窗寫出影響，確認後呼叫 removePerson(email)", async () => {
+    removePerson.mockResolvedValue({ ok: true });
+    render(<MembersSection rows={rows} groups={groups} />);
+    const wang = screen.getByText("王小明").closest("tr")!;
+    fireEvent.click(within(wang).getByRole("button", { name: "移除整個人" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("王小明的所有身份都會標成已離開，之後不能再登入使用；之前交的進度保留")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "確認移除" }));
+    await waitFor(() => expect(removePerson).toHaveBeenCalledWith("wang@g.nccu.edu.tw"));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("已移除王小明"));
+  });
+
+  it("已經全部離開的人沒有「移除整個人」", () => {
+    render(<MembersSection rows={rows} groups={groups} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "顯示已離開" }));
+    const lin = screen.getByText("林離開").closest("tr")!;
+    expect(within(lin).queryByRole("button", { name: "移除整個人" })).toBeNull();
+  });
+
+  it("移除失敗：錯誤顯示在確認視窗裡，視窗留著", async () => {
+    removePerson.mockResolvedValue({ ok: false, error: "找不到這個人" });
+    render(<MembersSection rows={rows} groups={groups} />);
+    const wang = screen.getByText("王小明").closest("tr")!;
+    fireEvent.click(within(wang).getByRole("button", { name: "移除整個人" }));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "確認移除" }));
+    await waitFor(() => expect(within(dialog).getByRole("alert").textContent).toBe("找不到這個人"));
+    expect(toastSuccess).not.toHaveBeenCalled();
   });
 });

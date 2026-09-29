@@ -8,6 +8,7 @@ import { submissionTiming } from "@/domain/progress";
 import { mapCheckinHistory, type CheckinHistoryEntry } from "@/domain/checkin-history";
 import { isUuid } from "@/domain/id";
 import { sortMembersByName } from "@/domain/dashboard";
+import { nameByEmailMap } from "@/domain/member-name";
 import { loadCompetitionLinesForGroup, type CompetitionLineSummary } from "@/server/queries/competition-lines";
 
 // /groups/[id]：姓名、學號、系級——這裡跟管理員頁是唯二顯示學號的地方（規格 §14 第 1 點）。
@@ -88,9 +89,11 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
     db.from("lines").select("id").eq("group_id", groupId).eq("kind", "project").maybeSingle(),
     db.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq"),
     db.from("semesters").select("red_after_hours").eq("id", semesterId).single(),
-    db.from("members").select("email, name").eq("semester_id", semesterId),
+    // 紀錄上的名字（交件人、點燈的人）：含已離開的列，已離開的人顯示「姓名（已離開）」（Task 7）。
+    db.from("members").select("email, name, left_at").eq("semester_id", semesterId),
     // 這組組員的姓名、學號、系級——規格 §14 第 1、7 點，跟看板卡片／my-group 不同，這裡要含學號。
-    db.from("members").select("name, student_id, dept_year").eq("group_id", groupId).eq("role", "student"),
+    // 已離開的人不列（Task 7）。
+    db.from("members").select("name, student_id, dept_year").eq("group_id", groupId).eq("role", "student").is("left_at", null),
   ]);
 
   if (groupRes.error) throw groupRes.error;
@@ -116,7 +119,9 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
   if (reportsRes.error) throw reportsRes.error;
   if (checkinsRes.error) throw checkinsRes.error;
 
-  const nameByEmail = new Map((membersRes.data ?? []).map((m) => [m.email as string, m.name as string]));
+  const nameByEmail = nameByEmailMap(
+    (membersRes.data ?? []).map((m) => ({ email: m.email as string, name: m.name as string, left_at: (m.left_at as string | null) ?? null }))
+  );
   const reportByPeriod = new Map((reportsRes.data ?? []).map((r) => [r.period_id as string, r]));
 
   const periods: GroupDetailPeriod[] = (periodsRes.data ?? []).map((p) => {

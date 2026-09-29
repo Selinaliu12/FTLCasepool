@@ -143,3 +143,40 @@ test.describe.serial("管理員編輯成員", () => {
     await expect(page.getByText("a2-cleared@g.nccu.edu.tw")).toHaveCount(0);
   });
 });
+
+// Task 7（規格 §16 第 5 點）：管理員移除一位專案生（要在確認視窗再按一次）→ 那位同學重新整理後
+// 看到名單外畫面；成員清單預設不再列他，勾「顯示已離開」才看得到並標已離開。
+test.describe.serial("管理員移除成員", () => {
+  test.afterAll(async () => {
+    await resetDb();
+    await seedSemester();
+  });
+
+  test("移除一位專案生 → 該生重新整理後看到名單外畫面", async ({ page, browser }) => {
+    await resetDb();
+    await seedSemester();
+
+    const ctx = await browser.newContext();
+    const student = await ctx.newPage();
+    await loginAndPassWelcome(student, "b1@g.nccu.edu.tw", /\/my-group$/);
+
+    await loginAndPassWelcome(page, "admin@g.nccu.edu.tw", /\/admin$/);
+    const card = page.locator('[data-slot="card"]').filter({ has: page.getByText("成員", { exact: true }) });
+    await card.getByRole("button", { name: "移除乙一的第2組專案生身份" }).click();
+
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toContainText("乙一的第2組專案生身份會標成已離開，之前交的進度保留");
+    await dialog.getByRole("button", { name: "確認移除" }).click();
+    await expect(page.getByText("已移除乙一的第2組專案生身份")).toBeVisible();
+    await expect(dialog).toBeHidden();
+    await expect(card.getByRole("cell", { name: "乙一" })).toHaveCount(0);
+
+    await card.getByRole("checkbox", { name: "顯示已離開" }).click();
+    await expect(card.getByRole("row").filter({ hasText: "乙一" })).toContainText("第2組專案生（已離開）");
+
+    await student.reload();
+    await expect(student).toHaveURL(/\/not-in-roster$/);
+    await expect(student.getByText("你不在本學期名單中，請聯絡幹部")).toBeVisible();
+    await ctx.close();
+  });
+});

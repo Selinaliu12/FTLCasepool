@@ -24,8 +24,8 @@ describe("groupPeople", () => {
     expect(a.identities.map((i) => i.label)).toEqual(["其他幹部", "第2組專案生", "第10組專案生"]);
     const b = people.find((p) => p.email === "b@g.nccu.edu.tw")!;
     expect(b.identities).toEqual([
-      { memberId: "b-pm", label: "專案幹部", left: false },
-      { memberId: "b-left", label: "第3組專案生", left: true },
+      { memberId: "b-pm", role: "pm", label: "專案幹部", left: false },
+      { memberId: "b-left", role: "student", label: "第3組專案生", left: true },
     ]);
     expect(people.find((p) => p.email === "c@g.nccu.edu.tw")!.allLeft).toBe(true);
   });

@@ -116,7 +116,7 @@ describe("loadEntryDetail", () => {
     mockCreateServerSupabase.mockResolvedValue(await clientAs("a1@g.nccu.edu.tw"));
     const detail = await loadEntryDetail(entryId);
     expect(detail).not.toBeNull();
-    expect(detail!.selectedMembers).toEqual([{ id: a2!.id, name: "甲二", movedOut: true }]);
+    expect(detail!.selectedMembers).toEqual([{ id: a2!.id, name: "甲二", movedOut: true, left: false }]);
     // 換組之後不再是這組的學生，不會出現在勾選候選名單裡。
     expect(detail!.groupStudents.map((s) => s.id)).not.toContain(a2!.id);
   });

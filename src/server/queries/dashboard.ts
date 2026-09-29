@@ -76,7 +76,7 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
     // /groups/[id] 顯示）——刻意少選一欄，不是漏選。
     groupIds.length === 0
       ? Promise.resolve({ data: [] as { group_id: string; name: string; dept_year: string | null }[], error: null })
-      : db.from("members").select("group_id, name, dept_year").eq("role", "student").in("group_id", groupIds),
+      : db.from("members").select("group_id, name, dept_year").eq("role", "student").in("group_id", groupIds).is("left_at", null),
   ]);
 
   if (linesRes.error) throw linesRes.error;
