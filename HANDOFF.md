@@ -35,11 +35,11 @@ FTL 社團（約 6 組、40 人）的學期專案追蹤工具：組別交雙週�
 
 **合併上線前要做**：先在正式 Supabase 執行 `npx supabase db push`（新 migration `20260929000001`～`20260929000008`，共 8 個），再合併，Vercel 會自動重新部署。
 
-### 測試證據（`feat/template-and-members` @ `c075fdf`，Task 8 整合檢查）
-- 全套連跑三次，皆全綠：
-  - `npm run test:unit`：53 個檔案、442 個測試
-  - `npm run test:integration`（本機 Supabase）：41 個檔案、525 個測試
-  - `npx playwright test`：53 通過、76 略過（截圖自我檢查用，需 `CAPTURE_SCREENSHOTS=1`），每次約 3.8 分鐘
+### 測試證據（`feat/template-and-members` @ `4ba509e`，最終審查修正後）
+- 全套依序跑一次，皆全綠：
+  - `npm run test:unit`：53 個檔案、445 個測試
+  - `npm run test:integration`（本機 Supabase）：41 個檔案、530 個測試
+  - `npx playwright test`：53 通過、78 略過（截圖自我檢查用，需 `CAPTURE_SCREENSHOTS=1`），約 4 分鐘
 - `npx tsc --noEmit`、`npx eslint .`、`npx next build`：皆 exit 0
 - 時間：2026-09-29（台北）；環境：macOS、本機 Supabase（Docker）、本機 S3 代替 R2
 - 截圖兩輪（1280×800、375×812）：大廳完整卡片與舊卡片、詳細頁完整與只有必填、新增競賽表單、成員區塊（含已離開）、新增／編輯／移除對話框；375 寬都沒有橫向捲動。
