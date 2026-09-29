@@ -76,9 +76,16 @@ describe("MembersSection（管理員頁成員區塊）", () => {
     expect(screen.getByText("找不到符合的成員")).toBeTruthy();
   });
 
-  it("名單是空的：顯示空狀態", () => {
+  // 最終審查 I2：還沒匯入名單前不能用「新增成員」（先加人會讓之後的整批匯入被擋下來）。
+  it("名單是空的（還沒匯入）：不顯示「新增成員」按鈕，改顯示先匯入名單的提示", () => {
     render(<MembersSection rows={[]} groups={groups} />);
-    expect(screen.getByText(/名單上還沒有任何人/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "新增成員" })).toBeNull();
+    expect(screen.getByText("名單上還沒有任何人。請先用上面的「名單匯入」匯入名單，再用「新增成員」補人。")).toBeTruthy();
+  });
+
+  it("名單上只剩已離開的人：名單已匯入過，仍顯示「新增成員」按鈕（用來重新加回）", () => {
+    render(<MembersSection rows={[rows[3]]} groups={groups} />);
+    expect(screen.getByRole("button", { name: "新增成員" })).toBeTruthy();
   });
 
   it("新增成員：送出表單呼叫 addMember，錯誤顯示在表單裡", async () => {

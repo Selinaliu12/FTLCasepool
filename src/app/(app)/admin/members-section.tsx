@@ -59,13 +59,17 @@ export function MembersSection({ rows, groups }: { rows: MemberListRow[]; groups
           <Checkbox checked={showLeft} onCheckedChange={(v) => setShowLeft(v === true)} />
           顯示已離開
         </Label>
-        <div className="sm:ml-auto">
-          <AddMemberDialog groups={groups} />
-        </div>
+        {/* 最終審查 I2：還沒匯入名單（本學期一列成員都沒有，已離開的也算）之前不給新增——先新增一個人
+            會讓之後的整批匯入被擋下來。這時候改由下面的空狀態文字提示先匯入。 */}
+        {people.length > 0 && (
+          <div className="sm:ml-auto">
+            <AddMemberDialog groups={groups} />
+          </div>
+        )}
       </div>
 
       {people.length === 0 ? (
-        <p className="text-sm text-muted-foreground">名單上還沒有任何人。匯入名單或按「新增成員」加入。</p>
+        <p className="text-sm text-muted-foreground">名單上還沒有任何人。請先用上面的「名單匯入」匯入名單，再用「新增成員」補人。</p>
       ) : !hasAnyone ? (
         // Task 7 (a)：名單上有人，只是全部都已離開（而且沒勾「顯示已離開」）——不是「還沒匯入」。
         <p className="text-sm text-muted-foreground">目前沒有在名單上的成員</p>

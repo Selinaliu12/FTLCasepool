@@ -56,7 +56,7 @@ export async function importRoster(
 
   const { count } = await db.from("members").select("id", { count: "exact", head: true }).eq("semester_id", semesterId);
   if (count && count > 0) {
-    return { ok: false, errors: ["本學期已匯入名單；學期中的異動請用「換組」"] };
+    return { ok: false, errors: ["本學期已匯入名單；學期中的異動請用「成員」區塊"] };
   }
 
   const parsed = parseRosterCsv(csv);
@@ -250,11 +250,21 @@ export async function addMember(input: AddMemberInput): Promise<AddMemberResult>
   const access = await getAccess();
   if (access.kind !== "ok") return { ok: false, error: "還沒有本學期，請先建立學期" };
 
+  const db = createServiceSupabase();
+
+  // 最終審查 I2：importRoster 只在本學期完全沒有成員列時才肯整批匯入（已離開的列也算，移除只是
+  // 標已離開）。還沒匯入就先新增一個人，之後就再也匯入不了名單，所以規定先匯入、再用新增成員補人。
+  const { count, error: countError } = await db
+    .from("members")
+    .select("id", { count: "exact", head: true })
+    .eq("semester_id", access.semesterId);
+  if (countError) throw new Error(countError.message);
+  if (!count) return { ok: false, error: "請先匯入名單，再用「新增成員」補人" };
+
   const checked = validateMemberRow({ ...input, group: input.groupId });
   if (!checked.ok) return { ok: false, error: memberFormError(checked.error) };
   const v = checked.value;
 
-  const db = createServiceSupabase();
   const { data, error } = await db.rpc("admin_add_member", {
     p_semester_id: access.semesterId,
     p_email: v.email,

@@ -327,7 +327,7 @@ describe("importRoster", () => {
     asAdmin(semesterId);
     await importRoster(semesterId, CSV_OK);
     const r = await importRoster(semesterId, CSV_OK);
-    expect(r).toEqual({ ok: false, errors: ["本學期已匯入名單；學期中的異動請用「換組」"] });
+    expect(r).toEqual({ ok: false, errors: ["本學期已匯入名單；學期中的異動請用「成員」區塊"] });
   });
 
   // §14：同一個人可以同時是兩組的專案生，也可以身兼專案幹部——三列身份都要各自寫進 members。

@@ -32,6 +32,19 @@ beforeEach(async () => {
 });
 
 describe("addMember", () => {
+  // 最終審查 I2：本學期還沒匯入名單就先用「新增成員」加人，之後 importRoster 會因為已經有成員列
+  // 而永遠拒絕匯入（移除只是標已離開，列還在）。所以名單還沒匯入之前不能新增。
+  it("本學期還沒有任何成員列（還沒匯入名單）→ 請先匯入名單，不寫入", async () => {
+    const db = service();
+    await db.from("pm_assignments").delete().not("group_id", "is", null);
+    const { error } = await db.from("members").delete().eq("semester_id", seed.semesterId);
+    expect(error).toBeNull();
+
+    const res = await addMember({ email: "first@g.nccu.edu.tw", name: "第一人", role: "其他幹部" });
+    expect(res).toEqual({ ok: false, error: "請先匯入名單，再用「新增成員」補人" });
+    expect(await rowsOf("first@g.nccu.edu.tw")).toEqual([]);
+  });
+
   it("新增一個專案生後，本人能登入並看到自己組", async () => {
     const res = await addMember({
       email: " New@G.nccu.edu.tw ", name: "新同學", role: "專案生", studentId: "113701001", deptYear: "資科一", groupId: seed.groupB,
