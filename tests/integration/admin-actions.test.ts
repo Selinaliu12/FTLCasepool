@@ -127,6 +127,12 @@ async function waitUntilWaitingOnAdvisoryHeldBy(holder: PgClient): Promise<void>
   }
 }
 
+// createSemester 的驗證錯誤改回 { ok:false, error }（最終審查 M4）；成功的呼叫用這個取出 semesterId。
+function okSemester(r: { ok: true; semesterId: string } | { ok: false; error: string }): { semesterId: string } {
+  if (!r.ok) throw new Error(r.error);
+  return r;
+}
+
 describe("requireAdmin", () => {
   beforeEach(async () => {
     await resetDb();
@@ -200,7 +206,7 @@ describe("createSemester", () => {
   it("還沒有任何學期時可以建立第一個學期", async () => {
     asAdminNoSemester();
     const { createSemester } = await import("@/server/actions/admin");
-    const { semesterId } = await createSemester("115-1");
+    const { semesterId } = okSemester(await createSemester("115-1"));
 
     const svc = createServiceSupabase();
     const { data } = await svc.from("semesters").select("id, name, is_current");
@@ -211,7 +217,7 @@ describe("createSemester", () => {
     const seed = await seedSemester(); // 種好 "115-1"，is_current=true
     asAdmin(seed.semesterId);
     const { createSemester } = await import("@/server/actions/admin");
-    const { semesterId: newId } = await createSemester("115-2");
+    const { semesterId: newId } = okSemester(await createSemester("115-2"));
 
     const svc = createServiceSupabase();
     const { data } = await svc.from("semesters").select("id, is_current").order("name");
@@ -232,19 +238,21 @@ describe("createSemester", () => {
     expect(data).toEqual([{ id: seed.semesterId, is_current: true }]);
   });
 
-  it("空白學期名稱回傳錯誤", async () => {
+  it("空白學期名稱回傳 { ok:false, error }（不丟例外，正式環境畫面才看得到訊息）", async () => {
     asAdminNoSemester();
     const { createSemester } = await import("@/server/actions/admin");
-    await expect(createSemester("   ")).rejects.toThrow("請輸入學期名稱");
+    expect(await createSemester("   ")).toEqual({ ok: false, error: "請輸入學期名稱" });
   });
 
   // Task 7 review 折進 Task 8：上傳的 storage key 用學期名稱當路徑前綴（`${semester.name}/...`，
   // 見 src/server/actions/upload.ts），名稱裡有 "/" 會多切出一層目錄，之後用
   // `key like (學期名稱 || '/%')` 找回本學期的紀錄（member_has_records()）就會算錯範圍。
-  it("學期名稱含「/」回傳錯誤", async () => {
+  it("學期名稱含「/」回傳 { ok:false, error }，不建立學期", async () => {
     asAdminNoSemester();
     const { createSemester } = await import("@/server/actions/admin");
-    await expect(createSemester("115-1/a")).rejects.toThrow("學期名稱不能有「/」");
+    expect(await createSemester("115-1/a")).toEqual({ ok: false, error: "學期名稱不能有「/」" });
+    const { data } = await createServiceSupabase().from("semesters").select("id");
+    expect(data).toEqual([]);
   });
 });
 
@@ -264,7 +272,7 @@ describe("importRoster", () => {
   it("匯入後：2 組、每組 1 條專案線、成員歸組", async () => {
     asAdminNoSemester();
     const { createSemester } = await import("@/server/actions/admin");
-    const { semesterId } = await createSemester("115-1");
+    const { semesterId } = okSemester(await createSemester("115-1"));
     asAdmin(semesterId);
     const { importRoster } = await import("@/server/actions/admin");
     const r = await importRoster(semesterId, CSV_OK);
@@ -285,7 +293,7 @@ describe("importRoster", () => {
   it("成員真的歸到正確的組（email → 組名）", async () => {
     asAdminNoSemester();
     const { createSemester, importRoster } = await import("@/server/actions/admin");
-    const { semesterId } = await createSemester("115-1");
+    const { semesterId } = okSemester(await createSemester("115-1"));
     asAdmin(semesterId);
     await importRoster(semesterId, CSV_OK);
 
@@ -306,7 +314,7 @@ describe("importRoster", () => {
   it("CSV 有錯就一筆都不寫入", async () => {
     asAdminNoSemester();
     const { createSemester, importRoster } = await import("@/server/actions/admin");
-    const { semesterId } = await createSemester("115-1");
+    const { semesterId } = okSemester(await createSemester("115-1"));
     asAdmin(semesterId);
     const badCsv = [
       "email,姓名,角色,學號,系級,組別,專案名稱",
@@ -323,7 +331,7 @@ describe("importRoster", () => {
   it("已經匯入過的學期不能再整批匯入", async () => {
     asAdminNoSemester();
     const { createSemester, importRoster } = await import("@/server/actions/admin");
-    const { semesterId } = await createSemester("115-1");
+    const { semesterId } = okSemester(await createSemester("115-1"));
     asAdmin(semesterId);
     await importRoster(semesterId, CSV_OK);
     const r = await importRoster(semesterId, CSV_OK);
@@ -334,7 +342,7 @@ describe("importRoster", () => {
   it("多列匯入：同一人在兩組是專案生，同時也是專案幹部", async () => {
     asAdminNoSemester();
     const { createSemester, importRoster } = await import("@/server/actions/admin");
-    const { semesterId } = await createSemester("115-1");
+    const { semesterId } = okSemester(await createSemester("115-1"));
     asAdmin(semesterId);
     const csv = [
       "email,姓名,角色,學號,系級,組別,專案名稱",
@@ -364,7 +372,7 @@ describe("importRoster", () => {
   it("資料不一致（同信箱姓名不同）被拒，一筆都不寫入", async () => {
     asAdminNoSemester();
     const { createSemester, importRoster } = await import("@/server/actions/admin");
-    const { semesterId } = await createSemester("115-1");
+    const { semesterId } = okSemester(await createSemester("115-1"));
     asAdmin(semesterId);
     const csv = [
       "email,姓名,角色,學號,系級,組別,專案名稱",
@@ -391,7 +399,7 @@ describe("savePeriods", () => {
   it("依日期排序編成第 1、2、3 期，截止時間照台北時間存", async () => {
     asAdminNoSemester();
     const { createSemester, savePeriods } = await import("@/server/actions/admin");
-    const { semesterId } = await createSemester("115-1");
+    const { semesterId } = okSemester(await createSemester("115-1"));
     asAdmin(semesterId);
     const r = await savePeriods(semesterId, [
       { date: "2026-11-01", time: "23:59" },
@@ -412,7 +420,7 @@ describe("savePeriods", () => {
   it("日期重複、格式錯回傳錯誤，不寫入", async () => {
     asAdminNoSemester();
     const { createSemester, savePeriods } = await import("@/server/actions/admin");
-    const { semesterId } = await createSemester("115-1");
+    const { semesterId } = okSemester(await createSemester("115-1"));
     asAdmin(semesterId);
     const r = await savePeriods(semesterId, [
       { date: "2026-10-01", time: "23:59" },
@@ -466,7 +474,7 @@ describe("savePeriods", () => {
   it("每一列的建議內容會存起來；空白字串存成 null", async () => {
     asAdminNoSemester();
     const { createSemester, savePeriods } = await import("@/server/actions/admin");
-    const { semesterId } = await createSemester("115-1");
+    const { semesterId } = okSemester(await createSemester("115-1"));
     asAdmin(semesterId);
     const r = await savePeriods(semesterId, [
       { date: "2026-10-01", time: "23:59", suggestion: "這期建議交截圖" },

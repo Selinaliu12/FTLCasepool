@@ -21,15 +21,19 @@ async function requireAdmin(): Promise<void> {
   }
 }
 
-export async function createSemester(name: string): Promise<{ semesterId: string }> {
+export type CreateSemesterResult = { ok: true; semesterId: string } | { ok: false; error: string };
+
+export async function createSemester(name: string): Promise<CreateSemesterResult> {
   await requireAdmin();
 
+  // 最終審查 M4：驗證錯誤用回傳值帶回（正式環境 server action 丟出的例外訊息會被 Next.js 換成
+  // 通用訊息，管理員看不到原因）。
   const trimmed = name.trim();
-  if (!trimmed) throw new Error("請輸入學期名稱");
-  // Task 7 review 折進 Task 8：上傳的 storage key 用學期名稱當路徑前綴
-  // （`${semester.name}/...`），名稱裡有 "/" 會多切出一層目錄，member_has_records() 用
-  // `key like (學期名稱 || '/%')` 抓本學期紀錄的範圍就會算錯。直接擋在建學期這一關。
-  if (trimmed.includes("/")) throw new Error("學期名稱不能有「/」");
+  if (!trimmed) return { ok: false, error: "請輸入學期名稱" };
+  // 上傳的 storage key 用學期名稱當路徑前綴（`${semester.name}/...`），名稱裡有 "/" 會多切出一層
+  // 目錄，路徑就不乾淨。member_has_records() 已經改成字面比較 key 的字首
+  // （20260929000006 (e)），所以這條規則是路徑整潔的規則，不再是判斷紀錄範圍的正確性修正。
+  if (trimmed.includes("/")) return { ok: false, error: "學期名稱不能有「/」" };
 
   const db = createServiceSupabase();
 
@@ -44,7 +48,7 @@ export async function createSemester(name: string): Promise<{ semesterId: string
   }
 
   revalidatePath("/admin");
-  return { semesterId: data as string };
+  return { ok: true, semesterId: data as string };
 }
 
 export async function importRoster(
