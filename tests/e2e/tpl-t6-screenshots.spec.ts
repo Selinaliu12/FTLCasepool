@@ -19,10 +19,9 @@ test.describe.serial(`tpl-t6 視覺自我檢查截圖 round${ROUND}`, () => {
   test.beforeAll(async () => {
     fs.mkdirSync(".screenshots", { recursive: true });
     await resetDb();
-    const seed = await seedSemester();
+    await seedSemester();
     const db = service();
     await db.from("members").update({ student_id: "110701001", dept_year: "資科三" }).eq("email", "a1@g.nccu.edu.tw");
-    void seed;
   });
 
   test.afterAll(async () => {

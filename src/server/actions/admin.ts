@@ -339,6 +339,47 @@ export async function updatePerson(email: string, fields: UpdatePersonInput): Pr
   return { ok: true };
 }
 
+export type EditPersonInput = { name: string; studentId: string; deptYear: string };
+export type EditPersonResult = { ok: true } | { ok: false; error: string };
+
+// Task 6 fix round 1（controller ruling F1）：姓名／學號／系級／信箱一次一個 server action、
+// 一個 SQL 交易（admin_edit_person()，見 20260929000005_member_lock.sql）寫完，取代原本
+// 「先呼叫 changeEmail() 再呼叫 updatePerson()」的兩段式寫法——兩段式的問題是 changeEmail()
+// 成功之後的 revalidatePath("/admin") 會讓「成員」表格用新的 rows 重新渲染，表格列的
+// key={p.email} 是舊信箱，那一列會被卸載，連帶卸載還開著的編輯對話框；如果這時候第二段
+// updatePerson() 才失敗，錯誤訊息會設在一個已經被卸載的元件上，管理員完全看不到、也無從重試
+// （見 task-6-review.md Important #1）。合併成一次呼叫之後，這個中間狀態不可能發生：對話框只
+// 送出一次請求，失敗就是失敗、對話框留著、錯誤訊息看得到。
+export async function editPerson(oldEmail: string, newEmail: string, fields: EditPersonInput): Promise<EditPersonResult> {
+  await requireAdmin();
+  const access = await getAccess();
+  if (access.kind !== "ok") return { ok: false, error: "還沒有本學期，請先建立學期" };
+
+  const name = fields.name.trim();
+  if (!name) return { ok: false, error: "姓名不能空白" };
+  const studentId = fields.studentId.trim() || null;
+  const deptYear = fields.deptYear.trim() || null;
+  const normalizedNew = newEmail.trim().toLowerCase();
+  if (!normalizedNew.endsWith("@g.nccu.edu.tw")) return { ok: false, error: "email 必須是 @g.nccu.edu.tw" };
+
+  const db = createServiceSupabase();
+  const { error } = await db.rpc("admin_edit_person", {
+    p_semester_id: access.semesterId,
+    p_old_email: oldEmail.trim().toLowerCase(),
+    p_new_email: normalizedNew,
+    p_name: name,
+    p_student_id: studentId,
+    p_dept_year: deptYear,
+  });
+  if (error) {
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
 export type ChangeEmailResult = { ok: true } | { ok: false; error: string };
 
 // 規格 §16 第 4 點：改信箱，以「人」為單位——本學期所有身份列一起改。新信箱格式與「是否已在名單

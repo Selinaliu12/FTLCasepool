@@ -19,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { addMember, changeEmail, updatePerson } from "@/server/actions/admin";
+import { addMember, editPerson } from "@/server/actions/admin";
 import { filterPeople, groupPeople, type MemberListRow, type Person } from "@/domain/member-list";
 
 export type MemberGroupOption = { id: string; name: string };
@@ -267,24 +267,17 @@ function EditPersonDialog({ person }: { person: Person }) {
     setPending(true);
     setError(null);
     try {
-      const newEmail = fields.email.trim().toLowerCase();
-      let currentEmail = person.email;
-      if (newEmail !== person.email) {
-        const emailRes = await changeEmail(person.email, newEmail);
-        if (!emailRes.ok) {
-          setError(emailRes.error);
-          return;
-        }
-        currentEmail = newEmail;
-      }
-
-      const personRes = await updatePerson(currentEmail, {
+      // Task 6 fix round 1（F1）：一次呼叫 editPerson()（姓名／學號／系級／信箱一個交易寫完），
+      // 不再分兩段呼叫——兩段式的問題是第一段（改信箱）成功後的 revalidatePath 會讓這一列用新
+      // rows 重新渲染（列的 key 是舊信箱），把還開著的這個對話框卸載掉，第二段（改姓名）萬一才
+      // 失敗，錯誤會設在一個已經被卸載的元件上，管理員什麼都看不到。
+      const res = await editPerson(person.email, fields.email, {
         name: fields.name,
         studentId: fields.studentId,
         deptYear: fields.deptYear,
       });
-      if (!personRes.ok) {
-        setError(currentEmail !== person.email ? `信箱已改成功，但姓名等資料儲存失敗：${personRes.error}` : personRes.error);
+      if (!res.ok) {
+        setError(res.error);
         return;
       }
 

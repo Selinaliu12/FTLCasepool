@@ -116,4 +116,30 @@ test.describe.serial("管理員編輯成員", () => {
     await expect(dialog.getByRole("alert")).toHaveText("這個人已經有紀錄，不能改信箱；請移除後用新信箱新增");
     await expect(dialog.getByRole("button", { name: "儲存" })).toBeEnabled();
   });
+
+  // F1（fix round 1，controller-required test）：姓名清空、同時改信箱 → 一次呼叫的 editPerson()
+  // 在同一個交易裡驗證，錯誤顯示在對話框裡、對話框不會被 revalidate 卸載，信箱與姓名都沒被改動。
+  test("姓名清空、同時改信箱 → 錯誤顯示在表單裡，信箱與姓名都沒被改動", async ({ page }) => {
+    await resetDb();
+    await seedSemester();
+
+    await loginAndPassWelcome(page, "admin@g.nccu.edu.tw", /\/admin$/);
+    const card = page.locator('[data-slot="card"]').filter({ has: page.getByText("成員", { exact: true }) });
+    const row = card.getByRole("row").filter({ hasText: "甲二" });
+    await row.getByRole("button", { name: "編輯" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("學校信箱").fill("a2-cleared@g.nccu.edu.tw");
+    await dialog.getByLabel("姓名").fill("");
+    await dialog.getByRole("button", { name: "儲存" }).click();
+
+    await expect(dialog.getByRole("alert")).toHaveText("姓名不能空白");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "儲存" })).toBeEnabled();
+
+    // 對話框關掉之後，成員清單裡還是原本的信箱與姓名——什麼都沒被改動。
+    await dialog.getByRole("button", { name: "取消" }).click();
+    await expect(card.getByRole("row").filter({ hasText: "甲二" })).toContainText("a2@g.nccu.edu.tw");
+    await expect(page.getByText("a2-cleared@g.nccu.edu.tw")).toHaveCount(0);
+  });
 });
