@@ -73,14 +73,14 @@ export function MembersSection({ rows, groups }: { rows: MemberListRow[]; groups
         <p className="text-sm text-muted-foreground">找不到符合的成員</p>
       ) : (
         // 三欄都可以換行（信箱 break-all、身份徽章 flex-wrap）；手機寬把「學號／系級」收進第一欄
-        // （合成一行），只剩兩欄，375 寬也不用橫向捲動就看得到身份。
+        // （合成一行），只剩兩欄，375 寬也不用橫向捲動就看得到身份。「編輯」「移除整個人」放在
+        // 第一欄姓名底下（Task 7：原本獨立的動作欄在 375 寬會蓋住身份徽章的移除按鈕）。
         <Table className="table-fixed">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[55%] sm:w-[42%]">姓名／信箱</TableHead>
               <TableHead className="hidden w-[24%] sm:table-cell">學號／系級</TableHead>
               <TableHead>身份</TableHead>
-              <TableHead className="w-[1%]" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -91,6 +91,21 @@ export function MembersSection({ rows, groups }: { rows: MemberListRow[]; groups
                   <div className="text-xs break-all text-[var(--ink-2,#3E4F70)]">{p.email}</div>
                   <div className="text-xs break-words text-[var(--ink-2,#3E4F70)] sm:hidden">
                     <span className="font-mono">{p.studentId ?? "—"}</span> · {p.deptYear ?? "—"}
+                  </div>
+                  {/* 以人為單位的動作放在姓名底下（不另開一欄）：手機寬只有兩欄，不會擠壓身份徽章。 */}
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <EditPersonDialog person={p} />
+                    {!p.allLeft && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => setRemoveTarget({ kind: "person", email: p.email, name: p.name })}
+                      >
+                        移除整個人
+                      </Button>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell className="hidden whitespace-normal sm:table-cell">
@@ -114,28 +129,12 @@ export function MembersSection({ rows, groups }: { rows: MemberListRow[]; groups
                             onClick={() =>
                               setRemoveTarget({ kind: "identity", memberId: i.memberId, name: p.name, label: i.label, isPm: i.role === "pm" })
                             }
-                            className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50"
+                            className="-my-0.5 inline-flex size-5 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50"
                           >
                             <XIcon className="size-3" />
                           </button>
                         </Badge>
                       )
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex flex-col items-end gap-1.5">
-                    <EditPersonDialog person={p} />
-                    {!p.allLeft && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => setRemoveTarget({ kind: "person", email: p.email, name: p.name })}
-                      >
-                        移除整個人
-                      </Button>
                     )}
                   </div>
                 </TableCell>

@@ -16,7 +16,7 @@ test.describe.serial("管理員新增成員", () => {
 
     await loginAndPassWelcome(page, "admin@g.nccu.edu.tw", /\/admin$/);
     const card = page.locator('[data-slot="card"]').filter({ has: page.getByText("成員", { exact: true }) });
-    await expect(card.getByRole("cell", { name: "甲一" })).toBeVisible();
+    await expect(card.getByText("甲一", { exact: true })).toBeVisible();
 
     await card.getByRole("button", { name: "新增成員" }).click();
     const dialog = page.getByRole("dialog");
@@ -169,7 +169,7 @@ test.describe.serial("管理員移除成員", () => {
     await dialog.getByRole("button", { name: "確認移除" }).click();
     await expect(page.getByText("已移除乙一的第2組專案生身份")).toBeVisible();
     await expect(dialog).toBeHidden();
-    await expect(card.getByRole("cell", { name: "乙一" })).toHaveCount(0);
+    await expect(card.getByText("乙一", { exact: true })).toHaveCount(0);
 
     await card.getByRole("checkbox", { name: "顯示已離開" }).click();
     await expect(card.getByRole("row").filter({ hasText: "乙一" })).toContainText("第2組專案生（已離開）");
