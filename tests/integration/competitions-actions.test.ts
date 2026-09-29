@@ -313,3 +313,168 @@ describe("publishCompetition / unpublishCompetition", () => {
 function unpublishOk(r: { ok: boolean }): boolean {
   return r.ok;
 }
+
+// Task 1（競賽大廳新模板）：新欄位的建立／讀回／清空／DB 層擋掉不合法標籤。
+describe("competitions：新欄位（Task 1）", () => {
+  let seed: Awaited<ReturnType<typeof seedSemester>>;
+
+  beforeEach(async () => {
+    mockGetAccess.mockReset();
+    await resetDb();
+    seed = await seedSemester();
+  });
+
+  const fullForm = {
+    ...validForm,
+    summary: "一句話介紹",
+    tags: ["ESG", "創業", "ESG"], // 重複標籤：存進去要去重並依清單排序
+    maxPrize: "500000",
+    perks: "有機會被創投看到",
+    infoSessionDate: "2026-11-01",
+    infoSessionTime: "19:00",
+    signupNote: "報名成功證明 PDF",
+    submissionNote: "送出的作品 PDF",
+    finalNote: "決賽簡報 PDF",
+    finalFormat: "線上 Google Meet",
+    fee: "免費",
+    documents: "身分證正反面",
+    skills: "簡報、財務分析",
+    recommended: true,
+    staffNote: "很適合新手隊伍",
+  };
+
+  it("幹部建立含全部新欄位的比賽，讀回來值相同", async () => {
+    asPm(seed.semesterId);
+    const result = await createCompetition(fullForm);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    const db = createServiceSupabase();
+    const { data } = await db
+      .from("competitions")
+      .select(
+        "summary, tags, max_prize, perks, info_session_at, signup_note, submission_note, final_note, final_format, fee, documents, skills, recommended, staff_note"
+      )
+      .eq("id", result.id)
+      .single();
+
+    expect(data!.summary).toBe("一句話介紹");
+    expect(data!.tags).toEqual(["創業", "ESG"]); // 依 COMPETITION_TAGS 清單排序：創業在 ESG 前面
+    expect(data!.max_prize).toBe(500000);
+    expect(data!.perks).toBe("有機會被創投看到");
+    expect(new Date(data!.info_session_at as string).toISOString()).toBe("2026-11-01T11:00:59.999Z");
+    expect(data!.signup_note).toBe("報名成功證明 PDF");
+    expect(data!.submission_note).toBe("送出的作品 PDF");
+    expect(data!.final_note).toBe("決賽簡報 PDF");
+    expect(data!.final_format).toBe("線上 Google Meet");
+    expect(data!.fee).toBe("免費");
+    expect(data!.documents).toBe("身分證正反面");
+    expect(data!.skills).toBe("簡報、財務分析");
+    expect(data!.recommended).toBe(true);
+    expect(data!.staff_note).toBe("很適合新手隊伍");
+  });
+
+  it("更新時把欄位清空會存成 null", async () => {
+    asPm(seed.semesterId);
+    const created = await createCompetition(fullForm);
+    if (!created.ok) throw new Error("setup failed");
+
+    const cleared = await updateCompetition(created.id, {
+      ...validForm,
+      summary: "",
+      tags: [],
+      maxPrize: "",
+      perks: "  ",
+      infoSessionDate: "",
+      signupNote: "",
+      submissionNote: "",
+      finalNote: "",
+      finalFormat: "",
+      fee: "",
+      documents: "",
+      skills: "",
+      recommended: false,
+      staffNote: "",
+    });
+    expect(cleared.ok).toBe(true);
+
+    const db = createServiceSupabase();
+    const { data } = await db
+      .from("competitions")
+      .select(
+        "summary, tags, max_prize, perks, info_session_at, signup_note, submission_note, final_note, final_format, fee, documents, skills, recommended, staff_note"
+      )
+      .eq("id", created.id)
+      .single();
+
+    expect(data!.summary).toBeNull();
+    expect(data!.tags).toEqual([]);
+    expect(data!.max_prize).toBeNull();
+    expect(data!.perks).toBeNull();
+    expect(data!.info_session_at).toBeNull();
+    expect(data!.signup_note).toBeNull();
+    expect(data!.submission_note).toBeNull();
+    expect(data!.final_note).toBeNull();
+    expect(data!.final_format).toBeNull();
+    expect(data!.fee).toBeNull();
+    expect(data!.documents).toBeNull();
+    expect(data!.skills).toBeNull();
+    expect(data!.recommended).toBe(false);
+    expect(data!.staff_note).toBeNull();
+  });
+
+  it("學生呼叫 createCompetition 仍被拒（沿用）", async () => {
+    asStudent(seed.semesterId, seed.groupA);
+    await expect(createCompetition(fullForm)).rejects.toThrow("只有幹部可以編輯競賽");
+  });
+
+  // Review Focus：tags 的 check constraint 要在 DB 層也擋，不能只靠應用層的 validateCompetition
+  // ——用 service client 直接繞過應用層驗證 insert 一個不在清單內的標籤，資料庫要噴錯。
+  it("DB 層：用 service client 直接 insert 不在清單內的標籤要被 check constraint 擋下來", async () => {
+    const db = createServiceSupabase();
+    const { error } = await db.from("competitions").insert({
+      semester_id: seed.semesterId,
+      name: "違規標籤比賽",
+      url: "https://example.com/bad-tag",
+      signup_deadline: "2026-12-01T15:59:59.999Z",
+      tags: ["不存在的標籤"],
+      status: "draft",
+      created_by: "pm@g.nccu.edu.tw",
+    });
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/competitions_tags_valid|check constraint/i);
+
+    const { data } = await db.from("competitions").select("id").eq("url", "https://example.com/bad-tag");
+    expect(data).toEqual([]);
+  });
+
+  it("DB 層：最高獎金超出範圍（負數）一樣被 check constraint 擋下來", async () => {
+    const db = createServiceSupabase();
+    const { error } = await db.from("competitions").insert({
+      semester_id: seed.semesterId,
+      name: "違規獎金比賽",
+      url: "https://example.com/bad-prize",
+      signup_deadline: "2026-12-01T15:59:59.999Z",
+      max_prize: -1,
+      status: "draft",
+      created_by: "pm@g.nccu.edu.tw",
+    });
+    expect(error).not.toBeNull();
+  });
+
+  // 說明會日期時間跟其他三個日期欄位共用同一個 parseField，但目前沒有任何測試走過它回傳
+  // error 的分支——只填了日期、時間格式亂填，回傳欄位錯誤 key 是 infoSessionAt，不寫入資料庫。
+  it("說明會時間格式錯誤（parseField 的 error 分支）→ infoSessionAt 欄位錯誤，不寫入資料庫", async () => {
+    asPm(seed.semesterId);
+    const result = await createCompetition({
+      ...validForm,
+      infoSessionDate: "2026-11-01",
+      infoSessionTime: "不是時間",
+    });
+    expect(result).toEqual({ ok: false, errors: { infoSessionAt: "日期或時間格式錯誤" } });
+
+    const db = createServiceSupabase();
+    const { data } = await db.from("competitions").select("id").eq("semester_id", seed.semesterId);
+    expect(data).toEqual([]);
+  });
+});

@@ -15,6 +15,21 @@ export type CompetitionFormValues = {
   submissionTime: string;
   finalDate: string;
   finalTime: string;
+  summary: string;
+  tags: string[];
+  maxPrize: string;
+  perks: string;
+  infoSessionDate: string;
+  infoSessionTime: string;
+  signupNote: string;
+  submissionNote: string;
+  finalNote: string;
+  finalFormat: string;
+  fee: string;
+  documents: string;
+  skills: string;
+  recommended: boolean;
+  staffNote: string;
 };
 
 const DEFAULT_TIME = "23:59";
@@ -34,5 +49,20 @@ export function emptyCompetitionForm(): CompetitionFormValues {
     submissionTime: DEFAULT_TIME,
     finalDate: "",
     finalTime: DEFAULT_TIME,
+    summary: "",
+    tags: [],
+    maxPrize: "",
+    perks: "",
+    infoSessionDate: "",
+    infoSessionTime: DEFAULT_TIME,
+    signupNote: "",
+    submissionNote: "",
+    finalNote: "",
+    finalFormat: "",
+    fee: "",
+    documents: "",
+    skills: "",
+    recommended: false,
+    staffNote: "",
   };
 }

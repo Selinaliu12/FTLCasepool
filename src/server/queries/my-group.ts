@@ -7,6 +7,7 @@ import { onTimeRate } from "@/domain/on-time";
 import { lockedAt } from "@/domain/lock";
 import { mapCheckinHistory, type CheckinHistoryEntry } from "@/domain/checkin-history";
 import { sortMembersByName, type GroupCardMember } from "@/domain/dashboard";
+import { nameByEmailMap } from "@/domain/member-name";
 import { loadCompetitionLinesForGroup, type CompetitionLineSummary } from "@/server/queries/competition-lines";
 
 export type PeriodRow = {
@@ -56,9 +57,10 @@ export async function loadMyGroup(): Promise<MyGroup> {
     supabase.from("lines").select("id").eq("group_id", groupId).eq("kind", "project").single(),
     supabase.from("periods").select("id, seq, deadline, suggestion").eq("semester_id", semesterId).order("seq"),
     supabase.from("semesters").select("red_after_hours").eq("id", semesterId).single(),
-    supabase.from("members").select("email, name").eq("semester_id", semesterId),
-    // 自己組的組員（姓名、系級，不含學號——學號只在管理員頁與 /groups/[id] 顯示）。
-    supabase.from("members").select("name, dept_year").eq("group_id", groupId).eq("role", "student"),
+    // 紀錄上的名字：含已離開的列（顯示「姓名（已離開）」，Task 7）。
+    supabase.from("members").select("email, name, left_at").eq("semester_id", semesterId),
+    // 自己組的組員（姓名、系級，不含學號——學號只在管理員頁與 /groups/[id] 顯示）。已離開的人不列。
+    supabase.from("members").select("name, dept_year").eq("group_id", groupId).eq("role", "student").is("left_at", null),
   ]);
 
   if (groupRes.error) throw groupRes.error;
@@ -93,7 +95,9 @@ export async function loadMyGroup(): Promise<MyGroup> {
   if (checkinsError) throw checkinsError;
 
   // 顯示送出者「姓名」而不是 email（規格：學生不需要看到組員的帳號）。
-  const nameByEmail = new Map((membersRes.data ?? []).map((m) => [m.email as string, m.name as string]));
+  const nameByEmail = nameByEmailMap(
+    (membersRes.data ?? []).map((m) => ({ email: m.email as string, name: m.name as string, left_at: (m.left_at as string | null) ?? null }))
+  );
   const reportByPeriod = new Map((reports ?? []).map((r) => [r.period_id as string, r]));
 
   const now = new Date();

@@ -11,7 +11,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 describe("CreateSemesterForm", () => {
   beforeEach(() => {
     createSemester.mockReset();
-    createSemester.mockResolvedValue({ semesterId: "s2" });
+    createSemester.mockResolvedValue({ ok: true, semesterId: "s2" });
   });
 
   afterEach(() => cleanup());
@@ -21,6 +21,17 @@ describe("CreateSemesterForm", () => {
     fireEvent.change(screen.getByLabelText("學期名稱"), { target: { value: "115-1" } });
     fireEvent.click(screen.getByRole("button", { name: "建立學期" }));
     await waitFor(() => expect(createSemester).toHaveBeenCalledWith("115-1"));
+  });
+
+  // 最終審查 M4：驗證錯誤用回傳值 { ok:false, error } 帶回來（正式環境 server action 丟出的例外訊息
+  // 會被換成通用訊息），表單要把它顯示在欄位下面。
+  it("createSemester 回 { ok:false, error } → 錯誤訊息顯示在表單裡，表單保留輸入", async () => {
+    createSemester.mockResolvedValue({ ok: false, error: "學期名稱不能有「/」" });
+    render(<CreateSemesterForm currentSemesterName={null} />);
+    fireEvent.change(screen.getByLabelText("學期名稱"), { target: { value: "115/1" } });
+    fireEvent.click(screen.getByRole("button", { name: "建立學期" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("學期名稱不能有「/」"));
+    expect((screen.getByLabelText("學期名稱") as HTMLInputElement).value).toBe("115/1");
   });
 
   it("已有當前學期：表單收在「開始新學期…」後面", () => {

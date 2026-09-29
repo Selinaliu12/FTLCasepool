@@ -24,6 +24,7 @@ export default async function EditCompetitionPage({
   const signup = taipeiInputValues(data.signupDeadline);
   const submission = data.submissionDeadline ? taipeiInputValues(data.submissionDeadline) : null;
   const final = data.finalDate ? taipeiInputValues(data.finalDate) : null;
+  const infoSession = data.infoSessionAt ? taipeiInputValues(data.infoSessionAt) : null;
 
   return (
     <main className="mx-auto flex max-w-2xl flex-col gap-6 p-6">
@@ -46,6 +47,21 @@ export default async function EditCompetitionPage({
           submissionTime: submission?.time ?? "23:59",
           finalDate: final?.date ?? "",
           finalTime: final?.time ?? "23:59",
+          summary: data.summary ?? "",
+          tags: data.tags,
+          maxPrize: data.maxPrize !== null ? String(data.maxPrize) : "",
+          perks: data.perks ?? "",
+          infoSessionDate: infoSession?.date ?? "",
+          infoSessionTime: infoSession?.time ?? "23:59",
+          signupNote: data.signupNote ?? "",
+          submissionNote: data.submissionNote ?? "",
+          finalNote: data.finalNote ?? "",
+          finalFormat: data.finalFormat ?? "",
+          fee: data.fee ?? "",
+          documents: data.documents ?? "",
+          skills: data.skills ?? "",
+          recommended: data.recommended,
+          staffNote: data.staffNote ?? "",
         }}
       />
     </main>

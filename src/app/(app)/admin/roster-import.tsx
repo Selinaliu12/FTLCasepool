@@ -50,7 +50,7 @@ export function RosterImport({ semesterId, alreadyImported }: { semesterId: stri
   return (
     <div className="flex flex-col gap-3">
       {alreadyImported && (
-        <p className="text-sm text-muted-foreground">本學期已匯入名單；學期中的異動請用下面的「換組」。</p>
+        <p className="text-sm text-muted-foreground">本學期已匯入名單；學期中的異動請用下面的「成員」區塊。</p>
       )}
       <form onSubmit={onSubmit} className="flex flex-col gap-3" aria-label="名單匯入">
         <Textarea

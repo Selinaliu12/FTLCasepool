@@ -15,6 +15,12 @@ describe("RosterImport", () => {
     cleanup();
   });
 
+  it("已匯入：提示學期中的異動請用「成員」區塊", () => {
+    render(<RosterImport semesterId="s1" alreadyImported={true} />);
+    expect(screen.getByText("本學期已匯入名單；學期中的異動請用下面的「成員」區塊。")).toBeTruthy();
+    expect(screen.queryByText(/換組/)).toBeNull();
+  });
+
   it("importRoster 丟例外時，錯誤訊息要顯示出來", async () => {
     importRoster.mockRejectedValue(new Error("只有系統管理員可以這樣做"));
     render(<RosterImport semesterId="s1" alreadyImported={false} />);

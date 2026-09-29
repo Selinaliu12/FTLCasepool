@@ -31,8 +31,8 @@ function confirmedEntryWithMovedOutMember(): EntryDetail {
     ],
     selectedMemberIds: ["a1", "a2"],
     selectedMembers: [
-      { id: "a1", name: "甲一", movedOut: false },
-      { id: "a2", name: "甲二", movedOut: true },
+      { id: "a1", name: "甲一", movedOut: false, left: false },
+      { id: "a2", name: "甲二", movedOut: true, left: false },
     ],
     lineId: null,
     stages: [],
@@ -100,7 +100,7 @@ describe("EntryActions：換組成員與編輯參賽成員", () => {
     const entry: EntryDetail = {
       ...confirmedEntryWithMovedOutMember(),
       selectedMemberIds: ["a1"],
-      selectedMembers: [{ id: "a1", name: "甲一", movedOut: false }],
+      selectedMembers: [{ id: "a1", name: "甲一", movedOut: false, left: false }],
     };
     render(<EntryActions entry={entry} myMemberId="a1" />);
     fireEvent.click(screen.getByRole("button", { name: "編輯參賽成員" }));
@@ -115,12 +115,48 @@ describe("EntryActions：換組成員與編輯參賽成員", () => {
       ...confirmedEntryWithMovedOutMember(),
       selectedMemberIds: ["a1", "ghost"],
       selectedMembers: [
-        { id: "a1", name: "甲一", movedOut: false },
-        { id: "ghost", name: "", movedOut: true },
+        { id: "a1", name: "甲一", movedOut: false, left: false },
+        { id: "ghost", name: "", movedOut: true, left: false },
       ],
     };
     render(<EntryActions entry={entry} myMemberId="a1" />);
     expect(screen.getByText("甲一、（已不在名單）")).toBeTruthy();
+  });
+});
+
+// Task 7：已離開的參賽成員照樣列在名單上，標「（已離開）」；編輯時不在候選名單、不能再勾，
+// 儲存後從參賽名單移除（跟已換組的人一樣，先提醒）。
+describe("EntryActions：已離開的參賽成員", () => {
+  afterEach(() => cleanup());
+
+  function entryWithLeftMember(): EntryDetail {
+    return {
+      ...confirmedEntryWithMovedOutMember(),
+      groupStudents: [{ id: "a1", name: "甲一" }],
+      selectedMemberIds: ["a1", "a2"],
+      selectedMembers: [
+        { id: "a1", name: "甲一", movedOut: false, left: false },
+        { id: "a2", name: "甲二", movedOut: false, left: true },
+      ],
+    };
+  }
+
+  it("唯讀畫面顯示 甲二（已離開）", () => {
+    render(<EntryActions entry={entryWithLeftMember()} myMemberId="a1" />);
+    expect(screen.getByText("甲一、甲二（已離開）")).toBeTruthy();
+  });
+
+  it("編輯時已離開的人不能勾、儲存只送還在的人，並提醒", async () => {
+    setEntryMembers.mockReset();
+    setEntryMembers.mockResolvedValue({ ok: true });
+    render(<EntryActions entry={entryWithLeftMember()} myMemberId="a1" />);
+    fireEvent.click(screen.getByRole("button", { name: "編輯參賽成員" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "儲存" })).toBeTruthy());
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    expect(screen.getByText("已離開的同學（甲二）儲存後會從參賽名單移除")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "儲存" }));
+    await waitFor(() => expect(setEntryMembers).toHaveBeenCalledTimes(1));
+    expect(setEntryMembers.mock.calls[0][1]).toEqual(["a1"]);
   });
 });
 

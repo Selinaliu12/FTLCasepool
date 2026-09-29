@@ -3,7 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { getAccess } from "@/server/session";
 import { createServiceSupabase } from "@/server/supabase";
-import { validateCompetition, type CompetitionInput, type CompetitionFieldErrors } from "@/domain/competition";
+import {
+  validateCompetition,
+  normalizeTags,
+  blankToNull,
+  toMaxPrizeValue,
+  type CompetitionInput,
+  type CompetitionFieldErrors,
+} from "@/domain/competition";
 import { parseTaipeiDeadline } from "@/domain/time";
 import { isUuid } from "@/domain/id";
 import { isStaffIdentity, type Access } from "@/domain/access";
@@ -22,6 +29,21 @@ export type CompetitionFormInput = {
   submissionTime?: string;
   finalDate?: string;
   finalTime?: string;
+  summary?: string;
+  tags?: string[];
+  maxPrize?: string;
+  perks?: string;
+  infoSessionDate?: string;
+  infoSessionTime?: string;
+  signupNote?: string;
+  submissionNote?: string;
+  finalNote?: string;
+  finalFormat?: string;
+  fee?: string;
+  documents?: string;
+  skills?: string;
+  recommended?: boolean;
+  staffNote?: string;
 };
 
 // 只有管理員、專案幹部、其他幹部可以新增／編輯／發布競賽（規格第 3 節）；其他人一律拒絕。
@@ -55,11 +77,13 @@ function parseForm(input: CompetitionFormInput): ParsedForm {
   const signup = parseField(input.signupDate, input.signupTime);
   const submission = parseField(input.submissionDate, input.submissionTime);
   const final = parseField(input.finalDate, input.finalTime);
+  const infoSession = parseField(input.infoSessionDate, input.infoSessionTime);
 
   const parseErrors: CompetitionFieldErrors = {};
   if (signup.error) parseErrors.signupDeadline = signup.error;
   if (submission.error) parseErrors.submissionDeadline = submission.error;
   if (final.error) parseErrors.finalDate = final.error;
+  if (infoSession.error) parseErrors.infoSessionAt = infoSession.error;
 
   const domainInput: CompetitionInput = {
     name: input.name,
@@ -72,6 +96,20 @@ function parseForm(input: CompetitionFormInput): ParsedForm {
     signupDeadline: signup.date,
     submissionDeadline: submission.date,
     finalDate: final.date,
+    summary: input.summary ?? "",
+    tags: input.tags ?? [],
+    maxPrize: input.maxPrize ?? "",
+    perks: input.perks ?? "",
+    infoSessionAt: infoSession.date,
+    signupNote: input.signupNote ?? "",
+    submissionNote: input.submissionNote ?? "",
+    finalNote: input.finalNote ?? "",
+    finalFormat: input.finalFormat ?? "",
+    fee: input.fee ?? "",
+    documents: input.documents ?? "",
+    skills: input.skills ?? "",
+    recommended: input.recommended ?? false,
+    staffNote: input.staffNote ?? "",
   };
 
   const validation = validateCompetition(domainInput);
@@ -81,9 +119,35 @@ function parseForm(input: CompetitionFormInput): ParsedForm {
   return { ok: true, domainInput };
 }
 
-function trimmedOrNull(v: string): string | null {
-  const t = v.trim();
-  return t === "" ? null : t;
+// 除了必填欄位（name／url／signupDeadline，已經驗證過）以外的欄位，統一組成要寫進 DB 的物件；
+// createCompetition／updateCompetition 共用，避免兩邊的欄位清單各自維護、漏改一邊。
+function toRow(domainInput: CompetitionInput) {
+  return {
+    name: domainInput.name.trim(),
+    organizer: blankToNull(domainInput.organizer),
+    theme: blankToNull(domainInput.theme),
+    eligibility: blankToNull(domainInput.eligibility),
+    team_size: blankToNull(domainInput.teamSize),
+    prize: blankToNull(domainInput.prize),
+    url: domainInput.url.trim(),
+    signup_deadline: domainInput.signupDeadline!.toISOString(),
+    submission_deadline: domainInput.submissionDeadline?.toISOString() ?? null,
+    final_date: domainInput.finalDate?.toISOString() ?? null,
+    summary: blankToNull(domainInput.summary),
+    tags: normalizeTags(domainInput.tags),
+    max_prize: toMaxPrizeValue(domainInput.maxPrize),
+    perks: blankToNull(domainInput.perks),
+    info_session_at: domainInput.infoSessionAt?.toISOString() ?? null,
+    signup_note: blankToNull(domainInput.signupNote),
+    submission_note: blankToNull(domainInput.submissionNote),
+    final_note: blankToNull(domainInput.finalNote),
+    final_format: blankToNull(domainInput.finalFormat),
+    fee: blankToNull(domainInput.fee),
+    documents: blankToNull(domainInput.documents),
+    skills: blankToNull(domainInput.skills),
+    recommended: domainInput.recommended,
+    staff_note: blankToNull(domainInput.staffNote),
+  };
 }
 
 export async function createCompetition(
@@ -98,16 +162,7 @@ export async function createCompetition(
     .from("competitions")
     .insert({
       semester_id: access.semesterId,
-      name: parsed.domainInput.name.trim(),
-      organizer: trimmedOrNull(parsed.domainInput.organizer),
-      theme: trimmedOrNull(parsed.domainInput.theme),
-      eligibility: trimmedOrNull(parsed.domainInput.eligibility),
-      team_size: trimmedOrNull(parsed.domainInput.teamSize),
-      prize: trimmedOrNull(parsed.domainInput.prize),
-      url: parsed.domainInput.url.trim(),
-      signup_deadline: parsed.domainInput.signupDeadline!.toISOString(),
-      submission_deadline: parsed.domainInput.submissionDeadline?.toISOString() ?? null,
-      final_date: parsed.domainInput.finalDate?.toISOString() ?? null,
+      ...toRow(parsed.domainInput),
       status: "draft",
       created_by: access.email,
     })
@@ -146,16 +201,7 @@ export async function updateCompetition(
   const { error } = await db
     .from("competitions")
     .update({
-      name: parsed.domainInput.name.trim(),
-      organizer: trimmedOrNull(parsed.domainInput.organizer),
-      theme: trimmedOrNull(parsed.domainInput.theme),
-      eligibility: trimmedOrNull(parsed.domainInput.eligibility),
-      team_size: trimmedOrNull(parsed.domainInput.teamSize),
-      prize: trimmedOrNull(parsed.domainInput.prize),
-      url: parsed.domainInput.url.trim(),
-      signup_deadline: parsed.domainInput.signupDeadline!.toISOString(),
-      submission_deadline: parsed.domainInput.submissionDeadline?.toISOString() ?? null,
-      final_date: parsed.domainInput.finalDate?.toISOString() ?? null,
+      ...toRow(parsed.domainInput),
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);

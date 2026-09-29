@@ -23,6 +23,20 @@ function card(id: string, name: string, signupDeadline: string): CompetitionCard
     submissionDeadline: null,
     finalDate: null,
     status: "published",
+    summary: null,
+    tags: [],
+    maxPrize: null,
+    perks: null,
+    infoSessionAt: null,
+    signupNote: null,
+    submissionNote: null,
+    finalNote: null,
+    finalFormat: null,
+    fee: null,
+    documents: null,
+    skills: null,
+    recommended: false,
+    staffNote: null,
   };
 }
 
@@ -39,6 +53,7 @@ describe("CompetitionsPage：已截止區", () => {
       canEdit: false,
       isStudent: true,
       myGroupAttached: { c1: "entry-1" },
+      attachedGroups: {},
     });
 
     render(await CompetitionsPage());
@@ -47,5 +62,25 @@ describe("CompetitionsPage：已截止區", () => {
     expect(link.getAttribute("href")).toBe("/my-group/competitions/entry-1");
     expect(within(closed).getAllByRole("link", { name: "已掛到你們組" })).toHaveLength(1);
     expect(within(closed).queryByRole("button", { name: "掛到我們組" })).toBeNull();
+  });
+});
+
+// Task 3：大廳頁把 loadLobby 回傳的 attachedGroups 傳給每張卡片，卡片底部才能顯示「已掛上」。
+describe("CompetitionsPage：已掛上的組別", () => {
+  afterEach(() => cleanup());
+
+  it("報名中卡片顯示 attachedGroups 裡對應的組名", async () => {
+    loadLobby.mockResolvedValue({
+      open: [card("c1", "熱門比賽", "2099-01-01T15:59:59.999Z")],
+      closed: [],
+      drafts: [],
+      canEdit: false,
+      isStudent: false,
+      myGroupAttached: {},
+      attachedGroups: { c1: ["第2組", "第5組"] },
+    });
+
+    render(await CompetitionsPage());
+    expect(screen.getByText("第2組、第5組已掛上")).toBeTruthy();
   });
 });

@@ -57,14 +57,18 @@ export function isTrustedProvider(provider: string | undefined, enableTestLogin:
 const ROLE_LABEL: Record<Exclude<Role, "student">, string> = { pm: "專案幹部", officer: "其他幹部" };
 const ROLE_RANK: Record<Role, number> = { pm: 0, officer: 1, student: 2 };
 
+// 身份顯示文字：`第N組專案生`／`專案幹部`／`其他幹部`（身份切換選單、管理員頁成員清單共用）。
+export function identityLabel(role: Role, groupName: string | null): string {
+  return role === "student" ? `${groupName ?? ""}專案生` : ROLE_LABEL[role];
+}
+
 function identityFromRow(row: RosterRow): Identity {
-  const label = row.role === "student" ? `${row.groupName ?? ""}專案生` : ROLE_LABEL[row.role];
-  return { memberId: row.id, role: row.role, groupId: row.groupId, label };
+  return { memberId: row.id, role: row.role, groupId: row.groupId, label: identityLabel(row.role, row.groupName) };
 }
 
 // 「第一個合法身份」的順序（controller ruling）：管理員 → 專案幹部 → 其他幹部 → 專案生（組名自然
 // 排序，第2組在第10組前面）。身份切換選單也照這個順序列。
-function orderRows(rows: RosterRow[]): RosterRow[] {
+export function orderRows<T extends { role: Role; groupName: string | null }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
     if (a.role !== b.role) return ROLE_RANK[a.role] - ROLE_RANK[b.role];
     return (a.groupName ?? "").localeCompare(b.groupName ?? "", "zh-Hant", { numeric: true });

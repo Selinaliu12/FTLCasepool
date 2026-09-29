@@ -48,7 +48,7 @@ test.describe.serial("掛比賽、確認報名、取消報名", () => {
     await loginAndPassWelcome(page, "a1@g.nccu.edu.tw", /\/my-group$/);
 
     await page.goto("/competitions");
-    await expect(page.getByText("全國黑客松")).toBeVisible();
+    await expect(page.getByText("全國黑客松", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "掛到我們組" }).click();
 
     await expect(page).toHaveURL(/\/my-group\/competitions\/[0-9a-f-]+$/);

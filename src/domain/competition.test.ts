@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { validateCompetition, sortLobby, type CompetitionInput, type CompetitionCard } from "./competition";
+import {
+  validateCompetition,
+  sortLobby,
+  normalizeTags,
+  blankToNull,
+  toMaxPrizeValue,
+  formatPrize,
+  stageSummary,
+  canShowAttach,
+  type CompetitionInput,
+  type CompetitionCard,
+} from "./competition";
 
 function baseInput(overrides: Partial<CompetitionInput> = {}): CompetitionInput {
   return {
@@ -13,6 +24,20 @@ function baseInput(overrides: Partial<CompetitionInput> = {}): CompetitionInput 
     signupDeadline: new Date("2026-10-01T15:59:59.999Z"),
     submissionDeadline: null,
     finalDate: null,
+    summary: "",
+    tags: [],
+    maxPrize: "",
+    perks: "",
+    infoSessionAt: null,
+    signupNote: "",
+    submissionNote: "",
+    finalNote: "",
+    finalFormat: "",
+    fee: "",
+    documents: "",
+    skills: "",
+    recommended: false,
+    staffNote: "",
     ...overrides,
   };
 }
@@ -113,6 +138,20 @@ function card(overrides: Partial<CompetitionCard> = {}): CompetitionCard {
     submissionDeadline: null,
     finalDate: null,
     status: "published",
+    summary: null,
+    tags: [],
+    maxPrize: null,
+    perks: null,
+    infoSessionAt: null,
+    signupNote: null,
+    submissionNote: null,
+    finalNote: null,
+    finalFormat: null,
+    fee: null,
+    documents: null,
+    skills: null,
+    recommended: false,
+    staffNote: null,
     ...overrides,
   };
 }
@@ -141,5 +180,196 @@ describe("sortLobby", () => {
     const c = card({ id: "a", signupDeadline: deadline });
     expect(sortLobby([c], deadline).open.map((x) => x.id)).toEqual(["a"]);
     expect(sortLobby([c], new Date(deadline.getTime() + 1)).closed.map((x) => x.id)).toEqual(["a"]);
+  });
+});
+
+describe("normalizeTags", () => {
+  it("重複標籤去重並依清單排序", () => {
+    expect(normalizeTags(["ESG", "企業出題", "ESG", "創業"])).toEqual(["企業出題", "創業", "ESG"]);
+  });
+
+  it("空陣列回傳空陣列", () => {
+    expect(normalizeTags([])).toEqual([]);
+  });
+});
+
+describe("blankToNull", () => {
+  it("空白字串一律變 null", () => {
+    expect(blankToNull("")).toBeNull();
+    expect(blankToNull("   ")).toBeNull();
+  });
+
+  it("有內容則去頭尾空白後回傳", () => {
+    expect(blankToNull("  你好  ")).toBe("你好");
+  });
+});
+
+describe("toMaxPrizeValue", () => {
+  it("空白 → null", () => {
+    expect(toMaxPrizeValue("")).toBeNull();
+    expect(toMaxPrizeValue("  ")).toBeNull();
+  });
+
+  it("合法整數字串 → 數字", () => {
+    expect(toMaxPrizeValue("100000")).toBe(100000);
+  });
+
+  // Fix round（controller ruling）：千分位逗號（半形／全形）在存進 DB 前先去掉。
+  it("千分位逗號（半形、全形）→ 去掉逗號後的數字", () => {
+    expect(toMaxPrizeValue("100,000")).toBe(100000);
+    expect(toMaxPrizeValue("1，000，000")).toBe(1000000);
+  });
+});
+
+describe("validateCompetition：新欄位", () => {
+  it("標籤不在清單內 → 拒絕", () => {
+    const result = validateCompetition(baseInput({ tags: ["其他"] }));
+    expect(result).toEqual({ ok: false, errors: { tags: "比賽類型標籤不合法" } });
+  });
+
+  it("標籤都在清單內 → 通過", () => {
+    const result = validateCompetition(baseInput({ tags: ["ESG", "創業"] }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it.each(["1.5", "-1", "abc"])("最高獎金 %s → 最高獎金請填整數金額", (raw) => {
+    const result = validateCompetition(baseInput({ maxPrize: raw }));
+    expect(result).toEqual({ ok: false, errors: { maxPrize: "最高獎金請填整數金額" } });
+  });
+
+  it("最高獎金空白 → 合法", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "  " }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("最高獎金超過 1 億 → 最高獎金請填整數金額", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "100000001" }));
+    expect(result).toEqual({ ok: false, errors: { maxPrize: "最高獎金請填整數金額" } });
+  });
+
+  // Fix round（controller ruling）：千分位逗號（半形 , 或全形 ，）要接受，驗證前先去掉再判斷。
+  it("最高獎金 100,000（千分位逗號）→ 通過", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "100,000" }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("最高獎金 1，000，000（全形千分位逗號）→ 通過", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "1，000，000" }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("最高獎金 1e5（科學記號）→ 最高獎金請填整數金額", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "1e5" }));
+    expect(result).toEqual({ ok: false, errors: { maxPrize: "最高獎金請填整數金額" } });
+  });
+
+  it("最高獎金 1.5 有千分位逗號的小數 1,000.5 → 最高獎金請填整數金額（逗號不能讓小數合法）", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "1,000.5" }));
+    expect(result).toEqual({ ok: false, errors: { maxPrize: "最高獎金請填整數金額" } });
+  });
+
+  it("最高獎金 -1,000（逗號不能讓負數合法）→ 最高獎金請填整數金額", () => {
+    const result = validateCompetition(baseInput({ maxPrize: "-1,000" }));
+    expect(result).toEqual({ ok: false, errors: { maxPrize: "最高獎金請填整數金額" } });
+  });
+
+  it("一句話介紹 81 字 → 一句話介紹最多 80 字", () => {
+    const result = validateCompetition(baseInput({ summary: "字".repeat(81) }));
+    expect(result).toEqual({ ok: false, errors: { summary: "一句話介紹最多 80 字" } });
+  });
+
+  it("一句話介紹 80 字 → 通過", () => {
+    const result = validateCompetition(baseInput({ summary: "字".repeat(80) }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("幹部備註 501 字 → 幹部備註最多 500 字", () => {
+    const result = validateCompetition(baseInput({ staffNote: "字".repeat(501) }));
+    expect(result).toEqual({ ok: false, errors: { staffNote: "幹部備註最多 500 字" } });
+  });
+
+  it("幹部備註 500 字 → 通過", () => {
+    const result = validateCompetition(baseInput({ staffNote: "字".repeat(500) }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("需準備文件 501 字 → 需準備文件最多 500 字", () => {
+    const result = validateCompetition(baseInput({ documents: "字".repeat(501) }));
+    expect(result).toEqual({ ok: false, errors: { documents: "需準備文件最多 500 字" } });
+  });
+});
+
+// Task 3：大廳卡片用的兩個純函式——最高獎金顯示格式、賽制摘要（依有填日期的階段串起來）。
+describe("formatPrize", () => {
+  it("100000 → NT$100,000", () => {
+    expect(formatPrize(100000)).toBe("NT$100,000");
+  });
+
+  it("0 → NT$0", () => {
+    expect(formatPrize(0)).toBe("NT$0");
+  });
+
+  it("null → null（沒填最高獎金就不顯示）", () => {
+    expect(formatPrize(null)).toBeNull();
+  });
+
+  // Task 3 review parked note（折進 Task 8）：上限值 100,000,000（規格第 15 節：0 到
+  // 100,000,000 的整數）也要能正常格式化，不是只測中間值。
+  it("100000000（上限）→ NT$100,000,000", () => {
+    expect(formatPrize(100000000)).toBe("NT$100,000,000");
+  });
+});
+
+describe("stageSummary", () => {
+  it("只有報名日 → 報名", () => {
+    expect(stageSummary(new Date("2026-10-01T15:59:59.999Z"), null, null)).toBe("報名");
+  });
+
+  it("報名＋決賽（沒有繳件日） → 報名 → 決賽", () => {
+    expect(
+      stageSummary(new Date("2026-10-01T15:59:59.999Z"), null, new Date("2026-11-01T15:59:59.999Z"))
+    ).toBe("報名 → 決賽");
+  });
+
+  it("報名＋繳件＋決賽 → 報名 → 繳件 → 決賽", () => {
+    expect(
+      stageSummary(
+        new Date("2026-10-01T15:59:59.999Z"),
+        new Date("2026-10-15T15:59:59.999Z"),
+        new Date("2026-11-01T15:59:59.999Z")
+      )
+    ).toBe("報名 → 繳件 → 決賽");
+  });
+
+  // Task 3 review parked note（折進 Task 8）：只有報名＋繳件（沒有決賽日）也要蓋到，之前只測了
+  // 「報名＋決賽（沒繳件）」跟「三個都有」兩種組合。
+  it("報名＋繳件（沒有決賽日） → 報名 → 繳件", () => {
+    expect(
+      stageSummary(new Date("2026-10-01T15:59:59.999Z"), new Date("2026-10-15T15:59:59.999Z"), null)
+    ).toBe("報名 → 繳件");
+  });
+});
+
+// Task 4 fix round 1（F1）：詳細頁的掛到我們組按鈕要跟大廳卡片同一套規則——open（還沒過報名
+// 截止）一律可以掛；closed（已過報名截止）只有已經掛過的組看得到（顯示「已掛到你們組」），
+// 沒掛過的組看不到按鈕。抽成一個純函式讓大廳卡片與詳細頁共用同一套判斷，不要各自重寫一份。
+describe("canShowAttach", () => {
+  it("報名截止日還沒過：不管有沒有掛過都顯示", () => {
+    const now = new Date("2026-09-01T00:00:00Z");
+    const c = card({ signupDeadline: new Date("2026-10-01T15:59:59.999Z") });
+    expect(canShowAttach(c, now, null)).toBe(true);
+    expect(canShowAttach(c, now, "entry-1")).toBe(true);
+  });
+
+  it("報名截止日已過、沒掛過：不顯示", () => {
+    const now = new Date("2026-10-15T00:00:00Z");
+    const c = card({ signupDeadline: new Date("2026-10-01T15:59:59.999Z") });
+    expect(canShowAttach(c, now, null)).toBe(false);
+  });
+
+  it("報名截止日已過、已經掛過：仍然顯示（連到已掛到你們組）", () => {
+    const now = new Date("2026-10-15T00:00:00Z");
+    const c = card({ signupDeadline: new Date("2026-10-01T15:59:59.999Z") });
+    expect(canShowAttach(c, now, "entry-1")).toBe(true);
   });
 });

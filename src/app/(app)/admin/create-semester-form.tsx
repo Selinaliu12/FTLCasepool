@@ -35,7 +35,12 @@ export function CreateSemesterForm({ currentSemesterName }: { currentSemesterNam
     setPending(true);
     setError(null);
     try {
-      await createSemester(trimmed);
+      const result = await createSemester(trimmed);
+      if (!result.ok) {
+        setConfirmOpen(false);
+        setError(result.error);
+        return;
+      }
       setName("");
       setTyped("");
       setConfirmOpen(false);

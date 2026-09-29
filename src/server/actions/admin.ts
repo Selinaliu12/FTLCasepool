@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getAccess } from "@/server/session";
 import { createServiceSupabase } from "@/server/supabase";
-import { parseRosterCsv } from "@/domain/roster-csv";
+import { parseRosterCsv, validateMemberRow, memberFormError } from "@/domain/roster-csv";
 import { parseTaipeiDeadline, taipeiInputValues } from "@/domain/time";
 import { deleteObject } from "@/server/r2";
 
@@ -21,11 +21,19 @@ async function requireAdmin(): Promise<void> {
   }
 }
 
-export async function createSemester(name: string): Promise<{ semesterId: string }> {
+export type CreateSemesterResult = { ok: true; semesterId: string } | { ok: false; error: string };
+
+export async function createSemester(name: string): Promise<CreateSemesterResult> {
   await requireAdmin();
 
+  // 最終審查 M4：驗證錯誤用回傳值帶回（正式環境 server action 丟出的例外訊息會被 Next.js 換成
+  // 通用訊息，管理員看不到原因）。
   const trimmed = name.trim();
-  if (!trimmed) throw new Error("請輸入學期名稱");
+  if (!trimmed) return { ok: false, error: "請輸入學期名稱" };
+  // 上傳的 storage key 用學期名稱當路徑前綴（`${semester.name}/...`），名稱裡有 "/" 會多切出一層
+  // 目錄，路徑就不乾淨。member_has_records() 已經改成字面比較 key 的字首
+  // （20260929000006 (e)），所以這條規則是路徑整潔的規則，不再是判斷紀錄範圍的正確性修正。
+  if (trimmed.includes("/")) return { ok: false, error: "學期名稱不能有「/」" };
 
   const db = createServiceSupabase();
 
@@ -40,7 +48,7 @@ export async function createSemester(name: string): Promise<{ semesterId: string
   }
 
   revalidatePath("/admin");
-  return { semesterId: data as string };
+  return { ok: true, semesterId: data as string };
 }
 
 export async function importRoster(
@@ -52,7 +60,7 @@ export async function importRoster(
 
   const { count } = await db.from("members").select("id", { count: "exact", head: true }).eq("semester_id", semesterId);
   if (count && count > 0) {
-    return { ok: false, errors: ["本學期已匯入名單；學期中的異動請用「換組」"] };
+    return { ok: false, errors: ["本學期已匯入名單；學期中的異動請用「成員」區塊"] };
   }
 
   const parsed = parseRosterCsv(csv);
@@ -213,47 +221,214 @@ export async function moveMember(memberId: string, toGroupId: string): Promise<v
   await requireAdmin();
   const db = createServiceSupabase();
 
-  const { data: member, error: memberError } = await db
+  // 最終審查 I1：換組（含「目標組有這個人已離開的那一列 → 恢復那一列、原本那列標已離開」）
+  // 全部在 admin_move_member()（20260929000008_member_move.sql）同一個交易裡做，並拿成員寫入
+  // 共用的 'member:<學期>:<信箱>' advisory lock——跟新增、編輯、移除排隊，途中失敗整批回滾，
+  // 不會留下同一個人在兩組都「還在」的狀態。檢查規則（只有專案生、已離開不能換、目標組同學期且
+  // 是本學期、目標組已有還在的身份 → 這位同學已經在{組名}了）都在函式裡。
+  const { error } = await db.rpc("admin_move_member", { p_member_id: memberId, p_to_group_id: toGroupId });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin");
+}
+
+export type AddMemberInput = {
+  email: string;
+  name: string;
+  // 中文角色名稱：專案幹部／其他幹部／專案生（跟名單 CSV 一樣）
+  role: string;
+  studentId: string;
+  deptYear: string;
+  // 專案生的組 id；幹部留空字串
+  groupId: string;
+};
+export type AddMemberResult = { ok: true; memberId: string; restored: boolean } | { ok: false; error: string };
+
+// 規格 §16 第 2、6 點：新增一個人（或替已在名單上的人加一個身份）；對已離開的身份再新增一次＝恢復
+// 原本那一列。只有目前身份是管理員才能做（requireAdmin 丟例外，跟其他管理員動作一致）；欄位規則跟
+// 名單 CSV 共用 validateMemberRow()，需要看資料庫的檢查（組別屬於本學期、同一信箱還在的身份姓名／
+// 學號／系級一致、身份重複／恢復）在 admin_add_member() 同一個交易裡做（見
+// 20260929000003_member_admin.sql）。可以預期的錯誤回 { ok: false, error }，畫面直接顯示。
+export async function addMember(input: AddMemberInput): Promise<AddMemberResult> {
+  await requireAdmin();
+  const access = await getAccess();
+  if (access.kind !== "ok") return { ok: false, error: "還沒有本學期，請先建立學期" };
+
+  const db = createServiceSupabase();
+
+  // 最終審查 I2：importRoster 只在本學期完全沒有成員列時才肯整批匯入（已離開的列也算，移除只是
+  // 標已離開）。還沒匯入就先新增一個人，之後就再也匯入不了名單，所以規定先匯入、再用新增成員補人。
+  const { count, error: countError } = await db
     .from("members")
-    .select("email, role, semester_id")
-    .eq("id", memberId)
-    .single();
-  if (memberError) throw memberError;
-  if (member.role !== "student") throw new Error("只有專案生可以換組");
+    .select("id", { count: "exact", head: true })
+    .eq("semester_id", access.semesterId);
+  if (countError) throw new Error(countError.message);
+  if (!count) return { ok: false, error: "請先匯入名單，再用「新增成員」補人" };
 
-  const { data: group, error: groupError } = await db.from("groups").select("semester_id, name").eq("id", toGroupId).single();
-  if (groupError) throw groupError;
-  if (group.semester_id !== member.semester_id) throw new Error("目標組別必須在同一個學期");
+  const checked = validateMemberRow({ ...input, group: input.groupId });
+  if (!checked.ok) return { ok: false, error: memberFormError(checked.error) };
+  const v = checked.value;
 
-  // §14：同一個人可以同時有多列專案生身份（多組），moveMember 只搬動這一列，不動這個人在
-  // 其他組別的身份列。如果這個人在目標組已經有一列專案生身份（跟被搬動的這一列是不同的
-  // members 列），搬過去會撞 members_identity_key 唯一索引，先在這裡查出來給一句看得懂的
-  // 錯誤訊息，而不是讓呼叫端收到資料庫的 23505。組名本身就是「第N組」的格式（CSV 匯入時
-  // 直接拿組別欄位當組名），訊息直接套用組名即可，不用另外算序號。
-  const { data: existing, error: existingError } = await db
-    .from("members")
-    .select("id")
-    .eq("semester_id", member.semester_id)
-    .eq("email", member.email)
-    .eq("role", "student")
-    .eq("group_id", toGroupId)
-    .neq("id", memberId)
-    .maybeSingle();
-  if (existingError) throw existingError;
-  if (existing) {
-    throw new Error(`這位同學已經在${group.name}了`);
-  }
-
-  const { error } = await db.from("members").update({ group_id: toGroupId }).eq("id", memberId);
+  const { data, error } = await db.rpc("admin_add_member", {
+    p_semester_id: access.semesterId,
+    p_email: v.email,
+    p_name: v.name,
+    p_role: v.role,
+    p_student_id: v.studentId,
+    p_dept_year: v.deptYear,
+    p_group_id: v.group,
+  });
   if (error) {
-    // 上面的預先查詢和這個 update 之間有極小的競速窗口（例如另一個管理員同時把這個人
-    // 搬進同一組）；真的撞上 members_identity_key 唯一索引時，資料庫會回 23505，
-    // 這裡轉成跟預先查詢一樣看得懂的訊息，而不是把 raw error 丟給呼叫端。
-    if (error.code === "23505") {
-      throw new Error(`這位同學已經在${group.name}了`);
-    }
-    throw error;
+    // P0001＝函式裡 raise exception 的業務規則訊息（中文，直接給使用者看）；其他是非預期錯誤。
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    throw new Error(error.message);
   }
 
   revalidatePath("/admin");
+  const result = data as { id: string; restored: boolean };
+  return { ok: true, memberId: result.id, restored: result.restored };
+}
+
+export type UpdatePersonInput = { name: string; studentId: string; deptYear: string };
+export type UpdatePersonResult = { ok: true } | { ok: false; error: string };
+
+// 規格 §16 第 3 點：改姓名／學號／系級，以「人」為單位——同一信箱本學期所有身份列（還在或已離開）
+// 一起改。姓名去空白後不能空白；學號／系級留空存成 null（跟名單 CSV／新增成員共用同一套「空字串
+// 就是沒填」慣例）。實際的一致性交給 admin_update_person()（Task 6，見
+// 20260929000004_member_edit.sql）在同一個交易裡處理，這裡先做能在畫面上直接檢查的部分。
+export async function updatePerson(email: string, fields: UpdatePersonInput): Promise<UpdatePersonResult> {
+  await requireAdmin();
+  const access = await getAccess();
+  if (access.kind !== "ok") return { ok: false, error: "還沒有本學期，請先建立學期" };
+
+  const name = fields.name.trim();
+  if (!name) return { ok: false, error: "姓名不能空白" };
+  const studentId = fields.studentId.trim() || null;
+  const deptYear = fields.deptYear.trim() || null;
+
+  const db = createServiceSupabase();
+  const { error } = await db.rpc("admin_update_person", {
+    p_semester_id: access.semesterId,
+    p_email: email.trim().toLowerCase(),
+    p_name: name,
+    p_student_id: studentId,
+    p_dept_year: deptYear,
+  });
+  if (error) {
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export type EditPersonInput = { name: string; studentId: string; deptYear: string };
+export type EditPersonResult = { ok: true } | { ok: false; error: string };
+
+// Task 6 fix round 1（controller ruling F1）：姓名／學號／系級／信箱一次一個 server action、
+// 一個 SQL 交易（admin_edit_person()，見 20260929000005_member_lock.sql）寫完，取代原本
+// 「先呼叫 changeEmail() 再呼叫 updatePerson()」的兩段式寫法——兩段式的問題是 changeEmail()
+// 成功之後的 revalidatePath("/admin") 會讓「成員」表格用新的 rows 重新渲染，表格列的
+// key={p.email} 是舊信箱，那一列會被卸載，連帶卸載還開著的編輯對話框；如果這時候第二段
+// updatePerson() 才失敗，錯誤訊息會設在一個已經被卸載的元件上，管理員完全看不到、也無從重試
+// （見 task-6-review.md Important #1）。合併成一次呼叫之後，這個中間狀態不可能發生：對話框只
+// 送出一次請求，失敗就是失敗、對話框留著、錯誤訊息看得到。
+export async function editPerson(oldEmail: string, newEmail: string, fields: EditPersonInput): Promise<EditPersonResult> {
+  await requireAdmin();
+  const access = await getAccess();
+  if (access.kind !== "ok") return { ok: false, error: "還沒有本學期，請先建立學期" };
+
+  const name = fields.name.trim();
+  if (!name) return { ok: false, error: "姓名不能空白" };
+  const studentId = fields.studentId.trim() || null;
+  const deptYear = fields.deptYear.trim() || null;
+  const normalizedNew = newEmail.trim().toLowerCase();
+  if (!normalizedNew.endsWith("@g.nccu.edu.tw")) return { ok: false, error: "email 必須是 @g.nccu.edu.tw" };
+
+  const db = createServiceSupabase();
+  const { error } = await db.rpc("admin_edit_person", {
+    p_semester_id: access.semesterId,
+    p_old_email: oldEmail.trim().toLowerCase(),
+    p_new_email: normalizedNew,
+    p_name: name,
+    p_student_id: studentId,
+    p_dept_year: deptYear,
+  });
+  if (error) {
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export type ChangeEmailResult = { ok: true } | { ok: false; error: string };
+
+// 規格 §16 第 4 點：改信箱，以「人」為單位——本學期所有身份列一起改。新信箱格式與「是否已在名單
+// 上」在應用程式跟資料庫（admin_change_email()）都各檢查一次（Global Constraints：正規化與網域
+// 檢查兩邊都要做）；舊信箱「是否已有交件、上傳或審核紀錄」只有資料庫看得到全貌（要看
+// progress_reports／checkins／upload_tickets／stage_submissions／competition_entries／
+// competitions 這些表），交給 admin_change_email() 在同一個交易裡檢查並寫入。
+export async function changeEmail(oldEmail: string, newEmail: string): Promise<ChangeEmailResult> {
+  await requireAdmin();
+  const access = await getAccess();
+  if (access.kind !== "ok") return { ok: false, error: "還沒有本學期，請先建立學期" };
+
+  const normalizedNew = newEmail.trim().toLowerCase();
+  if (!normalizedNew.endsWith("@g.nccu.edu.tw")) return { ok: false, error: "email 必須是 @g.nccu.edu.tw" };
+
+  const db = createServiceSupabase();
+  const { error } = await db.rpc("admin_change_email", {
+    p_semester_id: access.semesterId,
+    p_old_email: oldEmail.trim().toLowerCase(),
+    p_new_email: normalizedNew,
+  });
+  if (error) {
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+export type RemoveResult = { ok: true } | { ok: false; error: string };
+
+// Task 7（規格 §16 第 5 點）：移除一個身份＝把那一列標成已離開（left_at），不刪列——已交的進度、
+// 比賽紀錄照常保留，名字顯示「（已離開）」。專案幹部身份離開時一併移除他負責的組別。已經離開的
+// 再移除一次當成功（no-op）。只能移除本學期的成員。實際的檢查與寫入在 admin_remove_identity()
+// （20260929000006_member_remove.sql）同一個交易裡做。
+export async function removeIdentity(memberId: string): Promise<RemoveResult> {
+  await requireAdmin();
+  const db = createServiceSupabase();
+  const { error } = await db.rpc("admin_remove_identity", { p_member_id: memberId });
+  if (error) {
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    // 亂填的 id（不是 uuid）→ 22P02，當成找不到。
+    if (error.code === "22P02") return { ok: false, error: "找不到這個身份" };
+    throw new Error(error.message);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// 移除整個人＝這個信箱在本學期的所有身份都標成已離開（admin_remove_person()）。
+export async function removePerson(email: string): Promise<RemoveResult> {
+  await requireAdmin();
+  const access = await getAccess();
+  if (access.kind !== "ok") return { ok: false, error: "還沒有本學期，請先建立學期" };
+
+  const db = createServiceSupabase();
+  const { error } = await db.rpc("admin_remove_person", {
+    p_semester_id: access.semesterId,
+    p_email: email.trim().toLowerCase(),
+  });
+  if (error) {
+    if (error.code === "P0001") return { ok: false, error: error.message };
+    throw new Error(error.message);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
 }

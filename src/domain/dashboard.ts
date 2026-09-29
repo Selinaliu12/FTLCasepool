@@ -2,6 +2,7 @@ import { systemLight, reporterLight, displayLight, LIGHT_SEVERITY, periodLabel, 
 import { onTimeRate } from "./on-time";
 import { daysUntil, formatTaipei } from "./time";
 import type { CompetitionStatus } from "./competition-line";
+import { compareNatural } from "./natural-sort";
 
 // fix round 1（controller ruling）：一條線可以「結束」（已退出／得獎／未入選）——結束的線
 // light 是 null，不是綠燈，UI 改顯示成果徽章（status）而不是 LightBadge。project 線永遠不會
@@ -40,7 +41,7 @@ export type GroupCard = {
 // 依姓名為數字感知排序（第1組在第10組前面同一套規則），dashboard／my-group／group-detail
 // 的組員清單共用。
 export function sortMembersByName<M extends { name: string }>(members: M[]): M[] {
-  return [...members].sort((a, b) => a.name.localeCompare(b.name, "zh-Hant", { numeric: true }));
+  return [...members].sort((a, b) => compareNatural(a.name, b.name));
 }
 
 export function worstLight(card: GroupCard): Light {
@@ -56,7 +57,7 @@ export function sortGroupCards(cards: GroupCard[]): GroupCard[] {
   return [...cards].sort((a, b) => {
     const diff = LIGHT_SEVERITY[worstLight(b)] - LIGHT_SEVERITY[worstLight(a)];
     if (diff !== 0) return diff;
-    return a.groupName.localeCompare(b.groupName, "zh-Hant", { numeric: true });
+    return compareNatural(a.groupName, b.groupName);
   });
 }
 

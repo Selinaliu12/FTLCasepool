@@ -23,7 +23,9 @@ const UNEXPECTED_ERROR = "操作失敗，請重試";
 // fix round 1）——不然看起來像這個人從沒參加過這場比賽。fix round 2（cosmetic）：如果
 // entry_members 指到的那筆 member 整列都不在了（不是換組，是真的查不到名字），movedOut 還是
 // true 但 name 會是空字串——這時候顯示「（已不在名單）」，不要顯示空白名字＋「（已換組）」。
-function memberLabel(m: { name: string; movedOut: boolean }): string {
+// Task 7：已離開的人標「（已離開）」（優先於已換組）。
+function memberLabel(m: { name: string; movedOut: boolean; left: boolean }): string {
+  if (m.left && m.name) return `${m.name}（已離開）`;
   if (!m.movedOut) return m.name;
   return m.name ? `${m.name}（已換組）` : "（已不在名單）";
 }
@@ -176,7 +178,12 @@ export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemb
     // fix round 2：已換組的成員（movedOut）不在候選名單裡，儲存時會被整份新名單覆蓋掉、
     // 自然被移除——進編輯模式前先提醒使用者。空字串名字（member 那筆資料整列都不見了）也算，
     // 一律用「（已不在名單）」代替空白。
-    const movedOutNames = entry.selectedMembers.filter((m) => m.movedOut).map((m) => m.name || "（已不在名單）");
+    const movedOutNames = entry.selectedMembers
+      .filter((m) => m.movedOut && !(m.left && m.name))
+      .map((m) => m.name || "（已不在名單）");
+    // Task 7：已離開的人同樣不在候選名單裡（loadEntryDetail 的 groupStudents 不含已離開的人），
+    // 儲存後會從參賽名單移除——先提醒。
+    const leftNames = entry.selectedMembers.filter((m) => m.left && m.name).map((m) => m.name);
 
     if (editing) {
       return (
@@ -185,6 +192,11 @@ export function EntryActions({ entry, myMemberId }: { entry: EntryDetail; myMemb
           {movedOutNames.length > 0 && (
             <p className="text-sm text-muted-foreground">
               已換組的同學（{movedOutNames.join("、")}）儲存後會從參賽名單移除
+            </p>
+          )}
+          {leftNames.length > 0 && (
+            <p className="text-sm text-muted-foreground">
+              已離開的同學（{leftNames.join("、")}）儲存後會從參賽名單移除
             </p>
           )}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

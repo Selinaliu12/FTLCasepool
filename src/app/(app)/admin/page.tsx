@@ -11,6 +11,8 @@ import { PeriodsForm, type PeriodRow } from "./periods-form";
 import { PmAssign } from "./pm-assign";
 import { SettingsForm } from "./settings-form";
 import { MoveMemberForm } from "./move-member-form";
+import { MembersSection } from "./members-section";
+import type { MemberListRow } from "@/domain/member-list";
 
 export default async function AdminPage() {
   const access = await getAccess();
@@ -45,7 +47,7 @@ export default async function AdminPage() {
     db.from("groups").select("id, name, project_name").eq("semester_id", semesterId).order("name"),
     db
       .from("members")
-      .select("id, name, email, role, student_id, group_id")
+      .select("id, name, email, role, student_id, dept_year, group_id, left_at")
       .eq("semester_id", semesterId)
       .order("name"),
     db.from("periods").select("id, seq, deadline, suggestion").eq("semester_id", semesterId).order("seq"),
@@ -61,6 +63,7 @@ export default async function AdminPage() {
   const sectionErrors: Record<string, boolean> = {
     本學期: !!semesterError,
     名單匯入: !!(groupsError || membersError),
+    成員: !!(groupsError || membersError),
     期別表: !!periodsError,
     專案幹部負責組別: !!(groupsError || membersError || pmAssignmentsError),
     燈號門檻: !!semesterError,
@@ -85,11 +88,25 @@ export default async function AdminPage() {
   const groupList = groups ?? [];
   const memberList = members ?? [];
   const periodList = periods ?? [];
-  const pmList = memberList.filter((m) => m.role === "pm");
-  const studentList = memberList.filter((m) => m.role === "student");
+  // Task 7：已離開的身份不出現在「專案幹部負責組別」與「換組」選單。
+  const activeMembers = memberList.filter((m) => !m.left_at);
+  const pmList = activeMembers.filter((m) => m.role === "pm");
+  const studentList = activeMembers.filter((m) => m.role === "student");
   const alreadyImported = memberList.length > 0;
 
   const groupNameById = new Map(groupList.map((g) => [g.id as string, g.name as string]));
+
+  // 「成員」區塊（Task 5）：每一列身份，連同組名與是否已離開；以人為單位合併在元件裡做。
+  const memberRows: MemberListRow[] = memberList.map((m) => ({
+    id: m.id as string,
+    email: m.email as string,
+    name: m.name as string,
+    role: m.role as MemberListRow["role"],
+    groupName: m.group_id ? groupNameById.get(m.group_id as string) ?? null : null,
+    studentId: (m.student_id as string | null) ?? null,
+    deptYear: (m.dept_year as string | null) ?? null,
+    leftAt: (m.left_at as string | null) ?? null,
+  }));
 
   const initialAssignments: Record<string, string[]> = {};
   for (const pm of pmList) initialAssignments[pm.id as string] = [];
@@ -139,6 +156,25 @@ export default async function AdminPage() {
           </CardHeader>
           <CardContent>
             <RosterImport semesterId={semesterId} alreadyImported={alreadyImported} />
+          </CardContent>
+        </Card>
+      )}
+
+      {sectionErrors.成員 ? (
+        <ErrorCard title="成員" section="成員" />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>成員</CardTitle>
+            <CardDescription>本學期名單上的每個人與他們的身份。名單匯入之後，學期中要加人，或替已在名單上的人加一個身份，按「新增成員」。</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MembersSection
+              rows={memberRows}
+              groups={groupList
+                .map((g) => ({ id: g.id as string, name: g.name as string }))
+                .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant", { numeric: true }))}
+            />
           </CardContent>
         </Card>
       )}

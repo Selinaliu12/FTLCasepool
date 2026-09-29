@@ -50,8 +50,12 @@ test.describe.serial("管理員設定", () => {
     await expect(page.getByText("已儲存")).toBeVisible();
 
     const pmCheckbox = page.getByRole("checkbox", { name: "幹部 負責 第1組" });
+    // 勾選是樂觀更新：畫面先打勾、server action 之後才送出。等 server action 回應再重新整理，
+    // 不然 dev 模式下（頁面比較重、送出前有一小段延遲）reload 可能搶在請求送出之前，把它取消掉。
+    const saved = page.waitForResponse((r) => r.request().method() === "POST" && r.url().endsWith("/admin"));
     await pmCheckbox.click();
     await expect(pmCheckbox).toBeChecked();
+    await saved;
 
     await page.reload();
     await expect(page.getByRole("checkbox", { name: "幹部 負責 第1組" })).toBeChecked();
