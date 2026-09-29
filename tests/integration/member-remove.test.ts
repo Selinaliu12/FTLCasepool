@@ -314,10 +314,12 @@ describe("參賽成員", () => {
     const { loadEntryDetail } = await import("@/server/queries/entries");
     const detail = await as("a1@g.nccu.edu.tw", () => loadEntryDetail(entryId));
     expect(detail!.groupStudents.map((s) => s.name)).toEqual(["甲一"]);
-    expect(detail!.selectedMembers).toEqual([
+    // entry_members 沒有排序保證，不比順序。
+    expect(detail!.selectedMembers).toHaveLength(2);
+    expect(detail!.selectedMembers).toEqual(expect.arrayContaining([
       { id: a1, name: "甲一", movedOut: false, left: false },
       { id: a2, name: "甲二", movedOut: false, left: true },
-    ]);
+    ]));
 
     const { setEntryMembers } = await import("@/server/actions/entries");
     const res = await as("a1@g.nccu.edu.tw", () => setEntryMembers(entryId, [a1, a2]));
