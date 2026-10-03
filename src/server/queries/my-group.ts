@@ -9,6 +9,7 @@ import { mapCheckinHistory, type CheckinHistoryEntry } from "@/domain/checkin-hi
 import { sortMembersByName, type GroupCardMember } from "@/domain/dashboard";
 import { nameByEmailMap } from "@/domain/member-name";
 import { loadCompetitionLinesForGroup, type CompetitionLineSummary } from "@/server/queries/competition-lines";
+import { loadGroupAssignments, type GroupAssignment } from "@/server/queries/assignments";
 
 export type PeriodRow = {
   periodId: string;
@@ -31,6 +32,8 @@ export type MyGroup = {
   latestReport: { light: Light; name: string; at: Date } | null;
   checkins: CheckinHistoryEntry[];
   competitionLines: MyGroupCompetitionLine[];
+  // 被派到的作業（§17）。
+  assignments: GroupAssignment[];
   // Task 4（規格 §14 第 6、7 點）：組別備註（「訂題後的主題」）與這組的組員（姓名、系級，
   // 依姓名排序，不含學號——學號只在管理員頁與 /groups/[id]）。
   note: string | null;
@@ -120,11 +123,16 @@ export async function loadMyGroup(): Promise<MyGroup> {
     };
   });
 
-  const deliverables: Deliverable[] = periods.map((p) => ({
-    label: periodLabel(p.seq),
-    deadline: p.deadline,
-    submittedAt: p.report?.submittedAt ?? null,
-  }));
+  const assignments = await loadGroupAssignments(supabase, semesterId, groupId, nameByEmail);
+
+  const deliverables: Deliverable[] = [
+    ...periods.map((p) => ({
+      label: periodLabel(p.seq),
+      deadline: p.deadline,
+      submittedAt: p.report?.submittedAt ?? null,
+    })),
+    ...assignments.deliverables,
+  ];
 
   const sys = systemLight(deliverables, now, { redAfterHours: semesterRes.data.red_after_hours as number });
   const reporter = reporterLight(
@@ -178,6 +186,7 @@ export async function loadMyGroup(): Promise<MyGroup> {
     latestReport,
     checkins: checkinHistory,
     competitionLines,
+    assignments: assignments.list,
     note: (groupRes.data.note as string | null) ?? null,
     noteUpdatedBy: (groupRes.data.note_updated_by as string | null) ?? null,
     noteUpdatedAt: groupRes.data.note_updated_at ? new Date(groupRes.data.note_updated_at as string) : null,

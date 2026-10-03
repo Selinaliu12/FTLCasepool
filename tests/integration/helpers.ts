@@ -61,6 +61,13 @@ export async function resetDb(): Promise<void> {
     await client.query("set session_replication_role = replica");
     await client.query("delete from stage_submissions");
   });
+  // assignment_submissions（§17）上有 assignment_submission_lock trigger，同一個理由。
+  await withRawPg(async (client) => {
+    await client.query("set session_replication_role = replica");
+    await client.query("delete from assignment_submissions");
+    await client.query("delete from assignment_groups");
+    await client.query("delete from assignments");
+  });
   await db.from("entry_members").delete().not("entry_id", "is", null);
   await db.from("lines").delete().neq("id", ZERO_UUID);
   await db.from("competition_entries").delete().neq("id", ZERO_UUID);

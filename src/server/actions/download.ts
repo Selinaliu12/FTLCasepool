@@ -3,7 +3,7 @@
 import { getAccess } from "@/server/session";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
 import { presignPdfGet } from "@/server/r2";
-import { pdfDownloadName, stageDownloadName } from "@/domain/download";
+import { pdfDownloadName, stageDownloadName, assignmentDownloadName } from "@/domain/download";
 import { isUuid } from "@/domain/id";
 import type { StageKey } from "@/domain/competition-line";
 
@@ -137,6 +137,50 @@ export async function getStagePdfDownloadUrl(
     version: submission.version as number,
   });
 
+  const url = await presignPdfGet(submission.pdf_key as string, downloadName);
+  return { ok: true, url };
+}
+
+const ASSIGNMENT_NOT_FOUND = "找不到這份繳交" as const;
+
+// 作業繳交的 PDF（§17-11）：走使用者身分連線，讓 assignment_submissions 的 RLS（該組組員、該組負責
+// 專案幹部、出題者）決定；其他幹部、其他專案幹部、別組學生讀不到那一列，一律回「找不到」。
+// 管理員走服務身分。專案生只能下載「目前身份」那組的（RLS 是所有身份的聯集）。
+export async function getAssignmentPdfDownloadUrl(
+  submissionId: string
+): Promise<{ ok: true; url: string } | { ok: false; error: typeof ASSIGNMENT_NOT_FOUND }> {
+  if (!isUuid(submissionId)) return { ok: false, error: ASSIGNMENT_NOT_FOUND };
+  const access = await getAccess();
+  if (access.kind !== "ok") return { ok: false, error: ASSIGNMENT_NOT_FOUND };
+
+  const useService = access.active.role === "admin";
+  if (!useService && access.active.role !== "pm" && access.active.role !== "student") return { ok: false, error: ASSIGNMENT_NOT_FOUND };
+  const db = useService ? createServiceSupabase() : await createServerSupabase();
+
+  const { data: submission, error } = await db
+    .from("assignment_submissions")
+    .select("pdf_key, group_id, assignment_id")
+    .eq("id", submissionId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!submission) return { ok: false, error: ASSIGNMENT_NOT_FOUND };
+  if (access.active.role === "student" && submission.group_id !== access.active.groupId) return { ok: false, error: ASSIGNMENT_NOT_FOUND };
+
+  // 組名、作業標題不是內容；用服務身分讀，避免出題者（非負責幹部）讀 groups 時的權限差異。
+  const service = createServiceSupabase();
+  const [{ data: group }, { data: assignment }] = await Promise.all([
+    service.from("groups").select("name, semester_id").eq("id", submission.group_id as string).maybeSingle(),
+    service.from("assignments").select("title").eq("id", submission.assignment_id as string).maybeSingle(),
+  ]);
+  if (!group || !assignment) return { ok: false, error: ASSIGNMENT_NOT_FOUND };
+  const { data: semester } = await service.from("semesters").select("name").eq("id", group.semester_id as string).maybeSingle();
+  if (!semester) return { ok: false, error: ASSIGNMENT_NOT_FOUND };
+
+  const downloadName = assignmentDownloadName({
+    semesterName: semester.name as string,
+    groupName: group.name as string,
+    title: assignment.title as string,
+  });
   const url = await presignPdfGet(submission.pdf_key as string, downloadName);
   return { ok: true, url };
 }

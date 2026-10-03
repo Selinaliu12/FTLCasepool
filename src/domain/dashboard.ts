@@ -1,4 +1,5 @@
 import { systemLight, reporterLight, displayLight, LIGHT_SEVERITY, periodLabel, type Light, type Deliverable } from "./lights";
+import { assignmentDeliverables, assignmentLabel } from "./assignment";
 import { onTimeRate } from "./on-time";
 import { daysUntil, formatTaipei } from "./time";
 import type { CompetitionStatus } from "./competition-line";
@@ -71,14 +72,19 @@ export function buildGroupCard(input: {
   redAfterHours: number;
   note?: string | null;
   members?: GroupCardMember[];
+  // 被派到的作業（§17-6）：跟期別一起算專案線的系統判定燈與準時率。
+  assignments?: { title: string; deadline: Date; submittedAt: Date | null }[];
 }): GroupCard {
-  const { group, lineId, periods, submissions, events, now, redAfterHours, note = null, members = [] } = input;
+  const { group, lineId, periods, submissions, events, now, redAfterHours, note = null, members = [], assignments = [] } = input;
 
-  const deliverables: Deliverable[] = periods.map((p) => ({
-    label: periodLabel(p.seq),
-    deadline: p.deadline,
-    submittedAt: submissions.find((s) => s.periodSeq === p.seq)?.submittedAt ?? null,
-  }));
+  const deliverables: Deliverable[] = [
+    ...periods.map((p) => ({
+      label: periodLabel(p.seq),
+      deadline: p.deadline,
+      submittedAt: submissions.find((s) => s.periodSeq === p.seq)?.submittedAt ?? null,
+    })),
+    ...assignmentDeliverables(assignments),
+  ];
 
   const sys = systemLight(deliverables, now, { redAfterHours });
   const reporter = reporterLight(events);
@@ -87,9 +93,16 @@ export function buildGroupCard(input: {
 
   const upcoming = upcomingPeriod(periods, now);
 
-  const nextDeadline = upcoming
+  let nextDeadline: GroupCard["nextDeadline"] = upcoming
     ? { at: upcoming.deadline, daysLeft: daysUntil(upcoming.deadline, now), lineLabel: "專案" }
     : null;
+  // 還沒交、還沒截止的作業如果比下一期更早，下一個截止就是它。
+  for (const a of assignments) {
+    if (a.submittedAt !== null || a.deadline.getTime() <= now.getTime()) continue;
+    if (nextDeadline === null || a.deadline.getTime() < nextDeadline.at.getTime()) {
+      nextDeadline = { at: a.deadline, daysLeft: daysUntil(a.deadline, now), lineLabel: assignmentLabel(a.title) };
+    }
+  }
   const stage = upcoming ? periodLabel(upcoming.seq) : "本學期期別已結束";
 
   return {

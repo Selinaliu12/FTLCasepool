@@ -10,6 +10,7 @@ import { isUuid } from "@/domain/id";
 import { sortMembersByName } from "@/domain/dashboard";
 import { nameByEmailMap } from "@/domain/member-name";
 import { loadCompetitionLinesForGroup, type CompetitionLineSummary } from "@/server/queries/competition-lines";
+import { loadGroupAssignments, type GroupAssignment } from "@/server/queries/assignments";
 
 // /groups/[id]：姓名、學號、系級——這裡跟管理員頁是唯二顯示學號的地方（規格 §14 第 1 點）。
 export type GroupDetailMember = { name: string; studentId: string | null; deptYear: string | null };
@@ -53,6 +54,8 @@ export type GroupDetail = {
   periods: GroupDetailPeriod[];
   checkins: CheckinHistoryEntry[];
   competitionLines: CompetitionLineSummary[];
+  // 被派到的作業（§17）：content 只有看得到那份繳交的人才有（出題者看自己出的也有）。
+  assignments: GroupAssignment[];
 };
 
 // 規格第 3 節＋§17-12～14「看進度內容（三句話、PDF、紅燈說明）」：管理員 ✓、專案幹部只看負責的組
@@ -167,11 +170,16 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
     };
   });
 
-  const deliverables: Deliverable[] = periods.map((p) => ({
-    label: periodLabel(p.seq),
-    deadline: p.deadline,
-    submittedAt: p.report?.submittedAt ?? null,
-  }));
+  const assignments = await loadGroupAssignments(db, semesterId, groupId, nameByEmail);
+
+  const deliverables: Deliverable[] = [
+    ...periods.map((p) => ({
+      label: periodLabel(p.seq),
+      deadline: p.deadline,
+      submittedAt: p.report?.submittedAt ?? null,
+    })),
+    ...assignments.deliverables,
+  ];
 
   const now = new Date();
   const sys = systemLight(deliverables, now, { redAfterHours: semesterRes.data.red_after_hours as number });
@@ -226,6 +234,7 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
     periods,
     checkins,
     competitionLines,
+    assignments: assignments.list,
   };
 }
 
