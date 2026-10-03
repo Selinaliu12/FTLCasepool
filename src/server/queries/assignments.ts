@@ -37,19 +37,17 @@ export async function loadAssignments(
 
   let groupsQuery = db.from("assignment_groups").select("assignment_id, group_id").in("assignment_id", ids);
   if (opts.groupIds) groupsQuery = groupsQuery.in("group_id", opts.groupIds);
-  const [agRes, statusRes, groupNamesRes] = await Promise.all([
+  // 出題者的名字：專案生的 RLS 讀不到幹部的名單列，名字本身不是內容，用服務身分只查這幾個 id 的姓名。
+  const creatorIds = [...new Set(assignments.map((a) => a.created_by as string))];
+  const [agRes, statusRes, groupNamesRes, { data: creators, error: creatorsError }] = await Promise.all([
     groupsQuery,
     db.from("assignment_status").select("assignment_id, group_id, pdf_uploaded_at").in("assignment_id", ids),
     db.from("groups").select("id, name").eq("semester_id", semesterId),
+    createServiceSupabase().from("members").select("id, name").in("id", creatorIds),
   ]);
   if (agRes.error) throw agRes.error;
   if (statusRes.error) throw statusRes.error;
   if (groupNamesRes.error) throw groupNamesRes.error;
-
-  // 出題者的名字：專案生的 RLS 讀不到幹部的名單列，名字本身不是內容，用服務身分只查這幾個 id 的姓名。
-  const creatorIds = [...new Set(assignments.map((a) => a.created_by as string))];
-  const { data: creators, error: creatorsError } = await createServiceSupabase()
-    .from("members").select("id, name").in("id", creatorIds);
   if (creatorsError) throw creatorsError;
 
   const groupName = new Map((groupNamesRes.data ?? []).map((g) => [g.id as string, g.name as string]));
@@ -109,15 +107,13 @@ export async function loadGroupAssignments(
   groupId: string,
   nameByEmail: Map<string, string>
 ): Promise<{ list: GroupAssignment[]; deliverables: Deliverable[] }> {
-  const assignments = await loadAssignments(db, semesterId, { groupIds: [groupId] });
-  if (assignments.length === 0) return { list: [], deliverables: [] };
-
-  const { data: submissions, error } = await db
-    .from("assignment_submissions")
-    .select("id, assignment_id, note, submitted_by, pdf_uploaded_at")
-    .eq("group_id", groupId)
-    .in("assignment_id", assignments.map((a) => a.id));
+  // 兩個查詢互不依賴，一起發；繳交內容由 RLS 決定讀不讀得到（讀不到就只有狀態）。
+  const [assignments, { data: submissions, error }] = await Promise.all([
+    loadAssignments(db, semesterId, { groupIds: [groupId] }),
+    db.from("assignment_submissions").select("id, assignment_id, note, submitted_by, pdf_uploaded_at").eq("group_id", groupId),
+  ]);
   if (error) throw error;
+  if (assignments.length === 0) return { list: [], deliverables: [] };
   const byAssignment = new Map((submissions ?? []).map((s) => [s.assignment_id as string, s]));
 
   const list = assignments.map((a) => {

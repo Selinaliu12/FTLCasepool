@@ -82,7 +82,8 @@ export async function resetDb(): Promise<void> {
   // 也清掉上一輪測試建立的本機測試帳號，避免 auth.users 重複 email 造成 createUser 失敗。
   const { data: users } = await db.auth.admin.listUsers();
   for (const u of users?.users ?? []) {
-    if (u.email?.endsWith("@g.nccu.edu.tw")) {
+    // §17 起名單可以是任何網域的信箱，測試帳號不再只有 @g.nccu.edu.tw；本機才會跑到這裡（service() 擋正式站）。
+    if (u.email) {
       await db.auth.admin.deleteUser(u.id);
     }
   }

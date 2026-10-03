@@ -218,6 +218,9 @@ declare
 begin
   v_semester := lock_own_assignment(p_assignment_id, p_author);
   perform assert_assignment_groups(v_semester, p_group_ids);
+  -- 鎖住派組的列：繳交 insert 會對它拿 key share，跟 for update 互斥，數完已交組數到真的刪掉之間
+  -- 不會有人插隊交件（插隊的會等這個交易結束，之後派組已不在，insert 失敗）。
+  perform 1 from assignment_groups where assignment_id = p_assignment_id for update;
 
   select coalesce(array_agg(group_id), '{}') into v_removed
   from assignment_groups
@@ -258,6 +261,7 @@ declare
   v_keys text[];
 begin
   perform lock_own_assignment(p_assignment_id, p_author);
+  perform 1 from assignment_groups where assignment_id = p_assignment_id for update; -- 同 update_assignment
 
   select count(*), coalesce(array_agg(pdf_key), '{}') into v_submitted, v_keys
   from assignment_submissions where assignment_id = p_assignment_id;

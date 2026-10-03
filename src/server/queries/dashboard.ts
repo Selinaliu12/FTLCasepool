@@ -44,6 +44,9 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
 
   const db = useService ? createServiceSupabase() : await createServerSupabase();
 
+  // 作業的狀態（交了沒、繳交時間），算進各組專案線（§17-6）；跟下面的查詢互不依賴，先發出去。
+  const assignmentsPromise = loadAssignments(db, semesterId);
+
   const [groupsRes, periodsRes, semesterRes] = await Promise.all([
     db.from("groups").select("id, name, project_name, note").eq("semester_id", semesterId).order("name"),
     db.from("periods").select("id, seq, deadline").eq("semester_id", semesterId).order("seq"),
@@ -131,8 +134,7 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
     stageStatusByLine.set(row.line_id as string, arr);
   }
 
-  // 作業的狀態（交了沒、繳交時間），算進各組專案線（§17-6）。
-  const assignments = await loadAssignments(db, semesterId);
+  const assignments = await assignmentsPromise;
 
   const periods = (periodsRes.data ?? []).map((p) => ({ id: p.id as string, seq: p.seq as number, deadline: new Date(p.deadline as string) }));
   const seqByPeriodId = new Map(periods.map((p) => [p.id, p.seq]));

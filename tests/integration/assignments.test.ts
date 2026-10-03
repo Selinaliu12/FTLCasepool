@@ -120,6 +120,8 @@ describe("出作業（§17-1～3）", () => {
     expect(await asUser("pm@g.nccu.edu.tw", () => createAssignment({ ...base, groupIds: [] }))).toEqual({ ok: false, error: "至少要派給一組" });
     expect(await asUser("pm@g.nccu.edu.tw", () => createAssignment({ ...base, title: " " }))).toEqual({ ok: false, error: "請填寫標題" });
     expect((await asUser("pm@g.nccu.edu.tw", () => createAssignment({ ...base, deadlineDate: "2026-02-30" }))).ok).toBe(false);
+    // 時間欄預設 23:59，沒填日期要說「請填寫」而不是「格式錯誤」
+    expect(await asUser("pm@g.nccu.edu.tw", () => createAssignment({ ...base, deadlineDate: "" }))).toEqual({ ok: false, error: "請填寫截止日期與時間" });
   });
 
   it("資料庫也擋：作者不是專案幹部、組不屬於本學期", async () => {

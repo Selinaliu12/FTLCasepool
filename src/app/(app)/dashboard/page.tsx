@@ -77,7 +77,12 @@ export default async function DashboardPage() {
               card={card}
               isMine={myPmGroupIdSet.has(card.groupId)}
               canViewContent={canViewContent}
-              statusOnly={access.active.role === "pm" && !myPmGroupIdSet.has(card.groupId)}
+              statusOnly={
+                access.active.role === "pm" &&
+                !myPmGroupIdSet.has(card.groupId) &&
+                // 同時是這組專案生的人看得到內容（§17-15），不是只看狀態。
+                !access.identities.some((i) => i.role === "student" && i.groupId === card.groupId)
+              }
             />
           ))}
         </div>

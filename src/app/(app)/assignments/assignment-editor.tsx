@@ -68,7 +68,7 @@ export function AssignmentEditor({ groups, assignment }: { groups: EditorGroup[]
   const [form, setForm] = useState<AssignmentFormInput>(assignment ?? empty);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [confirm, setConfirm] = useState<{ message: string; count: number } | null>(null);
+  const [confirm, setConfirm] = useState<{ message: string; count: number; nonce: number } | null>(null);
 
   function openDialog() {
     setForm(assignment ?? empty);
@@ -97,7 +97,7 @@ export function AssignmentEditor({ groups, assignment }: { groups: EditorGroup[]
       return;
     }
     if (r.needsConfirm !== undefined) {
-      setConfirm({ message: r.error, count: r.needsConfirm });
+      setConfirm({ message: r.error, count: r.needsConfirm, nonce: Date.now() });
       return;
     }
     setConfirm(null);
@@ -182,7 +182,7 @@ export function AssignmentEditor({ groups, assignment }: { groups: EditorGroup[]
         </DialogContent>
       </Dialog>
       <ConfirmDialog
-        key={confirm ? `${confirm.count}` : "closed"}
+        key={confirm ? `${confirm.nonce}` : "closed"}
         message={confirm?.message ?? null}
         pending={pending}
         onCancel={() => setConfirm(null)}
@@ -196,7 +196,7 @@ export function DeleteAssignmentButton({ assignmentId, title }: { assignmentId: 
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [askSimple, setAskSimple] = useState(false);
-  const [confirm, setConfirm] = useState<{ message: string; count: number } | null>(null);
+  const [confirm, setConfirm] = useState<{ message: string; count: number; nonce: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function run(confirmCount = 0) {
@@ -215,7 +215,7 @@ export function DeleteAssignmentButton({ assignmentId, title }: { assignmentId: 
       router.refresh();
       return;
     }
-    if (r.needsConfirm !== undefined) setConfirm({ message: r.error, count: r.needsConfirm });
+    if (r.needsConfirm !== undefined) setConfirm({ message: r.error, count: r.needsConfirm, nonce: Date.now() });
     else {
       setConfirm(null);
       setError(r.error);
@@ -243,7 +243,7 @@ export function DeleteAssignmentButton({ assignmentId, title }: { assignmentId: 
         </DialogContent>
       </Dialog>
       <ConfirmDialog
-        key={confirm ? `${confirm.count}` : "closed"}
+        key={confirm ? `${confirm.nonce}` : "closed"}
         message={confirm?.message ?? null}
         pending={pending}
         onCancel={() => setConfirm(null)}

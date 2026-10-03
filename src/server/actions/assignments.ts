@@ -49,7 +49,8 @@ async function authorContext(): Promise<{ memberId: string; semesterId: string }
 
 function parseInput(input: AssignmentFormInput): { ok: true; deadline: Date } | { ok: false; error: string } {
   let deadline: Date | null = null;
-  if (input.deadlineDate || input.deadlineTime) {
+  // 時間欄有預設值 23:59，所以只看日期有沒有填：沒填日期＝沒填截止。
+  if (input.deadlineDate) {
     try {
       deadline = parseTaipeiDeadline(input.deadlineDate, input.deadlineTime);
     } catch {
