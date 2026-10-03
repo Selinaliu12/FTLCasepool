@@ -294,7 +294,7 @@ function AddMemberDialog({ groups }: { groups: MemberGroupOption[] }) {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={onSubmit} className="flex flex-col gap-3" noValidate>
-            {field("email", "學校信箱", { type: "email", placeholder: "例：110701001@g.nccu.edu.tw", autoComplete: "off" })}
+            {field("email", "信箱", { type: "email", placeholder: "例：110701001@g.nccu.edu.tw 或 name@gmail.com", autoComplete: "off" })}
             {field("name", "姓名", { autoComplete: "off" })}
             <div className="grid grid-cols-2 gap-3">
               {field("studentId", "學號", { autoComplete: "off", inputMode: "numeric" })}
@@ -416,7 +416,7 @@ function EditPersonDialog({ person }: { person: Person }) {
           </DialogHeader>
           <form onSubmit={onSubmit} className="flex flex-col gap-3" noValidate>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-person-email">學校信箱</Label>
+              <Label htmlFor="edit-person-email">信箱</Label>
               <Input
                 id="edit-person-email"
                 type="email"

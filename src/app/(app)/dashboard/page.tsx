@@ -25,8 +25,8 @@ export default async function DashboardPage() {
 
   const [{ cards, myPmGroupIds }, reviewQueue] = await Promise.all([loadDashboard(), loadReviewQueue()]);
   const myPmGroupIdSet = new Set(myPmGroupIds);
-  // 看板每張卡的「看內容」連結：規格第 3 節，只有專案幹部與管理員能看進度內容，
-  // 其他幹部沒有這個連結（直接打網址會撞到 /groups/[id] 的 404，見 loadGroupDetail）。
+  // 看板每張卡的「看內容」連結：規格第 3 節＋§17，管理員與專案幹部可以點進組別頁；專案幹部點非負責的組
+  // 是「看狀態」（只看狀態版本）。其他幹部沒有這個連結（直接打網址會撞到 /groups/[id] 的 404，見 loadGroupDetail）。
   const canViewContent = access.active.role === "pm" || access.active.role === "admin";
 
   const counts = { red: 0, yellow: 0, green: 0 };
@@ -77,6 +77,12 @@ export default async function DashboardPage() {
               card={card}
               isMine={myPmGroupIdSet.has(card.groupId)}
               canViewContent={canViewContent}
+              statusOnly={
+                access.active.role === "pm" &&
+                !myPmGroupIdSet.has(card.groupId) &&
+                // 同時是這組專案生的人看得到內容（§17-15），不是只看狀態。
+                !access.identities.some((i) => i.role === "student" && i.groupId === card.groupId)
+              }
             />
           ))}
         </div>

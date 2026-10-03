@@ -1,5 +1,5 @@
 import { beforeAll, describe, it, expect } from "vitest";
-import { resetDb, seedSemester, clientAs } from "./helpers";
+import { resetDb, seedSemester, clientAs, assignPm } from "./helpers";
 import { createServiceSupabase } from "../../src/server/supabase";
 
 // Final review IMPORTANT 4：批次 2 新增的 RLS（competition_entries／entry_members／
@@ -103,6 +103,7 @@ beforeAll(async () => {
   const currentRows = await entryWithSubmission(seed.semesterId, seed.groupA, a1!.id as string, "current");
   currentEntryId = currentRows.entryId;
   currentLineId = currentRows.lineId;
+  await assignPm("pm@g.nccu.edu.tw", seed.groupA);
 });
 
 describe.each(["pm@g.nccu.edu.tw", "off@g.nccu.edu.tw"])("RLS 學期範圍：%s", (email) => {

@@ -16,10 +16,13 @@ export function GroupCard({
   card,
   isMine,
   canViewContent = false,
+  statusOnly = false,
 }: {
   card: GroupCardData;
   isMine: boolean;
   canViewContent?: boolean;
+  // 專案幹部看非負責的組：連結進「只看狀態」的組別頁（§17-14）。
+  statusOnly?: boolean;
 }) {
   const light = worstLight(card);
   const projectLine = card.lines.find((l) => l.kind === "project");
@@ -109,7 +112,7 @@ export function GroupCard({
         ) : null}
         {canViewContent ? (
           <Link href={`/groups/${card.groupId}`} className={cn(buttonVariants({ variant: "outline" }), "self-start")}>
-            看內容
+            {statusOnly ? "看狀態" : "看內容"}
           </Link>
         ) : null}
       </CardContent>

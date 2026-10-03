@@ -9,8 +9,15 @@ function ctx(over: Partial<Parameters<typeof resolveAccess>[1]> = {}): Parameter
 }
 
 describe("resolveAccess", () => {
-  it("非學校帳號一律擋下", () => {
-    expect(resolveAccess("a@gmail.com", ctx())).toEqual({ kind: "wrong_domain" });
+  it("不是合法信箱一律擋下", () => {
+    expect(resolveAccess("not-an-email", ctx())).toEqual({ kind: "wrong_domain" });
+    expect(resolveAccess("", ctx())).toEqual({ kind: "wrong_domain" });
+  });
+
+  it("校外信箱（§17-16）：不在名單 → not_in_roster；在名單 → ok", () => {
+    expect(resolveAccess("someone@gmail.com", ctx())).toEqual({ kind: "not_in_roster" });
+    const rows: RosterRow[] = [{ id: "m1", semesterId: "s1", email: "someone@gmail.com", name: "校外", role: "student", groupId: "g1", groupName: "第1組" }];
+    expect(resolveAccess("Someone@Gmail.com", ctx({ rows })).kind).toBe("ok");
   });
 
   it("學校帳號但不在名單、也不是管理員 → not_in_roster", () => {

@@ -40,9 +40,10 @@ async function createCompetition(semesterId: string, overrides: Record<string, u
       semester_id: semesterId,
       name: "黑客松",
       url: "https://example.com",
-      signup_deadline: "2026-10-01T15:59:59.999Z",
-      submission_deadline: "2026-11-01T15:59:59.999Z",
-      final_date: "2026-12-01T15:59:59.999Z",
+      // 報名截止要在未來（attachCompetition 擋已截止的比賽）；寫死 2026-10 的日期到了就會壞。
+      signup_deadline: "2099-10-01T15:59:59.999Z",
+      submission_deadline: "2099-11-01T15:59:59.999Z",
+      final_date: "2099-12-01T15:59:59.999Z",
       status: "published",
       created_by: "pm@g.nccu.edu.tw",
       ...overrides,

@@ -6,7 +6,7 @@ test("第一次登入看到說明頁，按了才能進去；沒按之前打其�
   await expect(page).toHaveURL(/\/welcome$/);
   await expect(page.getByText("使用前請先閱讀")).toBeVisible();
   await expect(
-    page.getByText("學期中，你的進度內容只有自己組員、專案幹部和系統管理員看得到。其他幹部只看得到燈號與階段。")
+    page.getByText("學期中，你的進度內容只有自己組員、負責你們組的專案幹部和系統管理員看得到；專案幹部出的作業，出題的幹部也看得到。其他幹部只看得到燈號與階段。")
   ).toBeVisible();
   await expect(page.getByText("期末資料會匯出到社團雲端硬碟，只有幹部看得到。")).toBeVisible();
   await expect(page.getByText("系統管理員維護時技術上碰得到所有資料。")).toBeVisible();

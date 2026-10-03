@@ -32,8 +32,13 @@ describe("validateMemberRow（表單用 Global Constraints 文字）", () => {
     expect(r.ok && r.value).toMatchObject({ role: "officer", group: null });
   });
 
-  it("信箱不是學校信箱 → email 必須是 @g.nccu.edu.tw", () => {
-    expect(formMessage({ ...base, email: "a@gmail.com" })).toBe("email 必須是 @g.nccu.edu.tw");
+  it("信箱格式不對 → email 格式不正確", () => {
+    expect(formMessage({ ...base, email: "a@gmail" })).toBe("email 格式不正確");
+    expect(formMessage({ ...base, email: "a b@x.com" })).toBe("email 格式不正確");
+  });
+
+  it("校外信箱可以（§17-18）", () => {
+    expect(validateMemberRow({ ...base, email: "A@Gmail.com" })).toMatchObject({ ok: true, value: { email: "a@gmail.com" } });
   });
 
   it("幹部填了組別 → 幹部不能填組別", () => {
@@ -78,7 +83,7 @@ describe("CSV 與表單用同一套規則", () => {
   });
 
   it("CSV 的錯誤訊息保留「第 N 列：」前綴", () => {
-    const csv = parseRosterCsv(`${HEADER}\na@gmail.com,王小明,專案生,,,第1組,`);
-    expect(csv).toEqual({ ok: false, errors: ["第 2 列：email 必須是 @g.nccu.edu.tw"] });
+    const csv = parseRosterCsv(`${HEADER}\nnot-an-email,王小明,專案生,,,第1組,`);
+    expect(csv).toEqual({ ok: false, errors: ["第 2 列：email 格式不正確"] });
   });
 });

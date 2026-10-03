@@ -1,12 +1,13 @@
 import { beforeAll, describe, it, expect } from "vitest";
 import { createClient } from "@supabase/supabase-js";
-import { resetDb, seedSemester, clientAs, queryAsForgedJwt, withRawPg } from "./helpers";
+import { resetDb, seedSemester, clientAs, queryAsForgedJwt, withRawPg, assignPm, service } from "./helpers";
 import { env } from "../../src/server/env";
 
 let seed: Awaited<ReturnType<typeof seedSemester>>;
 beforeAll(async () => {
   await resetDb();
   seed = await seedSemester();
+  await assignPm("pm@g.nccu.edu.tw", seed.groupA);
 });
 
 describe("RLS：進度內容", () => {
@@ -39,11 +40,29 @@ describe("RLS：進度內容", () => {
     expect(lineIds.has(seed.lineB)).toBe(true);
   });
 
-  it("專案幹部讀得到所有組的三句話", async () => {
+  it("專案幹部讀得到負責組（第1組）的三句話與紅燈說明", async () => {
     const db = await clientAs("pm@g.nccu.edu.tw");
     const a = await db.from("progress_reports").select("did").eq("line_id", seed.lineA);
     expect(a.error).toBeNull();
     expect(a.data).toHaveLength(1);
+    const c = await db.from("checkins").select("note").eq("line_id", seed.lineA);
+    expect(c.data).toHaveLength(1);
+  });
+
+  // §17-12（放寬就失敗）：非負責的組只看狀態，三句話、紅燈說明都讀不到；狀態視圖仍讀得到。
+  it("專案幹部讀不到非負責組（第2組）的內容，但看得到狀態", async () => {
+    const db = await clientAs("pm@g.nccu.edu.tw");
+    await service().from("progress_reports").insert({
+      line_id: seed.lineB, period_id: seed.periodIds[0], light: "yellow", did: "乙", blocked: "乙", next_steps: "乙",
+      submitted_by: "b1@g.nccu.edu.tw", pdf_key: "reports/lineB/p1.pdf", pdf_size: 10,
+      pdf_uploaded_at: new Date().toISOString(), pdf_uploaded_by: "b1@g.nccu.edu.tw",
+    });
+    expect((await db.from("progress_reports").select("did").eq("line_id", seed.lineB)).data).toEqual([]);
+    expect((await db.from("checkins").select("note").eq("line_id", seed.lineB)).data).toEqual([]);
+    const status = await db.from("line_light_events").select("light, period_id").eq("line_id", seed.lineB);
+    expect(status.data).toHaveLength(2);
+    expect((await db.rpc("can_read_content", { l: seed.lineB })).data).toBe(false);
+    expect((await db.rpc("can_read_content", { l: seed.lineA })).data).toBe(true);
   });
 
   it("學生從 line_light_events 只讀得到自己組", async () => {

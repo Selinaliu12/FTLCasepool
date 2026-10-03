@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { resetDb, seedSemester, ensureLocalStorageBucket, uploadTestPdf } from "../integration/helpers";
+import { resetDb, seedSemester, ensureLocalStorageBucket, uploadTestPdf, assignPm } from "../integration/helpers";
 
 // 跟 dashboard.spec.ts 一樣：自己控制種子資料，不依賴其他測試檔案先跑過，結束後把種子資料
 // 還原給其他測試用（single-worker，全部 e2e 測試共用同一個本機 Supabase）。
@@ -10,6 +10,8 @@ test.describe.serial("看已交內容", () => {
     await resetDb();
     const seed = await seedSemester();
     groupAId = seed.groupA;
+    // §17-12：專案幹部只看得到負責組的內容。
+    await assignPm("pm@g.nccu.edu.tw", seed.groupA);
     await ensureLocalStorageBucket();
 
     // seedSemester() 的種子報告只在資料庫留了一筆 pdf_key（"reports/lineA/period1.pdf"），

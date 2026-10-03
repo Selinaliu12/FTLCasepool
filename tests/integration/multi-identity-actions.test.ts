@@ -59,6 +59,9 @@ beforeEach(async () => {
   await resetDb();
   seed = await seedSemester({ acknowledged: true });
   const db = service();
+  // seed 的期別寫死在 2026-10／11，日期過了第3組就會亮燈；這裡移到未來，測的是換組而不是逾期。
+  await db.from("periods").update({ deadline: "2099-10-01T00:00:00Z" }).eq("id", seed.periodIds[0]);
+  await db.from("periods").update({ deadline: "2099-11-01T00:00:00Z" }).eq("id", seed.periodIds[1]);
   const { data: g, error: gErr } = await db
     .from("groups")
     .insert({ semester_id: seed.semesterId, name: "第3組", project_name: "專案C" })
@@ -98,7 +101,7 @@ describe("多組學生切換身份後，組頁、燈號、上傳、交件都跟�
     const page = await loadMyGroup();
     expect(page.groupName).toBe("第3組");
     expect(page.lineId).toBe(lineC);
-    // 第3組沒有任何回報、也還沒逾期（seed 的期別在 2026-10／11）→ 綠燈；第1組 seed 有一筆紅燈點燈。
+    // 第3組沒有任何回報、也還沒逾期（期別在 beforeEach 移到 2099）→ 綠燈；第1組 seed 有一筆紅燈點燈。
     expect(page.display.light).toBe("green");
 
     const upload = await requestPdfUpload({ name: "a.pdf", type: "application/pdf", size: 2048 });

@@ -11,16 +11,17 @@ export function LoginButton() {
     );
     await supabase.auth.signInWithOAuth({
       provider: "google",
+      // 不限網域（§17-16）：任何 Google 帳號都能登入，名單上有這個信箱才放行（getAccess）。
       options: {
         redirectTo: `${location.origin}/auth/callback`,
-        queryParams: { hd: "g.nccu.edu.tw", prompt: "select_account" },
+        queryParams: { prompt: "select_account" },
       },
     });
   }
 
   return (
     <Button size="lg" className="h-11 w-full text-base" onClick={handleLogin}>
-      用學校 Google 帳號登入
+      用 Google 帳號登入
     </Button>
   );
 }

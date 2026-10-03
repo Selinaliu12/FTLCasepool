@@ -149,10 +149,10 @@ describe("changeEmail", () => {
     expect(await rowsOf("a2-fixed@g.nccu.edu.tw")).toHaveLength(1);
   });
 
-  it("新信箱網域不對", async () => {
-    expect(await changeEmail("pm@g.nccu.edu.tw", "pm@gmail.com")).toEqual({
+  it("新信箱格式不對", async () => {
+    expect(await changeEmail("pm@g.nccu.edu.tw", "pm@gmail")).toEqual({
       ok: false,
-      error: "email 必須是 @g.nccu.edu.tw",
+      error: "email 格式不正確",
     });
   });
 
@@ -357,8 +357,8 @@ describe("editPerson", () => {
 
   it("新信箱網域不對 → 錯誤，什麼都沒被改動", async () => {
     const before = await rowsOf("a2@g.nccu.edu.tw");
-    const res = await editPerson("a2@g.nccu.edu.tw", "a2@gmail.com", { name: "甲二改" });
-    expect(res).toEqual({ ok: false, error: "email 必須是 @g.nccu.edu.tw" });
+    const res = await editPerson("a2@g.nccu.edu.tw", "a2@gmail", { name: "甲二改" });
+    expect(res).toEqual({ ok: false, error: "email 格式不正確" });
     expect(await rowsOf("a2@g.nccu.edu.tw")).toEqual(before);
   });
 

@@ -1,4 +1,5 @@
 import "server-only";
+import { loadAssignments } from "@/server/queries/assignments";
 import { getAccess } from "@/server/session";
 import { createServerSupabase, createServiceSupabase } from "@/server/supabase";
 import { sortGroupCards, buildGroupCard, foldCompetitionDeadlines, type GroupCard, type GroupCardLine } from "@/domain/dashboard";
@@ -42,6 +43,9 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
   const isPm = pmMemberId !== null;
 
   const db = useService ? createServiceSupabase() : await createServerSupabase();
+
+  // 作業的狀態（交了沒、繳交時間），算進各組專案線（§17-6）；跟下面的查詢互不依賴，先發出去。
+  const assignmentsPromise = loadAssignments(db, semesterId);
 
   const [groupsRes, periodsRes, semesterRes] = await Promise.all([
     db.from("groups").select("id, name, project_name, note").eq("semester_id", semesterId).order("name"),
@@ -130,6 +134,8 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
     stageStatusByLine.set(row.line_id as string, arr);
   }
 
+  const assignments = await assignmentsPromise;
+
   const periods = (periodsRes.data ?? []).map((p) => ({ id: p.id as string, seq: p.seq as number, deadline: new Date(p.deadline as string) }));
   const seqByPeriodId = new Map(periods.map((p) => [p.id, p.seq]));
   const redAfterHours = semesterRes.data.red_after_hours as number;
@@ -159,6 +165,10 @@ export async function loadDashboard(now: Date = new Date()): Promise<Dashboard> 
       redAfterHours,
       note: (group.note as string | null) ?? null,
       members: groupMembers,
+      assignments: assignments.flatMap((a) => {
+        const g = a.groups.find((x) => x.groupId === group.id);
+        return g ? [{ title: a.title, deadline: a.deadline, submittedAt: g.submittedAt }] : [];
+      }),
     });
 
     // fix round 1（controller ruling）：已退出的比賽線從看板整個濾掉，不出現在組卡上——不是

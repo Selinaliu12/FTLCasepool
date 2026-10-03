@@ -1,4 +1,5 @@
 import Papa from "papaparse";
+import { EMAIL_RE } from "./access";
 
 export type Role = "pm" | "officer" | "student";
 export type RosterRow = {
@@ -41,7 +42,7 @@ export function validateMemberRow(input: MemberRowInput): { ok: true; value: Mem
   const role = ROLE[input.role.trim()];
   if (!role) return { ok: false, error: "role" };
   const email = input.email.trim().toLowerCase();
-  if (!email.endsWith("@g.nccu.edu.tw")) return { ok: false, error: "email_domain" };
+  if (!EMAIL_RE.test(email)) return { ok: false, error: "email_domain" };
   const name = input.name.trim();
   if (!name) return { ok: false, error: "name_blank" };
   const group = input.group.trim() || null;
@@ -56,7 +57,7 @@ export function validateMemberRow(input: MemberRowInput): { ok: true; value: Mem
 // 單一成員表單的錯誤文字（Global Constraints，沒有列號前綴）。
 const FORM_ERRORS: Record<MemberRowError, string> = {
   role: "角色要選專案幹部、其他幹部或專案生",
-  email_domain: "email 必須是 @g.nccu.edu.tw",
+  email_domain: "email 格式不正確",
   name_blank: "姓名不能空白",
   group_required: "專案生要選組別",
   group_forbidden: "幹部不能填組別",
@@ -71,7 +72,7 @@ function csvError(error: MemberRowError, rawRole: string): string {
     case "role":
       return `角色「${rawRole}」不是 專案幹部／其他幹部／專案生`;
     case "email_domain":
-      return "email 必須是 @g.nccu.edu.tw";
+      return "email 格式不正確";
     case "name_blank":
       return "姓名不能空白";
     case "group_required":

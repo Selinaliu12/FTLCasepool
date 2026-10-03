@@ -44,7 +44,7 @@ test.describe.serial(`tpl-t6 視覺自我檢查截圖 round${ROUND}`, () => {
       await page.screenshot({ path: `${prefix}-dialog-open.png` });
 
       // 改信箱撞到已在名單上的信箱：錯誤顯示在表單裡。
-      await dialog.getByLabel("學校信箱").fill("a2@g.nccu.edu.tw");
+      await dialog.getByLabel("信箱").fill("a2@g.nccu.edu.tw");
       await dialog.getByRole("button", { name: "儲存" }).click();
       await dialog.getByRole("alert").waitFor();
       await expect(dialog.getByRole("button", { name: "儲存" })).toBeEnabled();

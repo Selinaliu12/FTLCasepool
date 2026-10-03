@@ -17,6 +17,11 @@ export function stageDownloadName(i: {
   return `${i.semesterName}-${i.groupName}-${i.competitionName}-${STAGE_LABEL[i.stage]}-v${i.version}.pdf`;
 }
 
+// 作業繳交的下載檔名「{學期}-{組名}-作業-{標題}.pdf」（§17）。標題裡的「/」換成「-」，不讓瀏覽器當成路徑。
+export function assignmentDownloadName(i: { semesterName: string; groupName: string; title: string }): string {
+  return `${i.semesterName}-${i.groupName}-作業-${i.title.replace(/[\\/]/g, "-")}.pdf`;
+}
+
 // Content-Disposition：中文檔名不是合法的 ASCII header 值，RFC 5987 的 filename* 才是瀏覽器
 // 拿檔名的來源；filename= 只當作不支援 filename* 的舊瀏覽器的備援，所以裡面只留 ASCII 字元。
 function asciiFallback(name: string): string {
