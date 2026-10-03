@@ -20,7 +20,7 @@ test.describe.serial("管理員新增成員", () => {
 
     await card.getByRole("button", { name: "新增成員" }).click();
     const dialog = page.getByRole("dialog");
-    await dialog.getByLabel("學校信箱").fill("newbie@g.nccu.edu.tw");
+    await dialog.getByLabel("信箱").fill("newbie@g.nccu.edu.tw");
     await dialog.getByLabel("姓名").fill("新同學");
     await dialog.getByLabel("學號").fill("113701001");
     await dialog.getByLabel("系級").fill("資科一");
@@ -36,7 +36,7 @@ test.describe.serial("管理員新增成員", () => {
 
     // 已經有這個身份：錯誤顯示在表單裡
     await card.getByRole("button", { name: "新增成員" }).click();
-    await dialog.getByLabel("學校信箱").fill("newbie@g.nccu.edu.tw");
+    await dialog.getByLabel("信箱").fill("newbie@g.nccu.edu.tw");
     await dialog.getByLabel("姓名").fill("新同學");
     await dialog.getByLabel("學號").fill("113701001");
     await dialog.getByLabel("系級").fill("資科一");
@@ -72,7 +72,7 @@ test.describe.serial("管理員編輯成員", () => {
     await row.getByRole("button", { name: "編輯" }).click();
 
     const dialog = page.getByRole("dialog");
-    await dialog.getByLabel("學校信箱").fill("a2-fixed@g.nccu.edu.tw");
+    await dialog.getByLabel("信箱").fill("a2-fixed@g.nccu.edu.tw");
     await dialog.getByLabel("姓名").fill("甲二改");
     await dialog.getByLabel("學號").fill("110701002");
     await dialog.getByLabel("系級").fill("資科三");
@@ -111,7 +111,7 @@ test.describe.serial("管理員編輯成員", () => {
     await row.getByRole("button", { name: "編輯" }).click();
 
     const dialog = page.getByRole("dialog");
-    await dialog.getByLabel("學校信箱").fill("a1-new@g.nccu.edu.tw");
+    await dialog.getByLabel("信箱").fill("a1-new@g.nccu.edu.tw");
     await dialog.getByRole("button", { name: "儲存" }).click();
     await expect(dialog.getByRole("alert")).toHaveText("這個人已經有紀錄，不能改信箱；請移除後用新信箱新增");
     await expect(dialog.getByRole("button", { name: "儲存" })).toBeEnabled();
@@ -129,7 +129,7 @@ test.describe.serial("管理員編輯成員", () => {
     await row.getByRole("button", { name: "編輯" }).click();
 
     const dialog = page.getByRole("dialog");
-    await dialog.getByLabel("學校信箱").fill("a2-cleared@g.nccu.edu.tw");
+    await dialog.getByLabel("信箱").fill("a2-cleared@g.nccu.edu.tw");
     await dialog.getByLabel("姓名").fill("");
     await dialog.getByRole("button", { name: "儲存" }).click();
 

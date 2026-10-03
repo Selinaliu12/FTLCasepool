@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester, clientAs, asPm, asOfficer, asStudent, asAdminNoMember, asAdminOfficer } from "./helpers";
+import { resetDb, seedSemester, clientAs, asPm, asOfficer, asStudent, asAdminNoMember, asAdminOfficer, assignPm } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 // loadGroupDetail 走使用者身分連線（RLS 決定），管理員（沒有 member 列）才退回服務身分——
@@ -25,7 +25,8 @@ describe("loadGroupDetail", () => {
     seed = await seedSemester();
   });
 
-  it("專案幹部讀得到任一組的三句話、誰交、紅燈說明", async () => {
+  it("專案幹部讀得到負責組的三句話、誰交、紅燈說明", async () => {
+    await assignPm("pm@g.nccu.edu.tw", seed.groupA);
     asPm(mockGetAccess, seed.semesterId);
     mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
 
@@ -35,10 +36,31 @@ describe("loadGroupDetail", () => {
     expect(result!.group.name).toBe("第1組");
     const period1 = result!.periods.find((p) => p.seq === 1);
     expect(period1!.report).not.toBeNull();
-    expect(period1!.report!.did).toBe("完成初版原型");
-    expect(period1!.report!.submittedBy).toBe("甲一");
+    expect(result!.contentVisible).toBe(true);
+    expect(period1!.report!.content!.did).toBe("完成初版原型");
+    expect(period1!.report!.content!.submittedBy).toBe("甲一");
     expect(result!.checkins.length).toBeGreaterThan(0);
     expect(result!.checkins.some((c) => c.light === "red" && c.note === "卡在資料串接")).toBe(true);
+  });
+
+  // §17-14（放寬就失敗）：非負責的組拿到只看狀態版本——燈號、繳交時間、準時率有，內容全部沒有。
+  it("專案幹部看非負責的組：只看狀態，沒有三句話、交件人、紅燈說明", async () => {
+    await assignPm("pm@g.nccu.edu.tw", seed.groupB);
+    asPm(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
+
+    const result = await loadGroupDetail(seed.groupA);
+    expect(result).not.toBeNull();
+    expect(result!.contentVisible).toBe(false);
+    const period1 = result!.periods.find((p) => p.seq === 1)!;
+    expect(period1.report).not.toBeNull();
+    expect(period1.report!.light).toBe("green");
+    expect(period1.report!.content).toBeNull();
+    expect(result!.checkins).toEqual([]);
+    // 顯示燈仍反映中間週紅燈（狀態），只是看不到說明
+    expect(result!.display.light).toBe("red");
+    expect(JSON.stringify(result)).not.toContain("完成初版原型");
+    expect(JSON.stringify(result)).not.toContain("卡在資料串接");
   });
 
   it("其他幹部讀不到，回傳 null", async () => {

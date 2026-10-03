@@ -286,6 +286,18 @@ export async function asUser<T>(email: string, fn: () => Promise<T>, opts: { mem
 // 連線的 session_replication_role 設成 replica（不觸發一般 trigger），只在這一次連線、這一
 // 顆 statement 的範圍內生效，連線結束後自動失效，不會影響其他測試或連線。withRawPg 已經用
 // assertLocalSupabaseUrl() 擋掉正式站。
+// §17-12：專案幹部只看得到負責組的內容。測試要讓某位專案幹部負責某組時用這個（同一學期的 pm 列）。
+export async function assignPm(pmEmail: string, groupId: string): Promise<void> {
+  const db = service();
+  const { data: group, error: gErr } = await db.from("groups").select("semester_id").eq("id", groupId).single();
+  if (gErr) throw gErr;
+  const { data: pm, error: pmErr } = await db
+    .from("members").select("id").eq("semester_id", group.semester_id).eq("email", pmEmail).eq("role", "pm").single();
+  if (pmErr) throw pmErr;
+  const { error } = await db.from("pm_assignments").insert({ pm_member_id: pm.id, group_id: groupId });
+  if (error) throw error;
+}
+
 export async function backdatePdfUploadedAt(reportId: string, at: Date): Promise<void> {
   await withRawPg(async (client) => {
     await client.query("set session_replication_role = replica");

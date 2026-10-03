@@ -14,24 +14,31 @@ import { loadCompetitionLinesForGroup, type CompetitionLineSummary } from "@/ser
 // /groups/[id]：姓名、學號、系級——這裡跟管理員頁是唯二顯示學號的地方（規格 §14 第 1 點）。
 export type GroupDetailMember = { name: string; studentId: string | null; deptYear: string | null };
 
+// 已交的一期：狀態（燈號、繳交時間、準不準時）人人都有；content 只有看得到內容的人才有（§17-12）。
+export type GroupDetailReportContent = {
+  reportId: string;
+  did: string;
+  blocked: string;
+  nextSteps: string;
+  submittedBy: string;
+};
+
 export type GroupDetailPeriod = {
   seq: number;
   deadline: Date;
   report:
     | null
     | {
-        reportId: string;
         light: Light;
-        did: string;
-        blocked: string;
-        nextSteps: string;
-        submittedBy: string;
         submittedAt: Date;
         timing: { late: boolean; label: string };
+        content: GroupDetailReportContent | null;
       };
 };
 
 export type GroupDetail = {
+  // false＝只看狀態（專案幹部看非負責的組，§17-14）：沒有三句話、PDF、紅燈說明、階段檔案、評語。
+  contentVisible: boolean;
   group: {
     id: string;
     name: string;
@@ -48,9 +55,9 @@ export type GroupDetail = {
   competitionLines: CompetitionLineSummary[];
 };
 
-// 規格第 3 節「看進度內容（三句話、PDF、紅燈說明）」：管理員 ✓、專案幹部 ✓（看得到所有組）、
-// 其他幹部 ✗、專案生只看自己組。專案幹部與學生走使用者身分連線，讓 RLS（can_read_content：
-// is_pm() 或自己組）真的決定看不看得到；其他幹部即使 RLS 本身沒擋 groups 這張表
+// 規格第 3 節＋§17-12～14「看進度內容（三句話、PDF、紅燈說明）」：管理員 ✓、專案幹部只看負責的組
+// （非負責的組進「只看狀態」版本）、其他幹部 ✗、專案生只看自己組。專案幹部與學生走使用者身分連線，
+// 讓 RLS（can_read_content：自己組或負責的組）真的決定看不看得到內容；其他幹部即使 RLS 本身沒擋 groups 這張表
 // （read_groups 對 is_staff() 一律放行），也要在這裡明確擋下來，不能只靠 progress_reports／
 // checkins 的 RLS——否則其他幹部還是讀得到組名、期別這些非內容欄位。管理員通常沒有 member
 // 列（信箱只出現在 ADMIN_EMAILS，不在名單匯入範圍），這種情況才退回服務身分，一樣只選
@@ -109,13 +116,24 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
 
   const lineId = lineRes.data.id as string;
 
-  const [reportsRes, checkinsRes] = await Promise.all([
-    db
-      .from("progress_reports")
-      .select("id, period_id, light, did, blocked, next_steps, submitted_by, pdf_uploaded_at")
-      .eq("line_id", lineId),
-    db.from("checkins").select("light, note, created_by, created_at").eq("line_id", lineId).order("created_at", { ascending: false }),
-  ]);
+  // 看不看得到內容交給資料庫的同一個判斷（can_read_content），不在這裡另寫一套「負責哪幾組」。
+  let contentVisible = useService;
+  if (!useService) {
+    const { data: canRead, error: canReadError } = await db.rpc("can_read_content", { l: lineId });
+    if (canReadError) throw canReadError;
+    contentVisible = canRead === true;
+  }
+
+  // 只看狀態：燈號與繳交時間改讀 line_light_events（狀態視圖，不含三句話、說明、交件人）。
+  const [reportsRes, checkinsRes] = contentVisible
+    ? await Promise.all([
+        db
+          .from("progress_reports")
+          .select("id, period_id, light, did, blocked, next_steps, submitted_by, pdf_uploaded_at")
+          .eq("line_id", lineId),
+        db.from("checkins").select("light, note, created_by, created_at").eq("line_id", lineId).order("created_at", { ascending: false }),
+      ])
+    : await statusOnlyRows(db, lineId);
   if (reportsRes.error) throw reportsRes.error;
   if (checkinsRes.error) throw checkinsRes.error;
 
@@ -133,14 +151,18 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
       seq: p.seq as number,
       deadline,
       report: {
-        reportId: report.id as string,
         light: report.light as Light,
-        did: report.did as string,
-        blocked: report.blocked as string,
-        nextSteps: report.next_steps as string,
-        submittedBy: nameByEmail.get(report.submitted_by as string) ?? (report.submitted_by as string),
         submittedAt,
         timing: submissionTiming(deadline, submittedAt),
+        content: contentVisible
+          ? {
+              reportId: report.id as string,
+              did: report.did as string,
+              blocked: report.blocked as string,
+              nextSteps: report.next_steps as string,
+              submittedBy: nameByEmail.get(report.submitted_by as string) ?? (report.submitted_by as string),
+            }
+          : null,
       },
     };
   });
@@ -167,7 +189,8 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
   const display = displayLight(reporter, sys);
   const onTime = onTimeRate(deliverables, now);
 
-  const checkins = mapCheckinHistory(
+  // 中間週燈號的歷程含紅燈說明與點燈的人，屬於內容；只看狀態時不列（燈號已反映在顯示燈）。
+  const checkins = !contentVisible ? [] : mapCheckinHistory(
     (checkinsRes.data ?? []).map((c) => ({
       light: c.light as Light,
       note: c.note as string | null,
@@ -188,6 +211,7 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
   );
 
   return {
+    contentVisible,
     group: {
       id: groupRes.data.id as string,
       name: groupRes.data.name as string,
@@ -203,4 +227,21 @@ export async function loadGroupDetail(groupId: string): Promise<GroupDetail | nu
     checkins,
     competitionLines,
   };
+}
+
+type Rows = { data: Record<string, unknown>[] | null; error: unknown };
+
+// 只看狀態版本：從 line_light_events 拼出跟本表同形狀的列（內容欄位留空），讓後面的燈號、準時率
+// 計算共用同一段程式。period_id 有值的是雙週進度，沒有的是中間週燈號。
+async function statusOnlyRows(
+  db: Awaited<ReturnType<typeof createServerSupabase>>,
+  lineId: string
+): Promise<[Rows, Rows]> {
+  const { data, error } = await db.from("line_light_events").select("light, at, period_id").eq("line_id", lineId);
+  if (error) return [{ data: null, error }, { data: null, error }];
+  const rows = data ?? [];
+  return [
+    { data: rows.filter((r) => r.period_id).map((r) => ({ period_id: r.period_id, light: r.light, pdf_uploaded_at: r.at })), error: null },
+    { data: rows.filter((r) => !r.period_id).map((r) => ({ light: r.light, created_at: r.at })), error: null },
+  ];
 }

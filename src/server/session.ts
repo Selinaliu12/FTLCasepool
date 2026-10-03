@@ -26,7 +26,7 @@ export const getAccess = cache(async function getAccess(): Promise<Access> {
     return resolveAccess("", { adminEmails, semesterId: null, rows: [], preferred: null });
   }
 
-  // 全域規則「只接受 Google 帳號」：就算 email 網域對、就算名單上有這個人，
+  // 全域規則「只接受 Google 帳號」：就算名單上有這個人，
   // provider 不是 google 一律當成 wrong_domain（本機測試登入例外）。
   const provider = data.user?.app_metadata?.provider as string | undefined;
   if (!isTrustedProvider(provider, env.enableTestLogin)) {

@@ -173,12 +173,12 @@ describe("已交的紀錄保留，名字標（已離開）", () => {
   it("組別內容頁：進度仍在、準時率不變、交件人與點燈人顯示 甲一（已離開）、組員清單不列", async () => {
     const { loadGroupDetail } = await import("@/server/queries/group-detail");
     const before = await as(ADMIN, () => loadGroupDetail(seed.groupA));
-    expect(before!.periods[0].report!.submittedBy).toBe("甲一");
+    expect(before!.periods[0].report!.content!.submittedBy).toBe("甲一");
 
     await removePerson("a1@g.nccu.edu.tw");
     const after = await as(ADMIN, () => loadGroupDetail(seed.groupA));
     expect(after!.periods[0].report).not.toBeNull();
-    expect(after!.periods[0].report!.submittedBy).toBe("甲一（已離開）");
+    expect(after!.periods[0].report!.content!.submittedBy).toBe("甲一（已離開）");
     expect(after!.onTime).toBe(before!.onTime);
     expect(after!.display).toEqual(before!.display);
     expect(after!.checkins.map((c) => c.by)).toEqual(["甲一（已離開）"]);
@@ -208,7 +208,7 @@ describe("已交的紀錄保留，名字標（已離開）", () => {
     await addMember({ email: "a1@g.nccu.edu.tw", name: "甲一", role: "其他幹部" });
     await removeIdentity(await memberId("a1@g.nccu.edu.tw", "student"));
     const detail = await as(ADMIN, () => loadGroupDetail(seed.groupA));
-    expect(detail!.periods[0].report!.submittedBy).toBe("甲一");
+    expect(detail!.periods[0].report!.content!.submittedBy).toBe("甲一");
     expect(detail!.group.members.map((m) => m.name)).toEqual(["甲二"]);
   });
 
@@ -220,7 +220,7 @@ describe("已交的紀錄保留，名字標（已離開）", () => {
     expect(res).toMatchObject({ ok: true, restored: true, memberId: id });
     expect(await rowsOf("a1@g.nccu.edu.tw")).toHaveLength(1);
     const detail = await as(ADMIN, () => loadGroupDetail(seed.groupA));
-    expect(detail!.periods[0].report!.submittedBy).toBe("甲一");
+    expect(detail!.periods[0].report!.content!.submittedBy).toBe("甲一");
     expect(detail!.group.members.map((m) => m.name)).toEqual(["甲一", "甲二"]);
     expect((await access("a1@g.nccu.edu.tw")).kind).toBe("ok");
   });

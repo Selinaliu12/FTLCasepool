@@ -1,6 +1,6 @@
 import { beforeAll, describe, it, expect } from "vitest";
 import { createClient } from "@supabase/supabase-js";
-import { resetDb, seedSemester, clientAs } from "./helpers";
+import { resetDb, seedSemester, clientAs, assignPm } from "./helpers";
 import { createServiceSupabase } from "../../src/server/supabase";
 import { env } from "../../src/server/env";
 
@@ -11,6 +11,7 @@ let submissionId: string;
 beforeAll(async () => {
   await resetDb();
   seed = await seedSemester();
+  await assignPm("pm@g.nccu.edu.tw", seed.groupA);
 
   const db = createServiceSupabase();
   const { data: competition, error: competitionError } = await db
@@ -73,11 +74,24 @@ describe("RLS：stage_submissions（內容）", () => {
     expect((data ?? []).map((r) => r.id)).toContain(submissionId);
   });
 
-  it("專案幹部看得到所有組的階段繳交內容", async () => {
+  it("專案幹部看得到負責組的階段繳交內容", async () => {
     const db = await clientAs("pm@g.nccu.edu.tw");
     const { data, error } = await db.from("stage_submissions").select("id").eq("id", submissionId);
     expect(error).toBeNull();
     expect((data ?? []).map((r) => r.id)).toContain(submissionId);
+  });
+
+  // §17-12（放寬就失敗）：另一位專案幹部不負責第1組 → 檔案與評語讀不到，狀態視圖讀得到。
+  it("非負責的專案幹部看不到階段繳交內容，只看得到狀態", async () => {
+    const svc = createServiceSupabase();
+    const { error } = await svc.from("members").insert({ semester_id: seed.semesterId, email: "pm2@g.nccu.edu.tw", name: "幹部二", role: "pm" });
+    if (error) throw error;
+    await assignPm("pm2@g.nccu.edu.tw", seed.groupB);
+    const db = await clientAs("pm2@g.nccu.edu.tw");
+    const { data } = await db.from("stage_submissions").select("id, comment").eq("id", submissionId);
+    expect(data).toEqual([]);
+    const status = await db.from("stage_status").select("line_id").eq("line_id", lineId);
+    expect(status.data).toHaveLength(1);
   });
 
   it("其他幹部看不到階段繳交內容（can_read_content 不含 officer）", async () => {

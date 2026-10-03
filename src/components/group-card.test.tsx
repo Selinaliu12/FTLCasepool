@@ -182,4 +182,10 @@ describe("GroupCard", () => {
     render(<GroupCard card={card()} isMine={false} canViewContent={false} />);
     expect(screen.queryByRole("link", { name: "看內容" })).toBeNull();
   });
+
+  it("statusOnly（專案幹部看非負責的組）→ 連結文字是『看狀態』", () => {
+    render(<GroupCard card={card()} isMine={false} canViewContent={true} statusOnly={true} />);
+    expect(screen.getByRole("link", { name: "看狀態" }).getAttribute("href")).toBe("/groups/g1");
+    expect(screen.queryByRole("link", { name: "看內容" })).toBeNull();
+  });
 });

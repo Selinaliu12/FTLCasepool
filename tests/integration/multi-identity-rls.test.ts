@@ -1,6 +1,6 @@
 import { beforeAll, describe, it, expect } from "vitest";
 import { createClient } from "@supabase/supabase-js";
-import { resetDb, seedSemester, clientAs, service, withRawPg } from "./helpers";
+import { resetDb, seedSemester, clientAs, service, withRawPg, assignPm } from "./helpers";
 import { env } from "../../src/server/env";
 
 // Adjustments Task 3（規格 §14 第 2、3 點）：同一個信箱可以有好幾列名單（多組專案生、兼幹部）。
@@ -97,11 +97,18 @@ describe("多重身份 RLS：讀取權限取所有身份的聯集", () => {
     expect(groups.data).toHaveLength(3);
   });
 
-  it("學生（第2組）＋專案幹部：學生列排在前面也一樣讀得到所有組的三句話", async () => {
-    const db = await clientAs("stupm@g.nccu.edu.tw");
-    const reports = await db.from("progress_reports").select("line_id").in("line_id", [seed.lineA, seed.lineB, lineC]);
-    expect(reports.error).toBeNull();
-    expect(new Set(reports.data!.map((r) => r.line_id))).toEqual(new Set([seed.lineA, lineC]));
+  it("學生（第2組）＋專案幹部（負責第1組）：讀得到自己組與負責組的三句話，讀不到第3組（§17-12、15）", async () => {
+    await assignPm("stupm@g.nccu.edu.tw", seed.groupA);
+    try {
+      const db = await clientAs("stupm@g.nccu.edu.tw");
+      expect((await db.rpc("can_read_content", { l: seed.lineB })).data).toBe(true);
+      const reports = await db.from("progress_reports").select("line_id").in("line_id", [seed.lineA, seed.lineB, lineC]);
+      expect(reports.error).toBeNull();
+      expect(new Set(reports.data!.map((r) => r.line_id))).toEqual(new Set([seed.lineA]));
+    } finally {
+      // 後面的測試算 pm_assignments 筆數，這一筆用完就收掉。
+      await service().from("pm_assignments").delete().eq("group_id", seed.groupA);
+    }
   });
 
   it("單一身份的學生不受影響：第2組學生只讀得到第2組", async () => {

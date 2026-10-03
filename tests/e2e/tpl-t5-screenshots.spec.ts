@@ -50,7 +50,7 @@ test.describe.serial(`tpl-t5 視覺自我檢查截圖 round${ROUND}`, () => {
 
       await card.getByRole("button", { name: "新增成員" }).click();
       const dialog = page.getByRole("dialog");
-      await dialog.getByLabel("學校信箱").fill("a1@g.nccu.edu.tw");
+      await dialog.getByLabel("信箱").fill("a1@g.nccu.edu.tw");
       await dialog.getByLabel("姓名").fill("甲一改");
       await dialog.getByRole("combobox", { name: "組別" }).click();
       await page.getByRole("option", { name: "第2組" }).click();

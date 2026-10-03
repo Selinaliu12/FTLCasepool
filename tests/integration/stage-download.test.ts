@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester, clientAs, asPm, asOfficer, asStudent, asAdminNoMember } from "./helpers";
+import { resetDb, seedSemester, clientAs, asPm, asOfficer, asStudent, asAdminNoMember, assignPm } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 // getStagePdfDownloadUrl 跟 getPdfDownloadUrl（download.test.ts）同一套模式：使用者身分連線
@@ -116,7 +116,15 @@ describe("getStagePdfDownloadUrl", () => {
     expect(result).toEqual({ ok: false, error: NOT_FOUND });
   });
 
-  it("專案幹部 ok，網址是預簽 GET、10 分鐘有效、帶正確下載檔名", async () => {
+  it("非負責的專案幹部被拒（§17-12）", async () => {
+    await assignPm("pm@g.nccu.edu.tw", seed.groupB);
+    asPm(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
+    expect(await getStagePdfDownloadUrl(submissionId)).toEqual({ ok: false, error: NOT_FOUND });
+  });
+
+  it("負責的專案幹部 ok，網址是預簽 GET、10 分鐘有效、帶正確下載檔名", async () => {
+    await assignPm("pm@g.nccu.edu.tw", seed.groupA);
     asPm(mockGetAccess, seed.semesterId);
     mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
     const result = await getStagePdfDownloadUrl(submissionId);

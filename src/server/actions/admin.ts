@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getAccess } from "@/server/session";
+import { EMAIL_RE } from "@/domain/access";
 import { createServiceSupabase } from "@/server/supabase";
 import { parseRosterCsv, validateMemberRow, memberFormError } from "@/domain/roster-csv";
 import { parseTaipeiDeadline, taipeiInputValues } from "@/domain/time";
@@ -344,7 +345,7 @@ export async function editPerson(oldEmail: string, newEmail: string, fields: Edi
   const studentId = fields.studentId.trim() || null;
   const deptYear = fields.deptYear.trim() || null;
   const normalizedNew = newEmail.trim().toLowerCase();
-  if (!normalizedNew.endsWith("@g.nccu.edu.tw")) return { ok: false, error: "email 必須是 @g.nccu.edu.tw" };
+  if (!EMAIL_RE.test(normalizedNew)) return { ok: false, error: "email 格式不正確" };
 
   const db = createServiceSupabase();
   const { error } = await db.rpc("admin_edit_person", {
@@ -377,7 +378,7 @@ export async function changeEmail(oldEmail: string, newEmail: string): Promise<C
   if (access.kind !== "ok") return { ok: false, error: "還沒有本學期，請先建立學期" };
 
   const normalizedNew = newEmail.trim().toLowerCase();
-  if (!normalizedNew.endsWith("@g.nccu.edu.tw")) return { ok: false, error: "email 必須是 @g.nccu.edu.tw" };
+  if (!EMAIL_RE.test(normalizedNew)) return { ok: false, error: "email 格式不正確" };
 
   const db = createServiceSupabase();
   const { error } = await db.rpc("admin_change_email", {

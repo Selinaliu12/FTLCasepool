@@ -120,7 +120,7 @@ describe("addMember", () => {
   });
 
   it("欄位規則同名單 CSV，錯誤文字照 Global Constraints", async () => {
-    expect(await addMember({ email: "x@gmail.com", name: "某人", role: "其他幹部" })).toEqual({ ok: false, error: "email 必須是 @g.nccu.edu.tw" });
+    expect(await addMember({ email: "x@gmail", name: "某人", role: "其他幹部" })).toEqual({ ok: false, error: "email 格式不正確" });
     expect(await addMember({ email: "x@g.nccu.edu.tw", name: "某人", role: "專案生" })).toEqual({ ok: false, error: "專案生要選組別" });
     expect(await addMember({ email: "x@g.nccu.edu.tw", name: "某人", role: "其他幹部", groupId: seed.groupA })).toEqual({
       ok: false,
@@ -178,14 +178,18 @@ describe("admin_add_member() folded fixes", () => {
     });
   });
 
-  it("(c) 函式自己正規化信箱（去空白、小寫），也自己擋非學校信箱", async () => {
+  it("(c) 函式自己正規化信箱（去空白、小寫），也自己擋格式不對的信箱", async () => {
     const ok = await rpcAdd({ email: "  New9@G.NCCU.edu.tw ", name: "新九", role: "officer" });
     expect(ok.error).toBeNull();
     expect(await rowsOf("new9@g.nccu.edu.tw")).toHaveLength(1);
     const again = await rpcAdd({ email: "NEW9@g.nccu.edu.tw", name: "新九", role: "officer" });
     expect(again.error?.message).toBe("這個人已經有這個身份");
-    const bad = await rpcAdd({ email: "x@gmail.com", name: "某人", role: "officer" });
-    expect(bad.error?.message).toBe("email 必須是 @g.nccu.edu.tw");
+    const bad = await rpcAdd({ email: "x@gmail", name: "某人", role: "officer" });
+    expect(bad.error?.message).toBe("email 格式不正確");
+    // §17-18：校外信箱可以
+    const outside = await rpcAdd({ email: " Out@Gmail.com ", name: "校外", role: "officer" });
+    expect(outside.error).toBeNull();
+    expect(await rowsOf("out@gmail.com")).toHaveLength(1);
   });
 
   it("(d) 重新加回時，同一信箱所有列（含還是已離開的其他身份）的姓名／學號／系級一起更新", async () => {

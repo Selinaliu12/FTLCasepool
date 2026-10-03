@@ -94,7 +94,7 @@ describe("MembersSection（管理員頁成員區塊）", () => {
     fireEvent.click(screen.getByRole("button", { name: "新增成員" }));
 
     const dialog = await screen.findByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("學校信箱"), { target: { value: "wang@g.nccu.edu.tw" } });
+    fireEvent.change(within(dialog).getByLabelText("信箱"), { target: { value: "wang@g.nccu.edu.tw" } });
     fireEvent.change(within(dialog).getByLabelText("姓名"), { target: { value: "王小明" } });
     fireEvent.change(within(dialog).getByLabelText("學號"), { target: { value: "110701001" } });
     fireEvent.change(within(dialog).getByLabelText("系級"), { target: { value: "資科三" } });

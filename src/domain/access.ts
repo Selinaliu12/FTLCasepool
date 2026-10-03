@@ -44,6 +44,9 @@ export type OkAccess = Extract<Access, { kind: "ok" }>;
 // 目前身份是「有組的專案生」時的 access（專案生才能做的動作用它窄化型別）。
 export type StudentAccess = OkAccess & { active: Identity & { role: "student"; groupId: string } };
 
+// 信箱格式（不限網域，§17-18）：名單 CSV、管理員頁、登入判斷共用；資料庫 members_email_check 是同一個規則。
+export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 export function parseAdminEmails(raw: string): string[] {
   return raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 }
@@ -80,7 +83,8 @@ export function resolveAccess(
   ctx: { adminEmails: string[]; semesterId: string | null; rows: RosterRow[]; preferred: string | null }
 ): Access {
   const email = rawEmail.trim().toLowerCase();
-  if (!email.endsWith("@g.nccu.edu.tw")) return { kind: "wrong_domain" };
+  // 不限網域（§17-16）；wrong_domain 現在只代表「不是合法信箱」或「不是 Google 登入」（session.ts）。
+  if (!EMAIL_RE.test(email)) return { kind: "wrong_domain" };
   const isAdmin = ctx.adminEmails.includes(email);
   if (!ctx.semesterId) return { kind: "no_semester", isAdmin };
   if (ctx.rows.length === 0 && !isAdmin) return { kind: "not_in_roster" };

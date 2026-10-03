@@ -69,7 +69,7 @@ describe("parseRosterCsv", () => {
     const r = parseRosterCsv(
       [
         HEADER,
-        "a@gmail.com,甲,專案生,,,第1組,X",
+        "a@gmail,甲,專案生,,,第1組,X",
         "b@g.nccu.edu.tw,乙,專案生,,,,",
         "c@g.nccu.edu.tw,丙,專案生,,,第1組,X",
         "C@g.nccu.edu.tw,丙二,專案生,,,第2組,Y",
@@ -79,7 +79,7 @@ describe("parseRosterCsv", () => {
     expect(r).toEqual({
       ok: false,
       errors: [
-        "第 2 列：email 必須是 @g.nccu.edu.tw",
+        "第 2 列：email 格式不正確",
         "第 3 列：專案生一定要填組別",
         "第 5 列：同一個信箱的姓名／學號／系級要一致（和第 4 列不同）",
         "第 6 列：第1組的專案名稱和前面不一致（X／Z）",

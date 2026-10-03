@@ -14,7 +14,7 @@ import { lateBy } from "@/domain/progress";
 export default async function GroupDetailPage({ params }: { params: Promise<{ groupId: string }> }) {
   const { groupId } = await params;
 
-  // 規格第 3 節：其他幹部、別組學生打這條網址直接看到 404，不透露「這個組存在，只是你沒
+  // 規格第 3 節：其他幹部、別組學生打這條網址直接看到 404；專案幹部看非負責的組拿到只看狀態的版本（§17-14），不透露「這個組存在，只是你沒
   // 權限看」——loadGroupDetail 已經把角色與 RLS 檢查都做完，這裡只剩下把 null 轉成 404。
   const data = await loadGroupDetail(groupId);
   if (!data) notFound();
@@ -46,6 +46,9 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
 
       <div className="flex flex-wrap items-center gap-3">
         <LightBadge light={data.display.light} source={data.display.source} />
+        {!data.contentVisible ? (
+          <span className="text-xs text-muted-foreground">你不是這組的負責幹部，只看得到狀態</span>
+        ) : null}
         <span className="text-sm text-muted-foreground">
           準時率：{data.onTime === null ? "—" : `${Math.round(data.onTime * 100)}%`}
         </span>
@@ -98,10 +101,16 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
                   ) : (
                     <p className="text-sm text-muted-foreground">未交</p>
                   )
+                ) : !p.report.content ? (
+                  // 只看狀態（§17-14）：燈號與繳交時間，沒有三句話與 PDF。
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-foreground">
+                    <span>已交 · {formatTaipei(p.report.submittedAt)} · {p.report.timing.label}</span>
+                    <LightBadge light={p.report.light} source="組員回報" />
+                  </div>
                 ) : (
                   <details className="flex flex-col gap-3">
                     <summary className="cursor-pointer text-sm font-medium text-foreground">
-                      已交 · {p.report.submittedBy} · {formatTaipei(p.report.submittedAt)} ·{" "}
+                      已交 · {p.report.content.submittedBy} · {formatTaipei(p.report.submittedAt)} ·{" "}
                       {p.report.timing.label}
                     </summary>
                     <div className="flex flex-col gap-3 pt-1">
@@ -109,19 +118,19 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
                       <dl className="flex flex-col gap-4 text-sm">
                         <div className="flex flex-col gap-1">
                           <dt className="font-medium text-foreground">這兩週做了什麼</dt>
-                          <dd className="whitespace-pre-wrap text-muted-foreground">{p.report.did}</dd>
+                          <dd className="whitespace-pre-wrap text-muted-foreground">{p.report.content.did}</dd>
                         </div>
                         <div className="flex flex-col gap-1">
                           <dt className="font-medium text-foreground">卡在哪裡</dt>
-                          <dd className="whitespace-pre-wrap text-muted-foreground">{p.report.blocked}</dd>
+                          <dd className="whitespace-pre-wrap text-muted-foreground">{p.report.content.blocked}</dd>
                         </div>
                         <div className="flex flex-col gap-1">
                           <dt className="font-medium text-foreground">接下來要做什麼</dt>
-                          <dd className="whitespace-pre-wrap text-muted-foreground">{p.report.nextSteps}</dd>
+                          <dd className="whitespace-pre-wrap text-muted-foreground">{p.report.content.nextSteps}</dd>
                         </div>
                       </dl>
                       <div className="self-start">
-                        <PdfDownloadButton reportId={p.report.reportId} />
+                        <PdfDownloadButton reportId={p.report.content.reportId} />
                       </div>
                     </div>
                   </details>
@@ -143,7 +152,7 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
         </div>
       )}
 
-      <CheckinHistory checkins={data.checkins} />
+      {data.contentVisible ? <CheckinHistory checkins={data.checkins} /> : null}
     </main>
   );
 }

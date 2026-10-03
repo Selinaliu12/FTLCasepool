@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resetDb, seedSemester, clientAs, asPm, asOfficer, asStudent, asAdminNoMember, asAdminOfficer } from "./helpers";
+import { resetDb, seedSemester, clientAs, asPm, asOfficer, asStudent, asAdminNoMember, asAdminOfficer, assignPm } from "./helpers";
 import { createServiceSupabase } from "@/server/supabase";
 
 // getPdfDownloadUrl 先用使用者身分連線讀那筆 progress_reports（RLS 的 can_read_content 擋掉
@@ -68,7 +68,16 @@ describe("getPdfDownloadUrl", () => {
     expect(result).toEqual({ ok: false, error: "找不到這份進度" });
   });
 
-  it("專案幹部 ok，網址是預簽 GET、10 分鐘有效、帶正確下載檔名", async () => {
+  // §17-12（放寬就失敗）：不負責第1組的專案幹部下載不到。
+  it("非負責的專案幹部被拒", async () => {
+    await assignPm("pm@g.nccu.edu.tw", seed.groupB);
+    asPm(mockGetAccess, seed.semesterId);
+    mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
+    expect(await getPdfDownloadUrl(reportId)).toEqual({ ok: false, error: "找不到這份進度" });
+  });
+
+  it("負責的專案幹部 ok，網址是預簽 GET、10 分鐘有效、帶正確下載檔名", async () => {
+    await assignPm("pm@g.nccu.edu.tw", seed.groupA);
     asPm(mockGetAccess, seed.semesterId);
     mockCreateServerSupabase.mockResolvedValue(await clientAs("pm@g.nccu.edu.tw"));
     const result = await getPdfDownloadUrl(reportId);

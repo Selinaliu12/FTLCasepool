@@ -55,7 +55,7 @@ export function RosterImport({ semesterId, alreadyImported }: { semesterId: stri
       <form onSubmit={onSubmit} className="flex flex-col gap-3" aria-label="名單匯入">
         <Textarea
           aria-label="貼上名單 CSV"
-          placeholder={"email,姓名,角色,學號,系級,組別,專案名稱\na@g.nccu.edu.tw,王小明,專案生,110701001,資科三,第1組,智慧記帳"}
+          placeholder={"email,姓名,角色,學號,系級,組別,專案名稱\na@gmail.com,王小明,專案生,110701001,資科三,第1組,智慧記帳"}
           value={csv}
           onChange={(e) => setCsv(e.target.value)}
           rows={6}

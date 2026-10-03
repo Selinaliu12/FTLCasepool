@@ -21,7 +21,7 @@ export default function PrivacyPage() {
 
         <Section title="我們收集哪些資料">
           <ul className="list-disc space-y-1 pl-5">
-            <li>用 Google 登入時取得的學校信箱與姓名（不會取得你的密碼，也不會讀取你的 Google 雲端硬碟、信件等其他資料）。</li>
+            <li>用 Google 登入時取得的信箱與姓名（不會取得你的密碼，也不會讀取你的 Google 雲端硬碟、信件等其他資料）。</li>
             <li>幹部匯入的社員名單：姓名、學號、系級、組別與角色。</li>
             <li>你在網站上填寫或上傳的內容：進度燈號、三句話、PDF 檔案、比賽報名與結果、組別備註。</li>
             <li>維持登入狀態與記住你目前身份所需的 cookie。</li>

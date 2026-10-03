@@ -6,7 +6,7 @@ import { LoginButton } from "./login-button";
 // /auth/callback 與 requireOk() 失敗時會帶 ?error= 導回這裡；沒有這段文案時，使用者只會看到登入頁
 // 「又出現一次」，不知道是帳號網域不對還是登入流程出錯。
 const LOGIN_ERRORS: Record<string, string> = {
-  domain: "請用 @g.nccu.edu.tw 學校帳號登入",
+  domain: "請用 Google 帳號登入",
   auth: "登入失敗，請再試一次",
 };
 
