@@ -6,6 +6,7 @@ import { loadMyGroupEntries } from "@/server/queries/entries";
 import { ENTRY_STATUS_LABEL } from "@/domain/entries";
 import { LightBadge } from "@/components/light-badge";
 import { SubmissionTiming } from "@/components/submission-timing";
+import { AssignmentStatus } from "@/components/assignment-status";
 import { CheckinHistory } from "@/components/checkin-history";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -145,6 +146,35 @@ export default async function MyGroupPage() {
           );
         })}
       </div>
+
+      {/* 專案幹部出的作業（§17）：跟雙週進度一樣算進專案線的燈號與準時率。 */}
+      {data.assignments.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2 className="font-heading text-lg font-bold text-foreground">作業</h2>
+          {data.assignments.map((a) => (
+            <Card key={a.id}>
+              <CardHeader>
+                <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base font-medium">
+                  <span className="break-words">{a.title}</span>
+                  <span className="font-mono text-sm font-normal text-muted-foreground">{formatTaipei(a.deadline)} 截止</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">出題：{a.createdByName}</span>
+                  <AssignmentStatus deadline={a.deadline} submittedAt={a.submittedAt} now={now} />
+                </div>
+                <Link
+                  href={`/my-group/assignments/${a.id}`}
+                  className={cn(buttonVariants({ variant: a.submittedAt ? "outline" : "default" }), "self-start")}
+                >
+                  {a.submittedAt ? "查看作業" : "交作業"}
+                </Link>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {entries.length > 0 && (
         <div className="flex flex-col gap-3">

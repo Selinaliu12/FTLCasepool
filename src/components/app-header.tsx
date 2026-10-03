@@ -6,7 +6,7 @@ import { IdentitySwitcher } from "./identity-switcher";
 
 type HeaderAccess = Extract<Access, { kind: "ok" } | { kind: "no_semester" }>;
 
-// 依角色決定頁首連結：管理員＝學期設定＋總覽看板；專案幹部／其他幹部＝總覽看板；專案生＝我的組別。
+// 依角色決定頁首連結：管理員＝學期設定＋總覽看板＋作業；專案幹部／其他幹部＝總覽看板＋作業；專案生＝我的組別。
 // 還沒有任何學期的管理員（no_semester）只能先去建學期，看板沒有資料，只給「學期設定」。
 // 競賽大廳（batch 2 task 2）：所有身分都加這個連結，但前提是已經有學期可看——還沒有任何學期
 // 的管理員（no_semester）沒有 semesterId，大廳沒東西可查，跟總覽看板一樣先不給連結。
@@ -18,6 +18,7 @@ export function navLinksFor(access: HeaderAccess): NavLink[] {
       return [
         { href: "/admin", label: "學期設定" },
         { href: "/dashboard", label: "總覽看板" },
+        { href: "/assignments", label: "作業" },
         { href: "/competitions", label: "競賽大廳" },
       ];
     case "student":
@@ -26,8 +27,10 @@ export function navLinksFor(access: HeaderAccess): NavLink[] {
         { href: "/competitions", label: "競賽大廳" },
       ];
     default:
+      // 作業（§17）：專案幹部在這裡出作業；其他幹部看清單與各組交了沒。
       return [
         { href: "/dashboard", label: "總覽看板" },
+        { href: "/assignments", label: "作業" },
         { href: "/competitions", label: "競賽大廳" },
       ];
   }

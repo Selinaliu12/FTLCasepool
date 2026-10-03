@@ -6,6 +6,7 @@ import { LightBadge } from "@/components/light-badge";
 import { PdfDownloadButton } from "@/components/pdf-download-button";
 import { CompetitionLineDetail } from "@/components/competition-line-detail";
 import { CheckinHistory } from "@/components/checkin-history";
+import { AssignmentStatus } from "@/components/assignment-status";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatTaipei } from "@/domain/time";
 import { overdueLabel } from "@/domain/lights";
@@ -140,6 +141,40 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
           );
         })}
       </div>
+
+      {/* 被派到的作業（§17）：狀態人人看得到；PDF 與說明只有看得到內容的人（負責幹部、出題者、管理員）。 */}
+      {data.assignments.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2 className="font-heading text-lg font-bold text-foreground">作業</h2>
+          {data.assignments.map((a) => (
+            <Card key={a.id}>
+              <CardHeader>
+                <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base font-medium">
+                  <span className="break-words">{a.title}</span>
+                  <span className="font-mono text-sm font-normal text-muted-foreground">{formatTaipei(a.deadline)} 截止</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-muted-foreground">出題：{a.createdByName}</span>
+                  <AssignmentStatus deadline={a.deadline} submittedAt={a.submittedAt} now={now} />
+                </div>
+                {a.content ? (
+                  <>
+                    <p className="text-muted-foreground">
+                      {a.content.submittedBy} · {formatTaipei(a.submittedAt as Date)}
+                    </p>
+                    {a.content.note ? <p className="whitespace-pre-wrap break-words text-foreground">{a.content.note}</p> : null}
+                    <div className="self-start">
+                      <PdfDownloadButton assignmentSubmissionId={a.content.submissionId} />
+                    </div>
+                  </>
+                ) : null}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {data.competitionLines.length > 0 && (
         <div className="flex flex-col gap-3">

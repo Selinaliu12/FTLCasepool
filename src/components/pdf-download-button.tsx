@@ -3,17 +3,19 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { getPdfDownloadUrl } from "@/server/actions/download";
+import { getPdfDownloadUrl, getAssignmentPdfDownloadUrl } from "@/server/actions/download";
 
 // 下載 PDF：跟其他 server action 一樣拿到「預簽 GET 網址」再導頁——瀏覽器看到
 // Content-Disposition: attachment 就會直接下載，不用另外處理二進位內容。
-export function PdfDownloadButton({ reportId }: { reportId: string }) {
+// 雙週進度傳 reportId；作業繳交（§17）傳 assignmentSubmissionId。
+export function PdfDownloadButton(props: { reportId: string } | { assignmentSubmissionId: string }) {
   const [pending, setPending] = useState(false);
 
   async function onClick() {
     setPending(true);
     try {
-      const result = await getPdfDownloadUrl(reportId);
+      const result =
+        "reportId" in props ? await getPdfDownloadUrl(props.reportId) : await getAssignmentPdfDownloadUrl(props.assignmentSubmissionId);
       if (!result.ok) {
         toast.error(result.error);
         return;

@@ -17,16 +17,18 @@ function ok(role: "pm" | "officer" | "student"): HeaderAccess {
 }
 
 describe("navLinksFor：競賽大廳連結（所有身分都有）", () => {
-  it("專案幹部：總覽看板＋競賽大廳", () => {
+  it("專案幹部：總覽看板＋作業＋競賽大廳", () => {
     expect(navLinksFor(ok("pm"))).toEqual([
       { href: "/dashboard", label: "總覽看板" },
+      { href: "/assignments", label: "作業" },
       { href: "/competitions", label: "競賽大廳" },
     ]);
   });
 
-  it("其他幹部：總覽看板＋競賽大廳", () => {
+  it("其他幹部：總覽看板＋作業＋競賽大廳", () => {
     expect(navLinksFor(ok("officer"))).toEqual([
       { href: "/dashboard", label: "總覽看板" },
+      { href: "/assignments", label: "作業" },
       { href: "/competitions", label: "競賽大廳" },
     ]);
   });
@@ -38,12 +40,13 @@ describe("navLinksFor：競賽大廳連結（所有身分都有）", () => {
     ]);
   });
 
-  it("管理員：學期設定＋總覽看板＋競賽大廳", () => {
+  it("管理員：學期設定＋總覽看板＋作業＋競賽大廳", () => {
     expect(
       navLinksFor({ kind: "ok", email: "admin@g.nccu.edu.tw", name: null, identities: [ADMIN], active: ADMIN, semesterId: "s1" })
     ).toEqual([
       { href: "/admin", label: "學期設定" },
       { href: "/dashboard", label: "總覽看板" },
+      { href: "/assignments", label: "作業" },
       { href: "/competitions", label: "競賽大廳" },
     ]);
   });
